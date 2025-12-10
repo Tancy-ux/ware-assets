@@ -7,7 +7,7 @@ export default function Hero() {
       <div className="flex flex-col items-center justify-center py-25 gap-5">
         <div className="flex flex-col items-center">
           <img
-            src="/ware-white-transparent.png"
+            src="./ware-white-transparent.png"
             alt="ware"
             className="h-32 w-81"
           />

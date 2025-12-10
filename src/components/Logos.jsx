@@ -17,15 +17,18 @@ export default function Logos() {
 
   // display = JPG, transparent = PNG
   const logos = [
-    { display: "/ware.jpg", transparent: "/ware-transparent.png" },
-    { display: "/ware-white.jpg", transparent: "/ware-white-transparent.png" },
+    { display: "./ware.jpg", transparent: "./ware-transparent.png" },
     {
-      display: "/ware-atelier.jpg",
-      transparent: "/ware-atelier-transparent.png",
+      display: "./ware-white.jpg",
+      transparent: "./ware-white-transparent.png",
     },
     {
-      display: "/ware-atelier-white.jpg",
-      transparent: "/atelier-white-transparent.png",
+      display: "./ware-atelier.jpg",
+      transparent: "./ware-atelier-transparent.png",
+    },
+    {
+      display: "./ware-atelier-white.jpg",
+      transparent: "./atelier-white-transparent.png",
     },
   ];
 
