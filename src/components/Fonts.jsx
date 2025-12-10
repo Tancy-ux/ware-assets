@@ -20,7 +20,10 @@ export default function Fonts() {
   ];
 
   return (
-    <div className="py-20 px-6 bg-white text-gray flex flex-col items-center gap-12">
+    <div
+      id="fonts"
+      className="py-20 px-6 bg-white text-gray flex flex-col items-center gap-12"
+    >
       <h1 className="text-5xl font-bold text-center pb-10">Brand Fonts</h1>
       <div className="flex flex-col gap-8">
         {fonts.map((font, index) => (

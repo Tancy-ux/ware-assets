@@ -47,6 +47,8 @@ export default function Logos() {
   return (
     <div id="logos">
       <div className="bg-white text-gray flex flex-col items-center justify-center py-20 gap-5">
+        <h1 className="text-5xl font-bold text-center pb-15">Brand Logos</h1>
+
         {logoText.map((text, index) => {
           const logo = logos[index];
           const textForLogo = textForLogos[index];
