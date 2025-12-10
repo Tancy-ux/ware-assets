@@ -27,7 +27,7 @@ export default function Colors() {
         <div className="flex flex-col items-center">
           <p className="text-xl md:text-4xl font-bold pb-10">Brand Colors</p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 3xl:grid-cols-6 gap-8">
           {text.map((text, index) => {
             const hex = hexcodes[index];
             return (

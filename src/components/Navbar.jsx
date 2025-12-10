@@ -11,12 +11,11 @@ export default function Navbar() {
 
   return (
     <div className="bg-white text-green">
-      <div className="flex items-center justify-between p-8 md:px-12">
+      <div className="flex items-center justify-between p-6 md:px-12">
         <Link
           to="/"
-          className="text-green tracking-tight font-bold text-2xl md:text-4xl"
+          className="text-green tracking-tight font-bold text-xl md:text-4xl"
         >
-          {/* <img src="/ware.png" alt="ware" className="h-12 w-32" /> */}
           Ware Innovations
         </Link>
         <div className="flex gap-4 md:gap-8 text-md font-semibold md:text-xl">
@@ -28,10 +27,10 @@ export default function Navbar() {
           {!isAuth && <Link to="/login">Login</Link>}
           {isAuth && (
             <button
-              className="cursor-pointer flex gap-2 items-center"
+              className="cursor-pointer flex gap-1 lg:gap-2 items-center text-sm lg:text-lg"
               onClick={handleLogout}
             >
-              <LogOut size={20} />
+              <LogOut size={18} />
               Logout
             </button>
           )}

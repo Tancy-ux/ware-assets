@@ -2,20 +2,19 @@ import { Download } from "lucide-react";
 
 export default function Logos() {
   const logoText = [
-    "Brown Logo",
+    "Burnt Orange",
     "White Logo",
     "Atelier Logo",
     "Atelier white",
   ];
 
   const textForLogos = [
-    "For light background",
-    "For dark background",
-    "For light background",
-    "For dark background",
+    "for light background",
+    "for dark background",
+    "for light background",
+    "for dark background",
   ];
 
-  // display = JPG, transparent = PNG
   const logos = [
     { display: "./ware.jpg", transparent: "./ware-transparent.png" },
     {
@@ -49,8 +48,10 @@ export default function Logos() {
 
   return (
     <div id="logos">
-      <div className="bg-white text-gray flex flex-col items-center justify-center py-20 gap-5">
-        <h1 className="text-5xl font-bold text-center pb-15">Brand Logos</h1>
+      <div className="bg-white text-gray flex flex-col items-center justify-center py-10 lg:pt-20 gap-10 px-4">
+        <h1 className="text-3xl lg:text-5xl font-bold text-center">
+          Brand Logos
+        </h1>
 
         {logoText.map((text, index) => {
           const logo = logos[index];
@@ -59,23 +60,22 @@ export default function Logos() {
           return (
             <div
               key={index}
-              className="flex items-center glass pl-10 pr-40 gap-15"
+              className="flex flex-col lg:flex-row items-center 
+                         glass w-full lg:w-auto p-5 lg:pr-20 gap-8 lg:gap-15"
             >
               {/* DISPLAY IMAGE */}
               <img
                 src={logo.display}
+                loading="lazy"
                 alt={text}
-                className="w-auto h-80 m-12 ml-5"
+                className="w-auto h-40 lg:h-80 ml-2 lg:m-12"
               />
 
-              <div className="flex flex-col items-start gap-2">
-                <p className="text-2xl md:text-4xl font-bold">{text}</p>
-                <p className="text-lg md:text-xl font-semibold">
-                  {textForLogo}
-                </p>
+              <div className="flex flex-col items-center lg:items-start gap-2 text-center lg:text-left">
+                <p className="text-xl lg:text-3xl font-bold">{text}</p>
+                <p className="text-lg lg:text-xl italic">{textForLogo}</p>
 
-                <div className="flex gap-2 pt-10">
-                  {/* PNG BUTTON — transparent PNG */}
+                <div className="flex gap-3 pt-4">
                   <button
                     onClick={() =>
                       downloadFile(
@@ -83,13 +83,12 @@ export default function Logos() {
                         `${text.toLowerCase().replace(/ /g, "_")}.png`
                       )
                     }
-                    className="flex items-center gap-0.5 border border-gray-400 py-1 px-2 rounded-md"
+                    className="flex items-center gap-1 border border-gray-400 py-1 px-3 rounded-lg"
                   >
                     <Download size={16} />
                     PNG
                   </button>
 
-                  {/* JPG BUTTON — use the real JPG file, NOT replace */}
                   <button
                     onClick={() =>
                       downloadFile(
@@ -97,7 +96,7 @@ export default function Logos() {
                         `${text.toLowerCase().replace(/ /g, "_")}.jpg`
                       )
                     }
-                    className="flex items-center gap-0.5 border border-gray-400 py-1 px-2 rounded-md"
+                    className="flex items-center gap-1 border border-gray-400 py-1 px-3 rounded-lg"
                   >
                     <Download size={16} />
                     JPG
