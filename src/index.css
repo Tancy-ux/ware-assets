@@ -1,0 +1,49 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap');
+@import "tailwindcss";
+@plugin "daisyui";
+
+html {
+  scroll-behavior: smooth;
+}
+
+.glass {
+  /* From https://css.glass */
+background: rgba(255, 255, 255, 0.2);
+box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+backdrop-filter: blur(5px);
+-webkit-backdrop-filter: blur(5px);
+}
+
+
+@font-face {
+  font-family: 'SheilaCrayon'; 
+  src: url('./fonts/SheilaCrayon.ttf') format('truetype');
+}
+.font-sheila {
+  font-family: 'SheilaCrayon', sans-serif;
+  letter-spacing: 0.1em;
+}
+.font-montserrat {
+  font-family: 'Montserrat', sans-serif;
+}
+
+@layer utilities {
+  .text-brown {
+    color: #bf5e35;
+  }
+  .text-gray {
+    color: #565656;
+  }
+  .text-green {
+    color: #505e37;
+  }
+  .bg-green {
+    background-color: #505e37;
+  }
+  .bg-light {
+    background-color: #fae3ce;
+  }
+  .bg-brown {
+    background-color: #bf5e35;
+  }
+}
