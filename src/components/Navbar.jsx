@@ -19,9 +19,10 @@ export default function Navbar() {
           Ware Innovations
         </Link>
         <div className="flex gap-4 md:gap-8 text-md font-semibold md:text-xl">
+          {/* 
           <Link to="/#assets">Downloads</Link>
           <span> | </span>
-          {/* <Link to="/about">About Ware</Link>
+          <Link to="/about">About Ware</Link>
           <span> | </span> */}
 
           {!isAuth && <Link to="/login">Login</Link>}
