@@ -19,6 +19,7 @@ export default function Colors() {
       toast.success("Copied!");
     } catch (error) {
       toast.error("Failed to copy!");
+      console.error(error);
     }
   };
   return (
