@@ -13,7 +13,7 @@ const assets = [
   },
 ];
 
-const Assets = () => {
+export default function Assets() {
   return (
     <div className="text-gray py-20 px-6">
       <h1 className="text-2xl md:text-4xl font-bold text-center mb-12">
@@ -41,6 +41,4 @@ const Assets = () => {
       </div>
     </div>
   );
-};
-
-export default Assets;
+}
