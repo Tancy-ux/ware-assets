@@ -9,6 +9,7 @@ import Footer from "./components/Footer";
 import Fonts from "./components/Fonts";
 import Login from "./components/Login";
 import ProtectedRoute from "./components/ProtectedRoute";
+import AssetLibrary from "./components/AssetLibrary";
 
 function App() {
   const location = useLocation();
@@ -32,6 +33,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="/assets" element={<AssetLibrary />} />
 
         <Route
           path="/colors"

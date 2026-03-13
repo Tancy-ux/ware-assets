@@ -4,7 +4,7 @@ import Card from "./Card";
 export default function Hero() {
   return (
     <div className="bg-green text-white">
-      <div className="flex flex-col items-center justify-center py-16 lg:py-24 gap-3 lg:gap-6 px-6">
+      <div className="flex flex-col items-center justify-center py-16 xl:py-20 gap-3 xl:gap-6 px-6">
         {/* LOGO + TAGLINE */}
         <div className="flex flex-col items-center gap-y-1">
           <img
@@ -27,13 +27,15 @@ export default function Hero() {
 
         {/* CARDS */}
         <div className="flex flex-col lg:flex-row gap-1 lg:gap-8 w-full justify-center">
-          <a href="#logos" className="w-full lg:w-auto">
+          <a href="/ware/#logos" className="w-full lg:w-auto">
             <Card text="Logos" logo={<Images size={36} />} />
           </a>
-          <a href="#colors" className="w-full lg:w-auto">
+
+          <a href="/ware/#colors" className="w-full lg:w-auto">
             <Card text="Colors" logo={<Brush size={36} />} />
           </a>
-          <a href="#fonts" className="w-full lg:w-auto">
+
+          <a href="/ware/#fonts" className="w-full lg:w-auto">
             <Card text="Fonts" logo={<TypeOutline size={36} />} />
           </a>
         </div>

@@ -17,7 +17,7 @@ export default function Assets() {
   return (
     <div className="text-gray py-20 px-6">
       <h1 className="text-2xl md:text-4xl font-bold text-center mb-12">
-        Brand Assets
+        Brand Assets - Google Drive
       </h1>
 
       <div className="max-w-5xl mx-auto grid gap-6 md:grid-cols-2 lg:grid-cols-3">
