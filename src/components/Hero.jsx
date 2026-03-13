@@ -19,7 +19,7 @@ export default function Hero() {
 
         {/* BUTTON */}
         <a
-          href="#home"
+          href="/ware-assets"
           className="btn btn-outline btn-sm rounded-full mt-1 lg:mb-4"
         >
           All Assets
@@ -27,15 +27,15 @@ export default function Hero() {
 
         {/* CARDS */}
         <div className="flex flex-col lg:flex-row gap-1 lg:gap-8 w-full justify-center">
-          <a href="/ware/#logos" className="w-full lg:w-auto">
+          <a href="/ware-assets/#logos" className="w-full lg:w-auto">
             <Card text="Logos" logo={<Images size={36} />} />
           </a>
 
-          <a href="/ware/#colors" className="w-full lg:w-auto">
+          <a href="/ware-assets/#colors" className="w-full lg:w-auto">
             <Card text="Colors" logo={<Brush size={36} />} />
           </a>
 
-          <a href="/ware/#fonts" className="w-full lg:w-auto">
+          <a href="/ware-assets/#fonts" className="w-full lg:w-auto">
             <Card text="Fonts" logo={<TypeOutline size={36} />} />
           </a>
         </div>
