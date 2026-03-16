@@ -4,35 +4,45 @@ import { Link, useNavigate } from "react-router-dom";
 export default function Navbar() {
   const isAuth = localStorage.getItem("auth") === "true";
   const navigate = useNavigate();
+
   function handleLogout() {
     localStorage.removeItem("auth");
     navigate("/login");
   }
 
   return (
-    <div className="bg-white text-green">
-      <div className="flex items-center justify-between p-6 md:px-12">
+    <div className="bg-[#eef2e8] text-green">
+      <div className="max-w-8xl mx-auto flex items-center justify-between px-4 py-4 md:px-12">
+        {/* Logo */}
         <Link
           to="/"
-          className="text-green tracking-tight font-bold text-xl md:text-4xl"
+          className="font-bold tracking-tight text-lg sm:text-xl md:text-3xl"
         >
           Ware Innovations
         </Link>
-        <div className="flex gap-4 md:gap-8 text-md font-semibold md:text-xl">
-          <Link to="/assets">Downloads</Link>
-          <span> | </span>
-          {/* 
-          <Link to="/about">About Ware</Link>
-          <span> | </span> */}
 
-          {!isAuth && <Link to="/login">Login</Link>}
+        {/* Navigation */}
+        <div className="flex items-center gap-3 sm:gap-4 md:gap-6 text-sm sm:text-base md:text-lg font-semibold">
+          <Link to="/assets" className="hover:opacity-70 transition">
+            Downloads
+          </Link>
+
+          {/* separator only desktop */}
+          <span className="hidden md:inline">|</span>
+
+          {!isAuth && (
+            <Link to="/login" className="hover:opacity-70 transition">
+              Login
+            </Link>
+          )}
+
           {isAuth && (
             <button
-              className="cursor-pointer flex gap-1 lg:gap-2 items-center text-sm lg:text-lg"
               onClick={handleLogout}
+              className="flex items-center gap-1 md:gap-2 hover:opacity-70 transition"
             >
               <LogOut size={18} />
-              Logout
+              <span className="hidden sm:inline">Logout</span>
             </button>
           )}
         </div>

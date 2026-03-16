@@ -20,10 +20,10 @@ export default function Login() {
     }
   }
   return (
-    <div className="pt-60 flex items-center justify-center bg-white relative">
-      <div className="absolute w-[600px] h-[500px] bg-white/60 blur-[180px] rounded-full"></div>
+    <div className="pt-60 flex items-center justify-center bg-[#eef2e8] relative">
+      <div className="absolute w-[600px] h-[500px] bg-[#eef2e8]/60 blur-[180px] rounded-full"></div>
 
-      <div className="relative w-full max-w-xl p-10 rounded-3xl bg-white/20 backdrop-blur-3xl border border-white/60 shadow-[0_0_60px_rgba(0,0,0,0.08)]">
+      <div className="relative w-full max-w-xl p-10 rounded-3xl bg-[#eef2e8]/20 backdrop-blur-3xl border border-white/60 shadow-[0_0_60px_rgba(0,0,0,0.08)]">
         <div className="absolute inset-0 rounded-3xl bg-linear-to-br from-white/70 to-transparent opacity-40 pointer-events-none"></div>
 
         <h1 className="text-3xl font-semibold text-green text-center mb-10">
@@ -34,7 +34,7 @@ export default function Login() {
             <label className="block text-gray-700 mb-1">Username</label>
             <input
               type="text"
-              className="w-full p-3 rounded-xl bg-white/40 border border-white/80 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-black/10"
+              className="w-full p-3 rounded-xl bg-[#eef2e8]/40 border border-white/80 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-black/10"
               placeholder="you@example.com"
               onChange={(e) => setInput(e.target.value)}
             />
@@ -44,7 +44,7 @@ export default function Login() {
             <label className="block text-gray-700 mb-1">Password</label>
             <input
               type="text"
-              className="w-full p-3 rounded-xl bg-white/40 border border-white/80 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-black/10"
+              className="w-full p-3 rounded-xl bg-[#eef2e8]/40 border border-white/80 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-black/10"
               placeholder="••••••••"
               onChange={(e) => setPass(e.target.value)}
             />

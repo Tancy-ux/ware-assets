@@ -23,7 +23,7 @@ export default function Colors() {
     }
   };
   return (
-    <div id="colors" className="bg-white text-gray">
+    <div id="colors" className="bg-[#eef2e8] text-gray">
       <div className="flex flex-col items-center justify-center py-25 gap-5">
         <div className="flex flex-col items-center">
           <p className="text-xl md:text-4xl font-bold pb-10">Brand Colors</p>

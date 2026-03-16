@@ -48,7 +48,7 @@ export default function Logos() {
 
   return (
     <div id="logos">
-      <div className="bg-white text-gray flex flex-col items-center justify-center py-10 lg:pt-20 gap-10 px-4">
+      <div className="bg-[#eef2e8] text-gray flex flex-col items-center justify-center py-10 lg:pt-20 gap-10 px-4">
         <h1 className="text-3xl lg:text-5xl font-bold text-center">
           Brand Logos
         </h1>
@@ -80,7 +80,7 @@ export default function Logos() {
                     onClick={() =>
                       downloadFile(
                         logo.transparent,
-                        `${text.toLowerCase().replace(/ /g, "_")}.png`
+                        `${text.toLowerCase().replace(/ /g, "_")}.png`,
                       )
                     }
                     className="flex items-center gap-1 border border-gray-400 py-1 px-3 rounded-lg"
@@ -93,7 +93,7 @@ export default function Logos() {
                     onClick={() =>
                       downloadFile(
                         logo.display,
-                        `${text.toLowerCase().replace(/ /g, "_")}.jpg`
+                        `${text.toLowerCase().replace(/ /g, "_")}.jpg`,
                       )
                     }
                     className="flex items-center gap-1 border border-gray-400 py-1 px-3 rounded-lg"

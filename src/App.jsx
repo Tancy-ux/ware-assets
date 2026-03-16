@@ -16,7 +16,7 @@ function App() {
   const hideHero = location.pathname === "/login";
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
+    <div className="min-h-screen bg-[#eef2e8] flex flex-col">
       <Navbar />
 
       {/* Show Hero on all pages except /login */}

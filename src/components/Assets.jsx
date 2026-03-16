@@ -1,44 +1,45 @@
-const assets = [
-  {
-    name: "Thank You Cards",
-    url: "https://drive.google.com/drive/folders/12DwhyifExUIhxGX39OzqisEhlKagMA1-",
-  },
-  {
-    name: "Top Box Dieline",
-    url: "https://drive.google.com/drive/folders/1lIrDbvkzUE_niwuEBdk_-wsr7LTAkZqw",
-  },
-  {
-    name: "Brand Manual",
-    url: "https://drive.google.com/drive/folders/1fwj5_4B9k6vDSwcofkoZU3RcmUAtKNFo",
-  },
-  {
-    name: "All Product Catalogs",
-    url: "https://drive.google.com/drive/folders/13grj3xv1JZWxkcfA9ujqJ5Nv3Q6lBvz7",
-  },
-];
+import { useEffect, useState } from "react";
+import { supabase } from "./supabase";
 
 export default function Assets() {
+  const [assets, setAssets] = useState([]);
+
+  useEffect(() => {
+    const fetchAssets = async () => {
+      const { data, error } = await supabase
+        .from("download_assets")
+        .select("*")
+        .order("name", { ascending: true });
+      console.log(data, error);
+      if (data) setAssets(data);
+    };
+
+    fetchAssets();
+  }, []);
+
   return (
-    <div className="text-gray py-20 px-6">
+    <div id="assets" className="text-gray bg-[#eef2e8] py-20 px-6">
       <h1 className="text-2xl md:text-4xl font-bold text-center mb-12">
         Brand Assets - Google Drive
       </h1>
 
-      <div className="max-w-5xl mx-auto grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {assets.map((asset, index) => (
+      <div className="max-w-7xl mx-auto grid gap-8 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        {assets.map((asset) => (
           <div
-            key={index}
-            className="bg-gray-50 rounded-xl shadow-sm text-center p-6 hover:shadow-lg"
+            key={asset.id}
+            className="group bg-[#eef2e8] border border-gray-200 rounded-2xl p-5 md:p-6 flex flex-row md:flex-col items-center md:items-start justify-between md:justify-between shadow-sm hover:shadow-lg transition-all duration-300 gap-4"
           >
-            <h2 className="text-xl font-semibold mb-4">{asset.name}</h2>
+            <h2 className="text-base md:text-lg font-semibold text-gray-800 leading-snug text-left">
+              {asset.name}
+            </h2>
 
             <a
               href={asset.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-800 transition"
+              className="whitespace-nowrap inline-flex items-center justify-center text-sm font-medium text-white bg-gray-800 px-4 py-2 rounded-lg group-hover:bg-black transition"
             >
-              View / Download
+              Download
             </a>
           </div>
         ))}

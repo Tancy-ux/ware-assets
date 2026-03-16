@@ -69,7 +69,7 @@ const AssetLibrary = () => {
 
       {/* Upload section */}
       <div className="flex flex-col sm:flex-row sm:justify-end mb-8">
-        <div className="bg-white rounded-xl shadow-sm p-4 sm:p-5 w-full sm:w-auto">
+        <div className="bg-[#eef2e8] rounded-xl shadow-sm p-4 sm:p-5 w-full sm:w-auto">
           <Upload onUploadSuccess={loadFiles} />
         </div>
       </div>
@@ -90,7 +90,7 @@ const AssetLibrary = () => {
             return (
               <div
                 key={file.name}
-                className="bg-white rounded-xl shadow-sm p-4 sm:p-5 flex flex-col items-center justify-between hover:shadow-md transition"
+                className="bg-[#eef2e8] rounded-xl shadow-sm p-4 sm:p-5 flex flex-col items-center justify-between hover:shadow-md transition"
               >
                 {/* File name */}
                 <div className="flex items-center gap-1.5 mb-4">

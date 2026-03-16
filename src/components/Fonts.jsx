@@ -22,7 +22,7 @@ export default function Fonts() {
   return (
     <div
       id="fonts"
-      className="py-10 lg:py-20 px-4 bg-white text-gray flex flex-col items-center gap-12"
+      className="py-10 lg:py-20 px-4 bg-[#eef2e8] text-gray flex flex-col items-center gap-12"
     >
       <h1 className="text-3xl md:text-5xl font-bold text-center">
         Brand Fonts
