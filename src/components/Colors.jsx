@@ -28,32 +28,44 @@ export default function Colors() {
         <div className="flex flex-col items-center">
           <p className="text-xl md:text-4xl font-bold pb-10">Brand Colors</p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 3xl:grid-cols-6 gap-8">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-5 md:gap-8 w-full max-w-6xl mx-auto">
           {text.map((text, index) => {
             const hex = hexcodes[index];
+
             return (
               <div
                 key={index}
-                className="glass px-10 py-8 flex gap-4 flex-col items-center"
+                className="group flex flex-col items-center gap-3"
               >
-                <div className="text-xl font-semibold">{text}</div>
+                {/* Color Tile */}
                 <div
-                  className="w-64 h-60 rounded-2xl flex items-center justify-center text-white"
-                  style={{ backgroundColor: `#${hexcodes[index]}` }}
-                >
-                  <button
-                    className="cursor-pointer glass p-3 rounded-full"
-                    onClick={() => copy(hex)}
-                  >
-                    <Copy size={24} />
-                  </button>
-                </div>
-                <button
-                  className="btn btn-ghost tracking-widest uppercase bg-gray-100 hover:bg-[#565656] hover:text-white w-full"
+                  className="relative w-full aspect-square rounded-2xl shadow-md flex items-center justify-center cursor-pointer overflow-hidden"
+                  style={{ backgroundColor: `#${hex}` }}
                   onClick={() => copy(hex)}
                 >
-                  #{hexcodes[index]}
-                </button>
+                  <div className="opacity-0 group-hover:opacity-100 transition bg-white/30 backdrop-blur-md p-3 rounded-full">
+                    <Copy size={20} />
+                  </div>
+                </div>
+
+                {/* Color Name */}
+                <div className="text-sm md:text-base font-semibold text-center">
+                  {text}
+                </div>
+
+                {/* Hex */}
+                <div className="relative group">
+                  <button
+                    onClick={() => copy(hex)}
+                    className="text-xs tracking-widest text-gray-600 hover:text-black transition cursor-pointer"
+                  >
+                    #{hex}
+                  </button>
+
+                  <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[10px] px-2 py-1 rounded bg-[#565656] text-white opacity-0 group-hover:opacity-100 transition whitespace-nowrap">
+                    Click to copy
+                  </span>
+                </div>
               </div>
             );
           })}
