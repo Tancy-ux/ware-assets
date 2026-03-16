@@ -93,8 +93,8 @@ const AssetLibrary = () => {
                 className="bg-white rounded-xl shadow-sm p-4 sm:p-5 flex flex-col items-center justify-between hover:shadow-md transition"
               >
                 {/* File name */}
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="text-lg sm:text-xl">📄</div>
+                <div className="flex items-center gap-1.5 mb-4">
+                  <div className="text-md md:text-lg">📄</div>
 
                   <p className="text-sm font-medium break-all">{niceName}</p>
                 </div>

@@ -11,6 +11,10 @@ const assets = [
     name: "Brand Manual",
     url: "https://drive.google.com/drive/folders/1fwj5_4B9k6vDSwcofkoZU3RcmUAtKNFo",
   },
+  {
+    name: "All Product Catalogs",
+    url: "https://drive.google.com/drive/folders/13grj3xv1JZWxkcfA9ujqJ5Nv3Q6lBvz7",
+  },
 ];
 
 export default function Assets() {
@@ -20,7 +24,7 @@ export default function Assets() {
         Brand Assets - Google Drive
       </h1>
 
-      <div className="max-w-5xl mx-auto grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+      <div className="max-w-5xl mx-auto grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {assets.map((asset, index) => (
           <div
             key={index}
