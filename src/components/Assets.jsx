@@ -19,9 +19,12 @@ export default function Assets() {
 
   return (
     <div id="assets" className="text-gray bg-[#eef2e8] py-20 px-6">
-      <h1 className="text-2xl md:text-4xl font-bold text-center mb-12">
-        Brand Assets - Google Drive
-      </h1>
+      <div className="max-w-6xl mx-auto text-center mb-14">
+        <h1 className="text-2xl lg:text-4xl font-bold tracking-tight">
+          Brand Assets
+        </h1>
+        <p className="text-gray-600 text-sm md:text-lg mt-3">(Google Drive) </p>
+      </div>
 
       <div className="max-w-7xl mx-auto grid gap-8 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
         {assets.map((asset) => (
@@ -29,7 +32,7 @@ export default function Assets() {
             key={asset.id}
             className="group bg-[#eef2e8] border border-gray-200 rounded-2xl p-5 md:p-6 flex flex-row md:flex-col items-center md:items-start justify-between md:justify-between shadow-sm hover:shadow-lg transition-all duration-300 gap-4"
           >
-            <h2 className="text-base md:text-lg font-semibold text-gray-800 leading-snug text-left">
+            <h2 className="text-base md:text-lg font-semibold text-gray leading-snug text-left">
               {asset.name}
             </h2>
 

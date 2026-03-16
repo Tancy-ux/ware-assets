@@ -48,64 +48,79 @@ export default function Logos() {
 
   return (
     <div id="logos">
-      <div className="bg-[#eef2e8] text-gray flex flex-col items-center justify-center py-10 lg:pt-20 gap-10 px-4">
-        <h1 className="text-3xl lg:text-5xl font-bold text-center">
-          Brand Logos
-        </h1>
+      <div className="bg-[#eef2e8] text-gray py-16 lg:py-24 px-4">
+        {/* Section Title */}
+        <div className="max-w-6xl mx-auto text-center mb-14">
+          <h1 className="text-2xl lg:text-4xl font-bold tracking-tight">
+            Brand Logos
+          </h1>
+          <p className="text-gray-600 text-xs md:text-lg mt-3">
+            Download official Ware brand logos for marketing and press use.
+          </p>
+        </div>
 
-        {logoText.map((text, index) => {
-          const logo = logos[index];
-          const textForLogo = textForLogos[index];
+        {/* Logo Cards */}
+        <div className="max-w-6xl mx-auto flex flex-col gap-12">
+          {logoText.map((text, index) => {
+            const logo = logos[index];
+            const textForLogo = textForLogos[index];
 
-          return (
-            <div
-              key={index}
-              className="flex flex-col lg:flex-row items-center 
-                         glass w-full lg:w-auto p-5 lg:pr-20 gap-8 lg:gap-15"
-            >
-              {/* DISPLAY IMAGE */}
-              <img
-                src={logo.display}
-                loading="lazy"
-                alt={text}
-                className="w-auto h-40 lg:h-80 ml-2 lg:m-12"
-              />
+            return (
+              <div
+                key={index}
+                className="bg-white/60 backdrop-blur-md border border-white/40 rounded-3xl shadow-sm hover:shadow-lg transition flex flex-col lg:flex-row items-center gap-8 lg:gap-14 p-6 lg:p-10"
+              >
+                {/* Logo Display */}
+                <div className="flex items-center justify-center rounded-2xl">
+                  <img
+                    src={logo.display}
+                    loading="lazy"
+                    alt={text}
+                    className="h-32 lg:h-56 w-auto"
+                  />
+                </div>
 
-              <div className="flex flex-col items-center lg:items-start gap-2 text-center lg:text-left">
-                <p className="text-xl lg:text-3xl font-bold">{text}</p>
-                <p className="text-lg lg:text-xl italic">{textForLogo}</p>
+                {/* Logo Info */}
+                <div className="flex flex-col items-center lg:items-start text-center lg:text-left gap-3">
+                  <h2 className="text-xl lg:text-3xl font-semibold">{text}</h2>
 
-                <div className="flex gap-3 pt-4">
-                  <button
-                    onClick={() =>
-                      downloadFile(
-                        logo.transparent,
-                        `${text.toLowerCase().replace(/ /g, "_")}.png`,
-                      )
-                    }
-                    className="flex items-center gap-1 border border-gray-400 py-1 px-3 rounded-lg"
-                  >
-                    <Download size={16} />
-                    PNG
-                  </button>
+                  <p className="text-gray-600 italic text-sm lg:text-base">
+                    {textForLogo}
+                  </p>
 
-                  <button
-                    onClick={() =>
-                      downloadFile(
-                        logo.display,
-                        `${text.toLowerCase().replace(/ /g, "_")}.jpg`,
-                      )
-                    }
-                    className="flex items-center gap-1 border border-gray-400 py-1 px-3 rounded-lg"
-                  >
-                    <Download size={16} />
-                    JPG
-                  </button>
+                  {/* Download Buttons */}
+                  <div className="flex gap-3 pt-4">
+                    <button
+                      onClick={() =>
+                        downloadFile(
+                          logo.transparent,
+                          `${text.toLowerCase().replace(/ /g, "_")}.png`,
+                        )
+                      }
+                      className="flex items-center gap-2 bg-gray-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-black transition"
+                    >
+                      <Download size={16} />
+                      PNG
+                    </button>
+
+                    <button
+                      onClick={() =>
+                        downloadFile(
+                          logo.display,
+                          `${text.toLowerCase().replace(/ /g, "_")}.jpg`,
+                        )
+                      }
+                      className="flex items-center gap-2 border border-gray-300 px-4 py-2 rounded-lg text-sm hover:bg-gray-100 transition"
+                    >
+                      <Download size={16} />
+                      JPG
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </div>
   );

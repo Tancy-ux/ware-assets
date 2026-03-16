@@ -24,9 +24,9 @@ export default function Colors() {
   };
   return (
     <div id="colors" className="bg-[#eef2e8] text-gray">
-      <div className="flex flex-col items-center justify-center py-25 gap-5">
+      <div className="flex flex-col items-center justify-center px-4 py-10 md:py-25 gap-5">
         <div className="flex flex-col items-center">
-          <p className="text-xl md:text-4xl font-bold pb-10">Brand Colors</p>
+          <p className="text-2xl md:text-4xl font-bold pb-10">Brand Colors</p>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-5 md:gap-8 w-full max-w-6xl mx-auto">
           {text.map((text, index) => {
@@ -35,7 +35,7 @@ export default function Colors() {
             return (
               <div
                 key={index}
-                className="group flex flex-col items-center gap-3"
+                className="group flex flex-col items-center gap-2"
               >
                 {/* Color Tile */}
                 <div
@@ -54,18 +54,12 @@ export default function Colors() {
                 </div>
 
                 {/* Hex */}
-                <div className="relative group">
-                  <button
-                    onClick={() => copy(hex)}
-                    className="text-xs tracking-widest text-gray-600 hover:text-black transition cursor-pointer"
-                  >
-                    #{hex}
-                  </button>
-
-                  <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[10px] px-2 py-1 rounded bg-[#565656] text-white opacity-0 group-hover:opacity-100 transition whitespace-nowrap">
-                    Click to copy
-                  </span>
-                </div>
+                <button
+                  onClick={() => copy(hex)}
+                  className="text-xs tracking-widest text-gray-600 hover:text-black transition cursor-pointer"
+                >
+                  #{hex}
+                </button>
               </div>
             );
           })}
