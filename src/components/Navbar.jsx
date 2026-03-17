@@ -11,11 +11,13 @@ export default function Navbar() {
   }
 
   return (
-    <div className="bg-[#eef2e8] text-green">
+    <div className="sticky top-0 z-50 bg-[#eef2e8]/90 backdrop-blur-md text-green border-b border-gray-200">
+      {" "}
       <div className="max-w-8xl mx-auto flex items-center justify-between px-4 py-4 md:px-12">
         {/* Logo */}
         <Link
           to="/"
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
           className="font-bold tracking-tight text-lg sm:text-xl md:text-3xl"
         >
           Ware Innovations

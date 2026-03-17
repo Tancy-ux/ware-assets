@@ -7,7 +7,7 @@ import Assets from "../components/Assets";
 export default function HomePage() {
   return (
     <div id="home">
-      <div className="max-h-screen">
+      <div className="">
         <Assets />
         <hr />
         <Colors />

@@ -26,62 +26,50 @@ export default function Hero() {
         </a>
 
         {/* CARDS */}
-        <div className="max-w-4xl mx-auto grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 pt-1.5">
+        <div className="max-w-4xl mx-auto grid grid-cols-4 gap-3 md:gap-6 pt-2">
           <a
             href="/ware-assets/#assets"
-            className="group bg-[#eef2e8] border border-gray-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-lg transition"
+            className="group bg-[#eef2e8] border border-gray-200 rounded-xl md:rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center hover:shadow-md active:scale-95 transition-all duration-200"
           >
-            <Files
-              size={32}
-              className="text-gray-600 mb-2 group-hover:text-black transition"
-            />
-            <span className="font-semibold text-xs md:text-lg text-gray-800">
+            <Files className="w-5 h-5 md:w-7 md:h-7 text-gray-600 mb-1 md:mb-2 group-hover:text-black transition" />
+            <span className="font-medium text-[10px] md:text-base text-gray-800">
               Assets
             </span>
           </a>
 
           <a
             href="/ware-assets/#logos"
-            className="group bg-[#eef2e8] border border-gray-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-lg transition"
+            className="group bg-[#eef2e8] border border-gray-200 rounded-xl md:rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center hover:shadow-md active:scale-95 transition-all duration-200"
           >
-            <Images
-              size={32}
-              className="text-gray-600 mb-2 group-hover:text-black transition"
-            />
-            <span className="font-semibold text-xs md:text-lg text-gray-800">
+            <Images className="w-5 h-5 md:w-7 md:h-7 text-gray-600 mb-1 md:mb-2 group-hover:text-black transition" />
+            <span className="font-medium text-[10px] md:text-base text-gray-800">
               Logos
             </span>
           </a>
 
           <a
             href="/ware-assets/#colors"
-            className="group bg-[#eef2e8] border border-gray-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-lg transition"
+            className="group bg-[#eef2e8] border border-gray-200 rounded-xl md:rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center hover:shadow-md active:scale-95 transition-all duration-200"
           >
-            <Brush
-              size={32}
-              className="text-gray-600 mb-2 group-hover:text-black transition"
-            />
-            <span className="font-semibold text-xs md:text-lg text-gray-800">
+            <Brush className="w-5 h-5 md:w-7 md:h-7 text-gray-600 mb-1 md:mb-2 group-hover:text-black transition" />
+            <span className="font-medium text-[10px] md:text-base text-gray-800">
               Colors
             </span>
           </a>
 
           <a
             href="/ware-assets/#fonts"
-            className="group bg-[#eef2e8] border border-gray-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-lg transition"
+            className="group bg-[#eef2e8] border border-gray-200 rounded-xl md:rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center hover:shadow-md active:scale-95 transition-all duration-200"
           >
-            <TypeOutline
-              size={32}
-              className="text-gray-600 mb-2 group-hover:text-black transition"
-            />
-            <span className="font-semibold text-xs md:text-lg text-gray-800">
+            <TypeOutline className="w-5 h-5 md:w-7 md:h-7 text-gray-600 mb-1 md:mb-2 group-hover:text-black transition" />
+            <span className="font-medium text-[10px] md:text-base text-gray-800">
               Fonts
             </span>
           </a>
         </div>
 
         {/* DESCRIPTION */}
-        <div className="text-sm md:text-lg w-full lg:w-[48%] text-center font-semibold pt-5">
+        <div className="text-sm md:text-lg w-full lg:w-[48%] text-center font-medium tracking-tight px-2 pt-5">
           <p>
             Click. Download. Access Ware's complete brand asset library
             instantly. All logos, fonts, templates, and materials — ready for
