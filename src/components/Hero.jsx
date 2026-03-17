@@ -4,78 +4,45 @@ import Card from "./Card";
 export default function Hero() {
   return (
     <div className="bg-green text-white">
-      <div className="flex flex-col items-center justify-center py-10 xl:py-20 gap-3 xl:gap-6 px-6">
+      <div className="flex flex-col items-center justify-center py-14 md:py-20 gap-8 px-6">
         {/* LOGO + TAGLINE */}
-        <div className="flex flex-col items-center gap-y-1">
+        <div className="flex flex-col items-center gap-2">
           <img
             src="./ware-white-transparent.png"
             alt="ware"
-            className="w-32 md:w-40"
+            className="w-28 md:w-36"
           />
-          <p className="text-base md:text-2xl text-center">
+          <p className="text-sm md:text-xl text-center text-white/80">
             Brand Guidelines & Asset Library
           </p>
         </div>
 
-        {/* BUTTON */}
-        <a
-          href="/ware-assets/#assets"
-          className="btn btn-outline btn-sm rounded-full mt-1 lg:mb-4"
-        >
-          All Assets
-        </a>
-
         {/* CARDS */}
-        <div className="max-w-4xl mx-auto grid grid-cols-4 gap-3 md:gap-6 pt-2">
-          <a
-            href="/ware-assets/#assets"
-            className="group bg-[#eef2e8] border border-gray-200 rounded-xl md:rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center hover:shadow-md active:scale-95 transition-all duration-200"
-          >
-            <Files className="w-5 h-5 md:w-7 md:h-7 text-gray-600 mb-1 md:mb-2 group-hover:text-black transition" />
-            <span className="font-medium text-[10px] md:text-base text-gray-800">
-              Assets
-            </span>
-          </a>
-
-          <a
-            href="/ware-assets/#logos"
-            className="group bg-[#eef2e8] border border-gray-200 rounded-xl md:rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center hover:shadow-md active:scale-95 transition-all duration-200"
-          >
-            <Images className="w-5 h-5 md:w-7 md:h-7 text-gray-600 mb-1 md:mb-2 group-hover:text-black transition" />
-            <span className="font-medium text-[10px] md:text-base text-gray-800">
-              Logos
-            </span>
-          </a>
-
-          <a
-            href="/ware-assets/#colors"
-            className="group bg-[#eef2e8] border border-gray-200 rounded-xl md:rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center hover:shadow-md active:scale-95 transition-all duration-200"
-          >
-            <Brush className="w-5 h-5 md:w-7 md:h-7 text-gray-600 mb-1 md:mb-2 group-hover:text-black transition" />
-            <span className="font-medium text-[10px] md:text-base text-gray-800">
-              Colors
-            </span>
-          </a>
-
-          <a
-            href="/ware-assets/#fonts"
-            className="group bg-[#eef2e8] border border-gray-200 rounded-xl md:rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center hover:shadow-md active:scale-95 transition-all duration-200"
-          >
-            <TypeOutline className="w-5 h-5 md:w-7 md:h-7 text-gray-600 mb-1 md:mb-2 group-hover:text-black transition" />
-            <span className="font-medium text-[10px] md:text-base text-gray-800">
-              Fonts
-            </span>
-          </a>
+        <div className="max-w-4xl w-full grid grid-cols-4 gap-3 md:gap-6">
+          {[
+            { icon: Files, label: "Assets", link: "#assets" },
+            { icon: Images, label: "Logos", link: "#logos" },
+            { icon: Brush, label: "Colors", link: "#colors" },
+            { icon: TypeOutline, label: "Fonts", link: "#fonts" },
+          ].map(({ icon: Icon, label, link }) => (
+            <a
+              key={label}
+              href={`/ware-assets/${link}`}
+              className="group bg-white/10 border border-white/20 rounded-xl md:rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center backdrop-blur-md hover:bg-white/20 transition-all duration-200 active:scale-95"
+            >
+              <Icon className="w-5 h-5 md:w-7 md:h-7 text-white/80 mb-1 md:mb-2 group-hover:text-white transition" />
+              <span className="font-medium text-[10px] md:text-sm text-white">
+                {label}
+              </span>
+            </a>
+          ))}
         </div>
 
         {/* DESCRIPTION */}
-        <div className="text-sm md:text-lg w-full lg:w-[48%] text-center font-medium tracking-tight px-2 pt-5">
-          <p>
-            Click. Download. Access Ware's complete brand asset library
-            instantly. All logos, fonts, templates, and materials — ready for
-            immediate use.
-          </p>
-        </div>
+        <p className="text-xs md:text-base max-w-xl text-center text-white/70 leading-relaxed">
+          Access Ware's complete brand asset library — logos, fonts, templates,
+          and materials, all in one place.
+        </p>
       </div>
     </div>
   );
