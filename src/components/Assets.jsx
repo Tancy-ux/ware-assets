@@ -26,7 +26,7 @@ export default function Assets() {
         <p className="text-gray-600 text-sm md:text-lg mt-3">(Google Drive) </p>
       </div>
 
-      <div className="max-w-7xl mx-auto grid gap-8 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+      <div className="px-5 mx-auto grid gap-8 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
         {assets.map((asset) => (
           <div
             key={asset.id}
