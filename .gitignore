@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Generated from src/assets/*.docx by scripts/build-faqs.mjs
+src/data/faqs.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

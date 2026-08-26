@@ -10,6 +10,7 @@ import Fonts from "./components/Fonts";
 import Login from "./components/Login";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AssetLibrary from "./components/AssetLibrary";
+import Faq from "./components/Faq";
 
 function App() {
   const location = useLocation();
@@ -34,6 +35,7 @@ function App() {
           }
         />
         <Route path="/assets" element={<AssetLibrary />} />
+        <Route path="/faq" element={<Faq />} />
 
         <Route
           path="/colors"

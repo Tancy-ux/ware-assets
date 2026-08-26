@@ -32,6 +32,12 @@ export default function Navbar() {
           {/* separator only desktop */}
           <span className="hidden md:inline">|</span>
 
+          <Link to="/faq" className="hover:opacity-70 transition">
+            FAQs
+          </Link>
+
+          <span className="hidden md:inline">|</span>
+
           {!isAuth && (
             <Link to="/login" className="hover:opacity-70 transition">
               Login

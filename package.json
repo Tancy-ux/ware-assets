@@ -4,6 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "build:faqs": "node scripts/build-faqs.mjs",
+    "predev": "npm run build:faqs",
+    "prebuild": "npm run build:faqs",
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
@@ -26,12 +29,15 @@
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "baseline-browser-mapping": "^2.11.19",
     "daisyui": "^5.5.5",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "gh-pages": "^6.3.0",
     "globals": "^16.5.0",
+    "mammoth": "^1.12.1",
+    "pdf-parse": "^2.4.5",
     "vite": "^7.2.4"
   }
 }
