@@ -1,5 +1,5 @@
 .faq-page {
-  --faq-bg: #f3f2ee;
+  --faq-bg: #eef2e8;
   --faq-panel: #ffffff;
   --faq-border: #dedcd3;
   --faq-border-strong: #c8c5b8;
@@ -15,7 +15,7 @@
   max-width: 1560px;
   min-width: 960px;
   margin: 0 auto;
-  padding: 28px 0 60px;
+  padding: 40px 0 60px;
   background: var(--faq-bg);
   color: var(--faq-text);
   font-size: 14px;
@@ -25,13 +25,37 @@
   box-sizing: border-box;
 }
 
-/* ---------- Topbar ---------- */
+.faq-page-header {
+  margin-bottom: 24px;
+}
+.faq-page-header h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--faq-text);
+}
+.faq-page-header p {
+  margin: 4px 0 0;
+  font-size: 13.5px;
+  color: var(--faq-text-secondary);
+}
+
+/* ---------- Topbar ----------
+   Sticky under the site navbar so search + tab-switching stay reachable
+   without scrolling back up out of a long category. */
 .faq-topbar {
   display: flex;
   align-items: center;
   gap: 12px;
   margin-bottom: 22px;
+  margin-right: -20px;
   flex-wrap: wrap;
+  position: sticky;
+  top: 69px; /* height of the site navbar above it */
+  z-index: 20;
+  background: var(--faq-bg);
+  padding: 14px 0;
+  margin-top: -14px;
 }
 .faq-search {
   flex: 1;
@@ -128,8 +152,8 @@
   border-radius: 10px;
   overflow: hidden;
   position: sticky;
-  top: 28px;
-  max-height: calc(100vh - 56px);
+  top: 145px; /* sits right below the sticky navbar + topbar */
+  max-height: calc(100vh - 165px);
   overflow-y: auto;
 }
 
@@ -380,4 +404,72 @@
   gap: 8px;
   font-size: 13px;
   color: var(--faq-text-secondary);
+}
+
+/* ---------- Upload-a-document panel ---------- */
+.faq-upload-drop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px dashed var(--faq-border-strong);
+  border-radius: var(--faq-radius);
+  padding: 12px 14px;
+  font-size: 13.5px;
+  color: var(--faq-text-secondary);
+  cursor: pointer;
+  background: #fafaf8;
+}
+.faq-upload-drop:hover {
+  background: var(--faq-accent-soft);
+  border-color: var(--faq-accent);
+}
+
+.faq-upload-preview {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--faq-border);
+  border-radius: var(--faq-radius);
+  display: flex;
+  flex-direction: column;
+}
+.faq-upload-preview-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--faq-border);
+  cursor: pointer;
+}
+.faq-upload-preview-item:last-child {
+  border-bottom: none;
+}
+.faq-upload-preview-item:hover {
+  background: #fafaf8;
+}
+.faq-upload-preview-item input {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.faq-upload-preview-q {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--faq-text);
+}
+.faq-upload-preview-a {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  color: var(--faq-text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.faq-upload-preview-cat {
+  margin: 4px 0 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--faq-text-muted);
 }

@@ -21,6 +21,12 @@ create table if not exists public.faqs (
 alter table public.faqs add column if not exists doc_key text;
 alter table public.faqs add column if not exists updated_at timestamptz not null default now();
 
+-- Soft delete: the site marks a row deleted rather than removing it, so its
+-- doc_key stays occupied and a future doc re-sync can never resurrect a
+-- question you deliberately removed (e.g. a duplicate) — it just sees the
+-- doc_key already exists and leaves it alone.
+alter table public.faqs add column if not exists deleted boolean not null default false;
+
 -- Plain (non-partial) unique index: Postgres treats NULL as distinct from
 -- NULL, so this still allows unlimited site-added rows with doc_key = null
 -- while enforcing uniqueness among the non-null (doc-derived) values. A

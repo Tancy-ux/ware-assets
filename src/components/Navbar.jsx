@@ -25,12 +25,12 @@ export default function Navbar() {
 
         {/* Navigation */}
         <div className="flex items-center gap-3 sm:gap-4 md:gap-6 text-sm sm:text-base md:text-lg font-semibold">
-          <Link to="/assets" className="hover:opacity-70 transition">
+          {/* <Link to="/assets" className="hover:opacity-70 transition">
             Downloads
           </Link>
 
-          {/* separator only desktop */}
-          <span className="hidden md:inline">|</span>
+          {/* separator only desktop
+          <span className="hidden md:inline">|</span> */}
 
           <Link to="/faq" className="hover:opacity-70 transition">
             FAQs

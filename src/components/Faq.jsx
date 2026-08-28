@@ -1,9 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, X, Pencil, Trash2, Download, Plus } from "lucide-react";
+import {
+  Search,
+  X,
+  Pencil,
+  Trash2,
+  Download,
+  Plus,
+  FileUp,
+} from "lucide-react";
 import { toast } from "react-toastify";
-import jsPDF from "jspdf";
+import { Document, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
 import { supabase } from "./supabase";
 import AddFaqForm from "./AddFaqForm";
+import UploadFaqForm from "./UploadFaqForm";
 import "./Faq.css";
 
 function matches(faq, terms) {
@@ -17,13 +26,15 @@ function highlight(text, terms) {
     `(${terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`,
     "gi",
   );
-  return text.split(pattern).map((part, i) =>
-    terms.some((t) => part.toLowerCase() === t) ? (
-      <mark key={i}>{part}</mark>
-    ) : (
-      part
-    ),
-  );
+  return text
+    .split(pattern)
+    .map((part, i) =>
+      terms.some((t) => part.toLowerCase() === t) ? (
+        <mark key={i}>{part}</mark>
+      ) : (
+        part
+      ),
+    );
 }
 
 function truncateWords(text, maxWords = 9) {
@@ -43,66 +54,70 @@ function groupByCategory(faqs) {
 }
 
 function displayCategory(name, internal) {
-  return internal ? `Internal — ${name}` : name;
+  return internal ? `Short FAQs: ${name}` : name;
 }
 
-// Builds a simple, readable PDF of every public (non-internal) question and
-// answer, grouped by category, and triggers a browser download. Internal /
-// team-note content is deliberately left out of this export.
-function downloadFaqsPdf(faqs) {
+// Builds a simple, readable Word document of every public (non-internal)
+// question and answer, grouped by category, and triggers a browser
+// download. Internal/team-note content is deliberately left out.
+async function downloadFaqsDoc(faqs) {
   const groups = groupByCategory(faqs.filter((f) => !f.internal));
-  const doc = new jsPDF({ unit: "pt", format: "a4" });
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-  const margin = 50;
-  const maxWidth = pageWidth - margin * 2;
-  let y = margin;
 
-  const ensureSpace = (needed) => {
-    if (y + needed > pageHeight - margin) {
-      doc.addPage();
-      y = margin;
-    }
-  };
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
-  doc.text("Ware Innovations — FAQs", margin, y);
-  y += 20;
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(120);
-  doc.text(`Downloaded ${new Date().toLocaleDateString()}`, margin, y);
-  doc.setTextColor(0);
-  y += 30;
+  const children = [
+    new Paragraph({
+      heading: HeadingLevel.TITLE,
+      children: [new TextRun("Ware Innovations — FAQs")],
+    }),
+    new Paragraph({
+      spacing: { after: 300 },
+      children: [
+        new TextRun({
+          text: `Downloaded ${new Date().toLocaleDateString()}`,
+          color: "808080",
+          size: 18,
+        }),
+      ],
+    }),
+  ];
 
   for (const [category, items] of groups) {
-    ensureSpace(28);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(13);
-    doc.text(category, margin, y);
-    y += 20;
+    children.push(
+      new Paragraph({
+        heading: HeadingLevel.HEADING_1,
+        spacing: { before: 300, after: 150 },
+        children: [new TextRun(category)],
+      }),
+    );
 
     for (const faq of items) {
-      const qLines = doc.splitTextToSize(faq.question, maxWidth);
-      const aLines = doc.splitTextToSize(faq.answer, maxWidth);
-      ensureSpace(qLines.length * 14 + aLines.length * 13 + 20);
-
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
-      doc.text(qLines, margin, y);
-      y += qLines.length * 14 + 4;
-
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(10);
-      doc.text(aLines, margin, y);
-      y += aLines.length * 13 + 16;
+      children.push(
+        new Paragraph({
+          spacing: { before: 150, after: 50 },
+          children: [new TextRun({ text: faq.question, bold: true })],
+        }),
+      );
+      for (const chunk of faq.answer.split("\n\n")) {
+        children.push(
+          new Paragraph({
+            spacing: { after: 100 },
+            children: [new TextRun(chunk)],
+          }),
+        );
+      }
     }
-    y += 8;
   }
 
-  doc.save(`ware-faqs-${new Date().toISOString().slice(0, 10)}.pdf`);
+  const doc = new Document({ sections: [{ children }] });
+  const blob = await Packer.toBlob(doc);
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `ware-faqs-${new Date().toISOString().slice(0, 10)}.docx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function CategoryTab({
@@ -159,9 +174,12 @@ function QaEntry({ faq, terms, canEdit, isActive, onUpdated, onDeleted }) {
   const handleDelete = async () => {
     if (!window.confirm("Delete this question? This can't be undone.")) return;
 
+    // Soft delete: a doc-derived question stays flagged deleted rather than
+    // removed outright, so re-parsing its source doc later never brings it
+    // back — the doc_key is still "seen" and gets skipped.
     const { data, error } = await supabase
       .from("faqs")
-      .delete()
+      .update({ deleted: true })
       .eq("id", faq.id)
       .select();
     if (error || !data?.length) {
@@ -284,6 +302,7 @@ const Faq = () => {
   const [activeCategory, setActiveCategory] = useState(null);
   const [activeQuestionId, setActiveQuestionId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showUploadForm, setShowUploadForm] = useState(false);
   const canEdit = localStorage.getItem("auth") === "true";
   const contentRef = useRef(null);
 
@@ -291,6 +310,7 @@ const Faq = () => {
     supabase
       .from("faqs")
       .select("*")
+      .eq("deleted", false)
       .order("category", { ascending: true })
       .order("created_at", { ascending: true })
       .then(({ data, error }) => {
@@ -358,11 +378,10 @@ const Faq = () => {
   // stays short and local instead of a very long, slow single document.
   const searchGroups = groupByCategory(results);
   const activeGroup = allTabs.find(([name]) => name === activeCategory);
-  const visibleEntries = isSearching
-    ? results
-    : (activeGroup?.[1] ?? []);
+  const visibleEntries = isSearching ? results : (activeGroup?.[1] ?? []);
 
   const handleAdded = (row) => setFaqs((prev) => [...prev, row]);
+  const handleUploaded = (rows) => setFaqs((prev) => [...prev, ...rows]);
   const handleUpdated = (row) =>
     setFaqs((prev) => prev.map((f) => (f.id === row.id ? row : f)));
   const handleDeleted = (id) => {
@@ -372,6 +391,11 @@ const Faq = () => {
 
   return (
     <div className="faq-page">
+      <div className="faq-page-header">
+        <h1>FAQs</h1>
+        <p>Browse by category, or search for a topic.</p>
+      </div>
+
       <div className="faq-topbar">
         <div className="faq-search">
           <Search size={16} />
@@ -397,10 +421,21 @@ const Faq = () => {
           <button
             type="button"
             className="faq-btn"
-            onClick={() => downloadFaqsPdf(faqs)}
+            onClick={() => downloadFaqsDoc(faqs)}
           >
             <Download size={14} />
             Download all FAQs
+          </button>
+        )}
+
+        {canEdit && (
+          <button
+            type="button"
+            className="faq-btn"
+            onClick={() => setShowUploadForm((v) => !v)}
+          >
+            <FileUp size={14} />
+            Upload a document
           </button>
         )}
 
@@ -415,6 +450,14 @@ const Faq = () => {
           </button>
         )}
       </div>
+
+      {canEdit && (
+        <UploadFaqForm
+          open={showUploadForm}
+          onClose={() => setShowUploadForm(false)}
+          onAdded={handleUploaded}
+        />
+      )}
 
       {canEdit && (
         <AddFaqForm

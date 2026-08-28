@@ -14,13 +14,14 @@ import Faq from "./components/Faq";
 
 function App() {
   const location = useLocation();
-  const hideHero = location.pathname === "/login";
+  const hideHero = location.pathname === "/login" || location.pathname === "/faq";
 
   return (
     <div className="min-h-screen bg-[#eef2e8] flex flex-col">
       <Navbar />
 
-      {/* Show Hero on all pages except /login */}
+      {/* Hero is the homepage's intro banner — skip it on /login and /faq,
+          which have their own page context and don't need it repeated. */}
       {!hideHero && <Hero />}
 
       <Routes>
