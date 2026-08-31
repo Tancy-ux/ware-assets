@@ -15,6 +15,9 @@ dist-ssr
 # Generated from src/assets/*.docx by scripts/build-faqs.mjs
 src/data/faqs.json
 
+# Local Supabase CLI cache from `supabase link` / `supabase functions deploy`
+supabase/.temp/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

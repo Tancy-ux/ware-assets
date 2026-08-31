@@ -8,12 +8,14 @@ import {
   Plus,
   FileUp,
   ChevronDown,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "react-toastify";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
 import { supabase } from "./supabase";
 import AddFaqForm from "./AddFaqForm";
 import UploadFaqForm from "./UploadFaqForm";
+import AskAi from "./AskAi";
 import "./Faq.css";
 
 function matches(faq, terms) {
@@ -308,6 +310,7 @@ const Faq = () => {
   const [activeQuestionId, setActiveQuestionId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showUploadForm, setShowUploadForm] = useState(false);
+  const [showAskAi, setShowAskAi] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false); // mobile-only drawer
   const canEdit = localStorage.getItem("auth") === "true";
   const contentRef = useRef(null);
@@ -458,6 +461,15 @@ const Faq = () => {
 
         <button
           type="button"
+          className="faq-btn"
+          onClick={() => setShowAskAi((v) => !v)}
+        >
+          <Sparkles size={14} />
+          Ask AI
+        </button>
+
+        <button
+          type="button"
           className="faq-btn faq-btn-primary"
           onClick={() => setShowAddForm((v) => !v)}
         >
@@ -473,6 +485,8 @@ const Faq = () => {
           onAdded={handleUploaded}
         />
       )}
+
+      <AskAi open={showAskAi} onClose={() => setShowAskAi(false)} />
 
       <AddFaqForm
         open={showAddForm}
