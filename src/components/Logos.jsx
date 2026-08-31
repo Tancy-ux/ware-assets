@@ -1,32 +1,31 @@
 import { Download } from "lucide-react";
+import SectionHeader from "./SectionHeader";
 
 export default function Logos() {
-  const logoText = [
-    "Burnt Orange",
-    "White Logo",
-    "Atelier Logo",
-    "Atelier white",
-  ];
-
-  const textForLogos = [
-    "for light background",
-    "for dark background",
-    "for light background",
-    "for dark background",
-  ];
-
   const base = import.meta.env.BASE_URL;
+
   const logos = [
-    { display: `${base}ware.jpg`, transparent: `${base}ware-transparent.png` },
     {
+      name: "Burnt Orange",
+      use: "for light background",
+      display: `${base}ware.jpg`,
+      transparent: `${base}ware-transparent.png`,
+    },
+    {
+      name: "White Logo",
+      use: "for dark background",
       display: `${base}ware-white.jpg`,
       transparent: `${base}ware-white-transparent.png`,
     },
     {
+      name: "Atelier Logo",
+      use: "for light background",
       display: `${base}ware-atelier.jpg`,
       transparent: `${base}ware-atelier-transparent.png`,
     },
     {
+      name: "Atelier white",
+      use: "for dark background",
       display: `${base}ware-atelier-white.jpg`,
       transparent: `${base}atelier-white-transparent.png`,
     },
@@ -48,81 +47,69 @@ export default function Logos() {
   };
 
   return (
-    <div id="logos">
-      <div className="bg-[#eef2e8] text-gray py-16 lg:py-24 px-4">
-        {/* Section Title */}
-        <div className="max-w-6xl mx-auto text-center mb-10">
-          <h1 className="text-2xl lg:text-4xl font-bold tracking-tight">
-            Brand Logos
-          </h1>
-          <p className="text-gray-600 text-xs md:text-lg mt-3">
-            Download official Ware brand logos for marketing and press use.
-          </p>
-        </div>
+    <div id="logos" className="bg-[#eef2e8] text-gray py-8 lg:py-10">
+      <SectionHeader
+        title="Brand logos"
+        subtitle="For marketing and press use"
+      />
 
-        {/* Logo Cards */}
-        <div className="max-w-6xl mx-auto grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-          {logoText.map((text, index) => {
-            const logo = logos[index];
-            const textForLogo = textForLogos[index];
+      {/* Logo Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+        {logos.map((logo) => (
+          <div
+            key={logo.name}
+            className="bg-white border border-black/5 rounded-xl shadow-sm hover:shadow-md transition flex flex-col items-center text-center gap-3 p-4 sm:p-6"
+          >
+            {/* Logo Display */}
+            <div className="flex items-center justify-center h-16 sm:h-20">
+              <img
+                src={logo.display}
+                loading="lazy"
+                alt={logo.name}
+                className="max-h-full w-auto object-contain"
+              />
+            </div>
 
-            return (
-              <div
-                key={index}
-                className="bg-white/60 backdrop-blur-md border border-white/40 rounded-2xl shadow-sm hover:shadow-lg transition flex flex-col items-center text-center gap-3 p-4 sm:p-6"
+            {/* Logo Info */}
+            <div>
+              <h3 className="text-sm sm:text-base font-semibold">
+                {logo.name}
+              </h3>
+              <p className="text-gray-600 italic text-xs mt-0.5">
+                {logo.use}
+              </p>
+            </div>
+
+            {/* Download Buttons */}
+            <div className="flex gap-2 w-full">
+              <button
+                onClick={() =>
+                  downloadFile(
+                    logo.transparent,
+                    `${logo.name.toLowerCase().replace(/ /g, "_")}.png`,
+                  )
+                }
+                className="flex-1 flex items-center justify-center gap-1.5 bg-[#2e4034] text-white px-2 py-1.5 rounded-md text-xs hover:bg-[#243329] transition"
               >
-                {/* Logo Display */}
-                <div className="flex items-center justify-center h-16 sm:h-20">
-                  <img
-                    src={logo.display}
-                    loading="lazy"
-                    alt={text}
-                    className="max-h-full w-auto object-contain"
-                  />
-                </div>
+                <Download size={13} />
+                PNG
+              </button>
 
-                {/* Logo Info */}
-                <div>
-                  <h2 className="text-sm sm:text-base font-semibold">
-                    {text}
-                  </h2>
-                  <p className="text-gray-600 italic text-xs mt-0.5">
-                    {textForLogo}
-                  </p>
-                </div>
-
-                {/* Download Buttons */}
-                <div className="flex gap-2 w-full">
-                  <button
-                    onClick={() =>
-                      downloadFile(
-                        logo.transparent,
-                        `${text.toLowerCase().replace(/ /g, "_")}.png`,
-                      )
-                    }
-                    className="flex-1 flex items-center justify-center gap-1.5 bg-gray-800 text-white px-2 py-1.5 rounded-lg text-xs hover:bg-black transition"
-                  >
-                    <Download size={13} />
-                    PNG
-                  </button>
-
-                  <button
-                    onClick={() =>
-                      downloadFile(
-                        logo.display,
-                        `${text.toLowerCase().replace(/ /g, "_")}.jpg`,
-                      )
-                    }
-                    className="flex-1 flex items-center justify-center gap-1.5 border border-gray-300 px-2 py-1.5 rounded-lg text-xs hover:bg-gray-100 transition"
-                  >
-                    <Download size={13} />
-                    JPG
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              <button
+                onClick={() =>
+                  downloadFile(
+                    logo.display,
+                    `${logo.name.toLowerCase().replace(/ /g, "_")}.jpg`,
+                  )
+                }
+                className="flex-1 flex items-center justify-center gap-1.5 border border-gray-300 px-2 py-1.5 rounded-md text-xs hover:bg-gray-50 transition"
+              >
+                <Download size={13} />
+                JPG
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

@@ -11,32 +11,28 @@ export default function Navbar() {
   }
 
   return (
-    <div className="sticky top-0 z-50 bg-[#eef2e8]/90 backdrop-blur-md text-green border-b border-gray-200">
-      {" "}
-      <div className="max-w-8xl mx-auto flex items-center justify-between px-4 py-4 md:px-12">
+    <div className="sticky top-0 z-50 bg-green text-white">
+      <div className="max-w-7xl mx-auto flex items-center justify-between gap-x-6 px-4 py-3 md:px-8">
         {/* Logo */}
         <Link
           to="/"
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-          className="font-bold tracking-tight text-lg sm:text-xl md:text-3xl"
+          className="shrink-0"
         >
-          Ware Innovations
+          <img
+            src={`${import.meta.env.BASE_URL}ware-white-transparent.png`}
+            alt="ware"
+            className="h-7 md:h-8 w-auto"
+          />
         </Link>
 
         {/* Navigation */}
-        <div className="flex items-center gap-3 sm:gap-4 md:gap-6 text-sm sm:text-base md:text-lg font-semibold">
-          {/* <Link to="/assets" className="hover:opacity-70 transition">
-            Downloads
-          </Link>
-
-          {/* separator only desktop
-          <span className="hidden md:inline">|</span> */}
-
+        <div className="flex items-center gap-3 sm:gap-4 text-sm sm:text-base font-semibold">
           <Link to="/faq" className="hover:opacity-70 transition">
             FAQs
           </Link>
 
-          <span className="hidden md:inline">|</span>
+          <span className="hidden md:inline text-white/30">|</span>
 
           {!isAuth && (
             <Link to="/login" className="hover:opacity-70 transition">

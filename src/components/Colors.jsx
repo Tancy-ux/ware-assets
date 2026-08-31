@@ -1,16 +1,17 @@
 import { Copy } from "lucide-react";
 import { toast } from "react-toastify";
+import SectionHeader from "./SectionHeader";
+
+const colors = [
+  { name: "Ware's Light Cream", hex: "fae3ce", dark: false },
+  { name: "Ware's Burnt Orange", hex: "bf5e35", dark: true },
+  { name: "Ware's Light Green", hex: "a8ab65", dark: false },
+  { name: "Ware's Dark Green", hex: "505e37", dark: true },
+  { name: "Ware's Off-white", hex: "e8e8e1", dark: false },
+  { name: "Ware's Black", hex: "565656", dark: true },
+];
 
 export default function Colors() {
-  const text = [
-    "Ware's Light Cream",
-    "Ware's Burnt Orange",
-    "Ware's Light Green",
-    "Ware's Dark Green",
-    "Ware's Off-white",
-    "Ware's Black",
-  ];
-  const hexcodes = ["fae3ce", "bf5e35", "a8ab65", "505e37", "e8e8e1", "565656"];
   const copy = async (hex) => {
     const text = `#${hex}`;
 
@@ -22,48 +23,36 @@ export default function Colors() {
       console.error(error);
     }
   };
+
   return (
-    <div id="colors" className="bg-[#eef2e8] text-gray">
-      <div className="flex flex-col items-center justify-center px-4 py-10 md:py-25 gap-5">
-        <div className="flex flex-col items-center">
-          <p className="text-2xl md:text-4xl font-bold pb-10">Brand Colors</p>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-5 md:gap-8 w-full max-w-6xl mx-auto">
-          {text.map((text, index) => {
-            const hex = hexcodes[index];
+    <div id="colors" className="bg-[#eef2e8] text-gray py-8 lg:py-10">
+      <SectionHeader
+        title="Brand colors"
+        subtitle="Click a swatch to copy the hex"
+      />
 
-            return (
-              <div
-                key={index}
-                className="group flex flex-col items-center gap-2"
-              >
-                {/* Color Tile */}
-                <div
-                  className="relative w-full aspect-square rounded-2xl shadow-md flex items-center justify-center cursor-pointer overflow-hidden"
-                  style={{ backgroundColor: `#${hex}` }}
-                  onClick={() => copy(hex)}
-                >
-                  <div className="opacity-0 group-hover:opacity-100 transition bg-white/30 backdrop-blur-md p-3 rounded-full">
-                    <Copy size={20} />
-                  </div>
-                </div>
-
-                {/* Color Name */}
-                <div className="text-sm md:text-base font-semibold text-center">
-                  {text}
-                </div>
-
-                {/* Hex */}
-                <button
-                  onClick={() => copy(hex)}
-                  className="text-xs tracking-widest text-gray-600 hover:text-black transition cursor-pointer"
-                >
-                  #{hex}
-                </button>
-              </div>
-            );
-          })}
-        </div>
+      <div className="flex flex-col sm:flex-row rounded-xl border border-black/5 shadow-sm overflow-hidden">
+        {colors.map(({ name, hex, dark }) => (
+          <button
+            key={hex}
+            type="button"
+            onClick={() => copy(hex)}
+            style={{ backgroundColor: `#${hex}` }}
+            className={`group flex-1 flex flex-col justify-end items-start gap-0.5 text-left h-28 sm:h-40 px-4 py-3.5 transition ${
+              dark ? "text-white/90" : "text-black/70"
+            }`}
+          >
+            <span
+              className={`self-end opacity-0 group-hover:opacity-100 transition p-1.5 rounded-full mb-auto ${
+                dark ? "bg-white/20" : "bg-black/10"
+              }`}
+            >
+              <Copy size={13} />
+            </span>
+            <span className="text-xs sm:text-sm font-medium">{name}</span>
+            <span className="text-[11px] font-mono opacity-75">#{hex}</span>
+          </button>
+        ))}
       </div>
     </div>
   );

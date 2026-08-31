@@ -126,6 +126,7 @@ function CategoryTab({
   items,
   internal,
   active,
+  expanded,
   onSelectCategory,
   activeQuestionId,
   onSelectQuestion,
@@ -140,9 +141,13 @@ function CategoryTab({
         <span className="faq-label">{displayCategory(name, internal)}</span>
         <span className="faq-meta">
           <span className="faq-count">{items.length}</span>
+          <ChevronDown
+            size={13}
+            className={`faq-chevron ${expanded ? "faq-rotate" : ""}`}
+          />
         </span>
       </button>
-      {active && (
+      {expanded && (
         <div className="faq-question-list">
           {items.map((faq) => (
             <button
@@ -160,7 +165,7 @@ function CategoryTab({
   );
 }
 
-function QaEntry({ faq, terms, canEdit, isActive, onUpdated, onDeleted }) {
+function QaEntry({ faq, terms, isActive, onUpdated, onDeleted }) {
   const [editing, setEditing] = useState(false);
   const [question, setQuestion] = useState(faq.question);
   const [answer, setAnswer] = useState(faq.answer);
@@ -268,26 +273,24 @@ function QaEntry({ faq, terms, canEdit, isActive, onUpdated, onDeleted }) {
         <>
           <div className="faq-qa-question">
             <h2>{highlight(faq.question, terms)}</h2>
-            {canEdit && (
-              <div className="faq-qa-actions">
-                <button
-                  type="button"
-                  onClick={startEdit}
-                  className="faq-icon-btn"
-                  aria-label="Edit"
-                >
-                  <Pencil size={15} />
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDelete}
-                  className="faq-icon-btn faq-danger"
-                  aria-label="Delete"
-                >
-                  <Trash2 size={15} />
-                </button>
-              </div>
-            )}
+            <div className="faq-qa-actions">
+              <button
+                type="button"
+                onClick={startEdit}
+                className="faq-icon-btn"
+                aria-label="Edit"
+              >
+                <Pencil size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                className="faq-icon-btn faq-danger"
+                aria-label="Delete"
+              >
+                <Trash2 size={15} />
+              </button>
+            </div>
           </div>
           <p className="faq-qa-answer">{highlight(faq.answer, terms)}</p>
         </>
@@ -301,6 +304,7 @@ const Faq = () => {
   const [faqs, setFaqs] = useState([]);
   const [status, setStatus] = useState("loading"); // loading | ready | error
   const [activeCategory, setActiveCategory] = useState(null);
+  const [expandedCategory, setExpandedCategory] = useState(null); // which tab's question list is open in the sidebar
   const [activeQuestionId, setActiveQuestionId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showUploadForm, setShowUploadForm] = useState(false);
@@ -355,14 +359,23 @@ const Faq = () => {
   useEffect(() => {
     if (allTabs.length === 0) return;
     if (!allTabs.some(([name]) => name === activeCategory)) {
-      setActiveCategory(allTabs[0][0]);
+      const first = allTabs[0][0];
+      setActiveCategory(first);
+      setExpandedCategory(first);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [faqs]);
 
+  // Clicking the already-active category again collapses its question list
+  // in the sidebar instead of doing nothing — the main content stays put.
   const selectTab = (name) => {
     setQuery("");
-    setActiveCategory(name);
+    if (name === activeCategory) {
+      setExpandedCategory((prev) => (prev === name ? null : name));
+    } else {
+      setActiveCategory(name);
+      setExpandedCategory(name);
+    }
     setActiveQuestionId(null);
     setSidebarOpen(false); // collapse the mobile drawer back to the toggle bar
   };
@@ -443,16 +456,14 @@ const Faq = () => {
           </button>
         )}
 
-        {canEdit && (
-          <button
-            type="button"
-            className="faq-btn faq-btn-primary"
-            onClick={() => setShowAddForm((v) => !v)}
-          >
-            <Plus size={14} />
-            Add a question
-          </button>
-        )}
+        <button
+          type="button"
+          className="faq-btn faq-btn-primary"
+          onClick={() => setShowAddForm((v) => !v)}
+        >
+          <Plus size={14} />
+          Add a question
+        </button>
       </div>
 
       {canEdit && (
@@ -463,14 +474,12 @@ const Faq = () => {
         />
       )}
 
-      {canEdit && (
-        <AddFaqForm
-          open={showAddForm}
-          onClose={() => setShowAddForm(false)}
-          categories={categoryNames}
-          onAdded={handleAdded}
-        />
-      )}
+      <AddFaqForm
+        open={showAddForm}
+        onClose={() => setShowAddForm(false)}
+        categories={categoryNames}
+        onAdded={handleAdded}
+      />
 
       {status === "loading" && <p className="faq-empty">Loading FAQs...</p>}
 
@@ -513,6 +522,7 @@ const Faq = () => {
                 items={items}
                 internal={items[0]?.internal}
                 active={!isSearching && name === activeCategory}
+                expanded={!isSearching && name === expandedCategory}
                 onSelectCategory={() => selectTab(name)}
                 activeQuestionId={activeQuestionId}
                 onSelectQuestion={selectQuestion}
@@ -545,7 +555,6 @@ const Faq = () => {
                     key={faq.id}
                     faq={faq}
                     terms={terms}
-                    canEdit={canEdit}
                     onUpdated={handleUpdated}
                     onDeleted={handleDeleted}
                   />
@@ -557,7 +566,6 @@ const Faq = () => {
                   key={faq.id}
                   faq={faq}
                   terms={terms}
-                  canEdit={canEdit}
                   isActive={faq.id === activeQuestionId}
                   onUpdated={handleUpdated}
                   onDeleted={handleDeleted}
