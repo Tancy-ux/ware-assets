@@ -1,172 +1,217 @@
-import { useState } from "react";
-import { Sparkles, X, Pencil } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Sparkles, X, Pencil, Send } from "lucide-react";
 import { toast } from "react-toastify";
 import { supabase } from "./supabase";
 
-// Corrections get saved as real rows in this category, so they're easy to
-// find and re-file later, and — since the ask-faq function reads straight
-// from the faqs table — they immediately improve future AI answers too.
-const CORRECTIONS_CATEGORY = "AI Corrections";
+// Improved answers get saved as real rows in this category, so they're
+// easy to find, review, and hand off — and since the ask-faq function
+// reads straight from the faqs table, they immediately improve future
+// answers too.
+const CORRECTIONS_CATEGORY = "WhatsApp Bot FAQ";
 
-// Sends the question to the "ask-faq" Supabase Edge Function, which is
-// the only place the Gemini API key ever lives — nothing AI-related
-// touches the browser except this request/response.
+let nextId = 1;
+
+// A small chat popup for testing the FAQ bot turn by turn. Each question
+// is answered independently (no conversation memory is sent to the
+// model) — that matches how the FAQ itself works and keeps things simple.
 const AskAi = ({ open, onClose, onSaved }) => {
-  const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const listRef = useRef(null);
 
-  const [correcting, setCorrecting] = useState(false);
-  const [correctedAnswer, setCorrectedAnswer] = useState("");
-  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (!listRef.current) return;
+    listRef.current.scrollTo({
+      top: listRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [messages]);
 
-  const handleAsk = async (e) => {
-    e.preventDefault();
-    if (!question.trim() || loading) return;
-
-    setLoading(true);
-    setError("");
-    setAnswer("");
-    setCorrecting(false);
-
-    const { data, error: fnError } = await supabase.functions.invoke(
-      "ask-faq",
-      { body: { question: question.trim() } },
+  const patchMessage = (id, patch) => {
+    setMessages((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, ...patch } : m)),
     );
-    setLoading(false);
+  };
 
-    if (fnError || data?.error) {
-      setError("Couldn't get an answer just now. Try again in a moment.");
-      console.error(fnError ?? data?.error);
+  const send = async (e) => {
+    e.preventDefault();
+    const question = input.trim();
+    if (!question) return;
+    setInput("");
+
+    const id = nextId++;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id,
+        question,
+        answer: null,
+        loading: true,
+        error: null,
+        correcting: false,
+        correctedText: "",
+        saving: false,
+        saved: false,
+      },
+    ]);
+
+    const { data, error } = await supabase.functions.invoke("ask-faq", {
+      body: { question },
+    });
+
+    if (error || data?.error) {
+      console.error(error ?? data?.error);
+      patchMessage(id, {
+        loading: false,
+        error: "Couldn't get an answer just now. Try again in a moment.",
+      });
       return;
     }
-    setAnswer(data.answer);
+    patchMessage(id, { loading: false, answer: data.answer });
   };
 
-  const startCorrection = () => {
-    setCorrectedAnswer(answer);
-    setCorrecting(true);
-  };
+  const startCorrection = (msg) =>
+    patchMessage(msg.id, { correcting: true, correctedText: msg.answer });
 
-  const handleSaveCorrection = async (e) => {
-    e.preventDefault();
-    if (!correctedAnswer.trim()) return;
+  const saveCorrection = async (msg) => {
+    if (!msg.correctedText.trim()) return;
 
-    setSaving(true);
+    patchMessage(msg.id, { saving: true });
     const { data, error } = await supabase
       .from("faqs")
       .insert({
-        question: question.trim(),
-        answer: correctedAnswer.trim(),
+        question: msg.question,
+        answer: msg.correctedText.trim(),
         category: CORRECTIONS_CATEGORY,
       })
       .select()
       .single();
-    setSaving(false);
 
     if (error) {
-      toast.error("Couldn't save that correction. Check the Supabase setup.");
+      toast.error("Couldn't save that. Check the Supabase setup.");
       console.error(error);
+      patchMessage(msg.id, { saving: false });
       return;
     }
 
-    toast.success('Saved under "AI Corrections" — it\'ll also improve future answers.');
+    toast.success(`Saved under "${CORRECTIONS_CATEGORY}"`);
     onSaved?.(data);
-    setCorrecting(false);
+    patchMessage(msg.id, {
+      saving: false,
+      correcting: false,
+      saved: true,
+      answer: msg.correctedText.trim(),
+    });
   };
 
   if (!open) return null;
 
   return (
-    <div className="faq-add-panel">
-      <div className="faq-qa-question">
-        <h3 className="faq-ask-ai-title">
+    <div className="faq-chat-popup">
+      <div className="faq-chat-header">
+        <span className="faq-chat-title">
           <Sparkles size={15} />
           Ask AI
-        </h3>
+        </span>
         <button
           type="button"
           onClick={onClose}
           className="faq-icon-btn"
           aria-label="Close"
         >
-          <X size={15} />
+          <X size={16} />
         </button>
       </div>
 
-      <form onSubmit={handleAsk} className="faq-edit-form">
-        <label>Ask anything covered in the FAQs</label>
+      <div className="faq-chat-messages" ref={listRef}>
+        {messages.length === 0 && (
+          <p className="faq-chat-empty">
+            Ask it anything a customer might. If a reply isn't quite right,
+            hit "Improve answer" — saved answers collect under "
+            {CORRECTIONS_CATEGORY}" so they're ready to hand off.
+          </p>
+        )}
+
+        {messages.map((m) => (
+          <div key={m.id} className="faq-chat-turn">
+            <div className="faq-chat-bubble faq-chat-user">{m.question}</div>
+
+            {m.loading && (
+              <div className="faq-chat-bubble faq-chat-ai faq-chat-thinking">
+                Thinking...
+              </div>
+            )}
+
+            {m.error && (
+              <div className="faq-chat-bubble faq-chat-ai faq-chat-error">
+                {m.error}
+              </div>
+            )}
+
+            {m.answer && !m.correcting && (
+              <div className="faq-chat-bubble faq-chat-ai">
+                {m.answer}
+                <div className="faq-chat-bubble-actions">
+                  {m.saved ? (
+                    <span className="faq-chat-saved">Saved ✓</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="faq-chat-improve-btn"
+                      onClick={() => startCorrection(m)}
+                    >
+                      <Pencil size={12} />
+                      Improve answer
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {m.correcting && (
+              <div className="faq-chat-bubble faq-chat-ai faq-chat-editing faq-edit-form">
+                <textarea
+                  value={m.correctedText}
+                  onChange={(e) =>
+                    patchMessage(m.id, { correctedText: e.target.value })
+                  }
+                  rows={4}
+                  autoFocus
+                />
+                <div className="faq-edit-actions">
+                  <button
+                    type="button"
+                    className="faq-btn faq-btn-ghost"
+                    onClick={() => patchMessage(m.id, { correcting: false })}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="faq-btn faq-btn-primary"
+                    disabled={m.saving}
+                    onClick={() => saveCorrection(m)}
+                  >
+                    {m.saving ? "Saving..." : "Save improved answer"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <form onSubmit={send} className="faq-chat-input-row">
         <input
           type="text"
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          placeholder="e.g. do you ship internationally?"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Type a question like a customer would…"
         />
-        <div className="faq-edit-actions">
-          <button
-            type="submit"
-            disabled={loading}
-            className="faq-btn faq-btn-primary"
-          >
-            {loading ? "Thinking..." : "Ask"}
-          </button>
-        </div>
+        <button type="submit" className="faq-chat-send-btn" aria-label="Send">
+          <Send size={15} />
+        </button>
       </form>
-
-      {error && <p className="faq-ask-ai-error">{error}</p>}
-
-      {answer && (
-        <div className="faq-ask-ai-answer">
-          <p className="faq-qa-answer">{answer}</p>
-          <p className="faq-ask-ai-disclaimer">
-            AI-generated from our FAQ content. Always double check anything
-            important.
-          </p>
-
-          {!correcting && (
-            <button
-              type="button"
-              className="faq-btn faq-ask-ai-correct-btn"
-              onClick={startCorrection}
-            >
-              <Pencil size={13} />
-              Not quite right? Correct it
-            </button>
-          )}
-
-          {correcting && (
-            <form
-              onSubmit={handleSaveCorrection}
-              className="faq-edit-form faq-ask-ai-correct-form"
-            >
-              <label>Corrected answer</label>
-              <textarea
-                value={correctedAnswer}
-                onChange={(e) => setCorrectedAnswer(e.target.value)}
-                rows={4}
-                required
-              />
-              <div className="faq-edit-actions">
-                <button
-                  type="button"
-                  onClick={() => setCorrecting(false)}
-                  className="faq-btn faq-btn-ghost"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="faq-btn faq-btn-primary"
-                >
-                  {saving ? "Saving..." : "Save as FAQ"}
-                </button>
-              </div>
-            </form>
-          )}
-        </div>
-      )}
     </div>
   );
 };
