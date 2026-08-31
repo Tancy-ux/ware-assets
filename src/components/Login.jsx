@@ -34,6 +34,8 @@ export default function Login() {
             <label className="block text-gray-700 mb-1">Username</label>
             <input
               type="text"
+              name="username"
+              autoComplete="username"
               className="w-full p-3 rounded-xl bg-[#eef2e8]/40 border border-white/80 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-black/10"
               placeholder="you@example.com"
               onChange={(e) => setInput(e.target.value)}
@@ -43,7 +45,9 @@ export default function Login() {
           <div>
             <label className="block text-gray-700 mb-1">Password</label>
             <input
-              type="text"
+              type="password"
+              name="password"
+              autoComplete="current-password"
               className="w-full p-3 rounded-xl bg-[#eef2e8]/40 border border-white/80 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-black/10"
               placeholder="••••••••"
               onChange={(e) => setPass(e.target.value)}
