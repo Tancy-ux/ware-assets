@@ -426,6 +426,14 @@
   color: var(--faq-text-muted);
   margin: 10px 0 0;
 }
+.faq-ask-ai-correct-btn {
+  margin-top: 12px;
+}
+.faq-ask-ai-correct-form {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--faq-border);
+}
 .faq-checkbox-row {
   display: flex;
   align-items: center;

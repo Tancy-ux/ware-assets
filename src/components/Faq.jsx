@@ -486,7 +486,11 @@ const Faq = () => {
         />
       )}
 
-      <AskAi open={showAskAi} onClose={() => setShowAskAi(false)} />
+      <AskAi
+        open={showAskAi}
+        onClose={() => setShowAskAi(false)}
+        onSaved={handleAdded}
+      />
 
       <AddFaqForm
         open={showAddForm}

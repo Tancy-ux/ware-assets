@@ -1,15 +1,25 @@
 import { useState } from "react";
-import { Sparkles, X } from "lucide-react";
+import { Sparkles, X, Pencil } from "lucide-react";
+import { toast } from "react-toastify";
 import { supabase } from "./supabase";
+
+// Corrections get saved as real rows in this category, so they're easy to
+// find and re-file later, and — since the ask-faq function reads straight
+// from the faqs table — they immediately improve future AI answers too.
+const CORRECTIONS_CATEGORY = "AI Corrections";
 
 // Sends the question to the "ask-faq" Supabase Edge Function, which is
 // the only place the Gemini API key ever lives — nothing AI-related
 // touches the browser except this request/response.
-const AskAi = ({ open, onClose }) => {
+const AskAi = ({ open, onClose, onSaved }) => {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  const [correcting, setCorrecting] = useState(false);
+  const [correctedAnswer, setCorrectedAnswer] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const handleAsk = async (e) => {
     e.preventDefault();
@@ -18,6 +28,7 @@ const AskAi = ({ open, onClose }) => {
     setLoading(true);
     setError("");
     setAnswer("");
+    setCorrecting(false);
 
     const { data, error: fnError } = await supabase.functions.invoke(
       "ask-faq",
@@ -31,6 +42,38 @@ const AskAi = ({ open, onClose }) => {
       return;
     }
     setAnswer(data.answer);
+  };
+
+  const startCorrection = () => {
+    setCorrectedAnswer(answer);
+    setCorrecting(true);
+  };
+
+  const handleSaveCorrection = async (e) => {
+    e.preventDefault();
+    if (!correctedAnswer.trim()) return;
+
+    setSaving(true);
+    const { data, error } = await supabase
+      .from("faqs")
+      .insert({
+        question: question.trim(),
+        answer: correctedAnswer.trim(),
+        category: CORRECTIONS_CATEGORY,
+      })
+      .select()
+      .single();
+    setSaving(false);
+
+    if (error) {
+      toast.error("Couldn't save that correction. Check the Supabase setup.");
+      console.error(error);
+      return;
+    }
+
+    toast.success('Saved under "AI Corrections" — it\'ll also improve future answers.');
+    onSaved?.(data);
+    setCorrecting(false);
   };
 
   if (!open) return null;
@@ -80,6 +123,48 @@ const AskAi = ({ open, onClose }) => {
             AI-generated from our FAQ content. Always double check anything
             important.
           </p>
+
+          {!correcting && (
+            <button
+              type="button"
+              className="faq-btn faq-ask-ai-correct-btn"
+              onClick={startCorrection}
+            >
+              <Pencil size={13} />
+              Not quite right? Correct it
+            </button>
+          )}
+
+          {correcting && (
+            <form
+              onSubmit={handleSaveCorrection}
+              className="faq-edit-form faq-ask-ai-correct-form"
+            >
+              <label>Corrected answer</label>
+              <textarea
+                value={correctedAnswer}
+                onChange={(e) => setCorrectedAnswer(e.target.value)}
+                rows={4}
+                required
+              />
+              <div className="faq-edit-actions">
+                <button
+                  type="button"
+                  onClick={() => setCorrecting(false)}
+                  className="faq-btn faq-btn-ghost"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="faq-btn faq-btn-primary"
+                >
+                  {saving ? "Saving..." : "Save as FAQ"}
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       )}
     </div>
