@@ -7,6 +7,7 @@ import {
   Download,
   Plus,
   FileUp,
+  ChevronDown,
 } from "lucide-react";
 import { toast } from "react-toastify";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
@@ -303,6 +304,7 @@ const Faq = () => {
   const [activeQuestionId, setActiveQuestionId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showUploadForm, setShowUploadForm] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false); // mobile-only drawer
   const canEdit = localStorage.getItem("auth") === "true";
   const contentRef = useRef(null);
 
@@ -362,12 +364,14 @@ const Faq = () => {
     setQuery("");
     setActiveCategory(name);
     setActiveQuestionId(null);
+    setSidebarOpen(false); // collapse the mobile drawer back to the toggle bar
   };
 
   // Jumps to a specific question within the current (short) tab's content —
   // since it's scoped to one category, the scroll distance stays small.
   const selectQuestion = (id) => {
     setActiveQuestionId(id);
+    setSidebarOpen(false);
     const node = contentRef.current?.querySelector(`[data-faq-id="${id}"]`);
     node?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
@@ -485,7 +489,23 @@ const Faq = () => {
 
       {status === "ready" && faqs.length > 0 && (
         <div className="faq-layout">
-          <nav className="faq-sidebar">
+          <button
+            type="button"
+            className="faq-sidebar-toggle"
+            onClick={() => setSidebarOpen((v) => !v)}
+          >
+            <span>
+              {isSearching
+                ? "Browse categories"
+                : (activeCategory ?? "Browse categories")}
+            </span>
+            <ChevronDown
+              size={18}
+              className={sidebarOpen ? "faq-rotate" : ""}
+            />
+          </button>
+
+          <nav className={`faq-sidebar ${sidebarOpen ? "faq-sidebar-open" : ""}`}>
             {allTabs.map(([name, items]) => (
               <CategoryTab
                 key={name}

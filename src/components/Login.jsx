@@ -20,13 +20,13 @@ export default function Login() {
     }
   }
   return (
-    <div className="pt-60 flex items-center justify-center bg-[#eef2e8] relative">
-      <div className="absolute w-[600px] h-[500px] bg-[#eef2e8]/60 blur-[180px] rounded-full"></div>
+    <div className="pt-16 sm:pt-32 md:pt-60 px-4 flex items-center justify-center bg-[#eef2e8] relative overflow-hidden">
+      <div className="absolute w-[90vw] max-w-[600px] h-[400px] sm:h-[500px] bg-[#eef2e8]/60 blur-[180px] rounded-full"></div>
 
-      <div className="relative w-full max-w-xl p-10 rounded-3xl bg-[#eef2e8]/20 backdrop-blur-3xl border border-white/60 shadow-[0_0_60px_rgba(0,0,0,0.08)]">
+      <div className="relative w-full max-w-xl p-6 sm:p-10 rounded-3xl bg-[#eef2e8]/20 backdrop-blur-3xl border border-white/60 shadow-[0_0_60px_rgba(0,0,0,0.08)]">
         <div className="absolute inset-0 rounded-3xl bg-linear-to-br from-white/70 to-transparent opacity-40 pointer-events-none"></div>
 
-        <h1 className="text-3xl font-semibold text-green text-center mb-10">
+        <h1 className="text-2xl sm:text-3xl font-semibold text-green text-center mb-8 sm:mb-10">
           Access Ware brand assets
         </h1>
         <form className="space-y-6" onSubmit={handleLogin}>

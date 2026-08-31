@@ -28,43 +28,40 @@ export default function Fonts() {
         Brand Fonts
       </h1>
 
-      <div className="flex flex-col gap-10 w-full max-w-6xl">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-6xl">
         {fonts.map((font, index) => (
           <div
             key={index}
-            className="flex flex-col md:flex-row w-full items-center gap-10 px-16 py-8 glass rounded-2xl"
+            className="flex flex-col gap-4 p-6 glass rounded-2xl"
           >
             {/* FONT NAME */}
-            <h2
-              className={`uppercase text-center md:text-left text-3xl md:text-5xl w-full md:w-1/2 ${font.class}`}
-            >
+            <h2 className={`uppercase text-3xl sm:text-4xl ${font.class}`}>
               {font.name}
             </h2>
 
             {/* DESCRIPTION */}
-            <div className="flex flex-col gap-5 w-full md:w-1/2">
-              <div>
-                <p className="font-semibold text-xl pb-2">{font.style}</p>
-                <p className="text-gray-700">{font.usage}</p>
-              </div>
-
-              {/* BODY PREVIEW */}
-              {font.body && (
-                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-                  <p className="font-bold text-2xl sm:text-3xl">Headings</p>
-                  <p className="font-medium">{font.body}</p>
-                  <p className="italic">Italic text</p>
-                </div>
-              )}
-
-              <a
-                href={font.link}
-                target="_blank"
-                className="btn btn-outline btn-neutral w-fit"
-              >
-                Get it here
-              </a>
+            <div>
+              <p className="font-semibold text-lg pb-1">{font.style}</p>
+              <p className="text-gray-700 text-sm">{font.usage}</p>
             </div>
+
+            {/* BODY PREVIEW */}
+            {font.body && (
+              <div className="flex items-center gap-4 text-sm">
+                <p className="font-bold text-lg">Headings</p>
+                <p className="font-medium">{font.body}</p>
+                <p className="italic">Italic text</p>
+              </div>
+            )}
+
+            <a
+              href={font.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-outline btn-neutral btn-sm w-fit mt-auto"
+            >
+              Get it here
+            </a>
           </div>
         ))}
       </div>

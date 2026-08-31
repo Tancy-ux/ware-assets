@@ -8,7 +8,7 @@ export default function Hero() {
         {/* LOGO + TAGLINE */}
         <div className="flex flex-col items-center gap-2">
           <img
-            src="./ware-white-transparent.png"
+            src={`${import.meta.env.BASE_URL}ware-white-transparent.png`}
             alt="ware"
             className="w-28 md:w-36"
           />

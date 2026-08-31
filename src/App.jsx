@@ -8,7 +8,6 @@ import Hero from "./components/Hero";
 import Footer from "./components/Footer";
 import Fonts from "./components/Fonts";
 import Login from "./components/Login";
-import ProtectedRoute from "./components/ProtectedRoute";
 import AssetLibrary from "./components/AssetLibrary";
 import Faq from "./components/Faq";
 
@@ -27,43 +26,12 @@ function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
 
-        <Route
-          path="/"
-          element={
-            <ProtectedRoute>
-              <HomePage />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/" element={<HomePage />} />
         <Route path="/assets" element={<AssetLibrary />} />
         <Route path="/faq" element={<Faq />} />
-
-        <Route
-          path="/colors"
-          element={
-            <ProtectedRoute>
-              <Colors />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/logos"
-          element={
-            <ProtectedRoute>
-              <Logos />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/fonts"
-          element={
-            <ProtectedRoute>
-              <Fonts />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/colors" element={<Colors />} />
+        <Route path="/logos" element={<Logos />} />
+        <Route path="/fonts" element={<Fonts />} />
       </Routes>
 
       <ToastContainer />
