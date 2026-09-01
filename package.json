@@ -9,6 +9,7 @@
     "prebuild": "npm run build:faqs",
     "dev": "vite",
     "build": "vite build",
+    "postbuild": "node scripts/copy-404.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "deploy": "npm run build && gh-pages -d dist"
