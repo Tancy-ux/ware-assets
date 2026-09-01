@@ -112,6 +112,7 @@
   cursor: pointer;
   color: var(--faq-text-muted);
   display: flex;
+  transition: color 0.15s ease;
 }
 .faq-search-clear:hover {
   color: var(--faq-text);
@@ -132,6 +133,7 @@
   gap: 6px;
   cursor: pointer;
   white-space: nowrap;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
 }
 .faq-btn:hover {
   background: #fafaf8;
@@ -259,6 +261,7 @@
   cursor: pointer;
   line-height: 1.4;
   font-family: inherit;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 .faq-question-item:hover {
   background: var(--faq-accent-soft);
@@ -340,6 +343,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 .faq-icon-btn:hover {
   background: #f0efea;
@@ -523,6 +527,7 @@
   border: none;
   cursor: pointer;
   padding: 0;
+  transition: color 0.15s ease;
 }
 .faq-chat-improve-btn:hover {
   color: var(--faq-accent);
@@ -557,6 +562,7 @@
   font-family: inherit;
   background: #fff;
   color: var(--faq-text);
+  transition: border-color 0.15s ease;
 }
 .faq-chat-input-row input:focus {
   outline: none;
@@ -574,6 +580,7 @@
   justify-content: center;
   border: none;
   cursor: pointer;
+  transition: background-color 0.15s ease;
 }
 .faq-chat-send-btn:hover {
   background: #253429;
@@ -606,6 +613,7 @@
   color: var(--faq-text-secondary);
   cursor: pointer;
   background: #fafaf8;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 .faq-upload-drop:hover {
   background: var(--faq-accent-soft);
@@ -627,6 +635,7 @@
   padding: 10px 12px;
   border-bottom: 1px solid var(--faq-border);
   cursor: pointer;
+  transition: background-color 0.15s ease;
 }
 .faq-upload-preview-item:last-child {
   border-bottom: none;
