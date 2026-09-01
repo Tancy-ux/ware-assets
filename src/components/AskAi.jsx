@@ -19,6 +19,14 @@ const AskAi = ({ open, onClose, onSaved }) => {
   const [input, setInput] = useState("");
   const listRef = useRef(null);
 
+  // Reserves room on the page for the drawer (see .faq-chat-open in
+  // Faq.css) so it pushes the Q&A content and navbar aside instead of
+  // covering them.
+  useEffect(() => {
+    document.body.classList.toggle("faq-chat-open", open);
+    return () => document.body.classList.remove("faq-chat-open");
+  }, [open]);
+
   useEffect(() => {
     if (!listRef.current) return;
     listRef.current.scrollTo({
@@ -104,10 +112,8 @@ const AskAi = ({ open, onClose, onSaved }) => {
     });
   };
 
-  if (!open) return null;
-
   return (
-    <div className="faq-chat-popup">
+    <div className={`faq-chat-popup ${open ? "faq-chat-popup-open" : ""}`}>
       <div className="faq-chat-header">
         <span className="faq-chat-title">
           <Sparkles size={15} />

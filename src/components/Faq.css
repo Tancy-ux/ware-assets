@@ -1,3 +1,23 @@
+:root {
+  /* Shared with the Ask AI drawer's push-content class below, so the
+     reserved space always matches the drawer's actual width exactly. */
+  --askai-w: clamp(360px, 35vw, 560px);
+}
+
+/* Pushes the routed page content left to make room for the Ask AI
+   drawer, instead of letting the fixed-position drawer sit on top of
+   it. Scoped to #page-content (not body) so the navbar above it stays
+   full-width and untouched — it never shifts when the drawer opens.
+   Transition lives on the base rule so it animates smoothly both ways. */
+#page-content {
+  transition: padding-right 0.28s ease;
+}
+@media (min-width: 701px) {
+  body.faq-chat-open #page-content {
+    padding-right: var(--askai-w);
+  }
+}
+
 .faq-page {
   --faq-bg: #eef2e8;
   --faq-panel: #ffffff;
@@ -11,7 +31,7 @@
   --faq-danger: #a34133;
   --faq-radius: 6px;
 
-  width: 80vw;
+  width: 80%; /* not 80vw — needs to shrink with the Ask AI drawer open, see body.faq-chat-open */
   max-width: 1560px;
   min-width: 960px;
   margin: 0 auto;
@@ -405,29 +425,33 @@
   font-size: 14px;
   font-weight: 600;
 }
-/* ---------- Ask AI chat popup ---------- */
+/* ---------- Ask AI chat drawer ----------
+   A full-height panel pinned to the right edge, like a native chat
+   sidebar (Shopify's assistant, Intercom, etc.) — it never covers the
+   Q&A content, it just pushes in beside it. */
 .faq-chat-popup {
   position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 60;
-  width: 380px;
-  max-width: calc(100vw - 32px);
-  height: 560px;
-  max-height: calc(100vh - 48px);
+  top: 56px; /* height of the site navbar — sits below it, not over it */
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  width: var(--askai-w);
   display: flex;
   flex-direction: column;
   background: var(--faq-panel);
-  border: 1px solid var(--faq-border);
-  border-radius: 14px;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.18);
-  overflow: hidden;
+  border-left: 1px solid var(--faq-border);
+  box-shadow: -8px 0 28px rgba(0, 0, 0, 0.14);
+  transform: translateX(100%);
+  transition: transform 0.28s ease;
+}
+.faq-chat-popup-open {
+  transform: translateX(0);
 }
 .faq-chat-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 14px;
+  padding: 14px 16px;
   border-bottom: 1px solid var(--faq-border);
   flex-shrink: 0;
 }
@@ -555,13 +579,10 @@
   background: #253429;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 700px) {
   .faq-chat-popup {
-    right: 12px;
-    left: 12px;
-    bottom: 12px;
+    left: 0;
     width: auto;
-    max-width: none;
   }
 }
 
