@@ -352,6 +352,18 @@
 .faq-icon-btn.faq-danger:hover {
   color: var(--faq-danger);
 }
+.faq-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
+
+.faq-chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
 
 .faq-qa-answer {
   font-size: 14.5px;
@@ -515,6 +527,37 @@
 }
 .faq-chat-bubble-actions {
   margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.faq-chat-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--faq-text-muted);
+}
+.faq-chat-meta-user {
+  align-self: flex-end;
+}
+.faq-chat-time {
+  white-space: nowrap;
+}
+.faq-chat-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 1px;
+  cursor: pointer;
+  color: var(--faq-text-muted);
+  transition: color 0.15s ease;
+}
+.faq-chat-copy-btn:hover {
+  color: var(--faq-accent);
 }
 .faq-chat-improve-btn {
   display: inline-flex;

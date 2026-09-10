@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Sparkles, X, Pencil, Send } from "lucide-react";
+import { Sparkles, X, Pencil, Send, Trash2, Copy, Check } from "lucide-react";
 import { toast } from "react-toastify";
 import { supabase } from "./supabase";
 
@@ -9,15 +9,65 @@ import { supabase } from "./supabase";
 // answers too.
 const CORRECTIONS_CATEGORY = "WhatsApp Bot FAQ";
 
+// Chat history persists here so it survives refreshes/navigation — it's
+// only ever cleared by the user hitting the clear button.
+const STORAGE_KEY = "askAiChat";
+
 let nextId = 1;
+
+const formatTime = (ms) =>
+  ms
+    ? new Date(ms).toLocaleTimeString([], {
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : "";
+
+const loadStoredMessages = () => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    // A message still "loading" or mid-edit when the page closed can
+    // never resolve on its own — settle it into a plain state instead of
+    // showing a permanent "Thinking..." bubble.
+    return parsed.map((m) => ({
+      ...m,
+      loading: false,
+      error: m.loading ? "Interrupted — try asking again." : m.error,
+      correcting: false,
+    }));
+  } catch {
+    return [];
+  }
+};
 
 // A small chat popup for testing the FAQ bot turn by turn. Each question
 // is answered independently (no conversation memory is sent to the
 // model) — that matches how the FAQ itself works and keeps things simple.
 const AskAi = ({ open, onClose, onSaved }) => {
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(loadStoredMessages);
   const [input, setInput] = useState("");
+  const [copiedKey, setCopiedKey] = useState(null);
   const listRef = useRef(null);
+
+  // Keep nextId ahead of anything restored from storage so new messages
+  // never collide with old ones.
+  useEffect(() => {
+    const maxStored = messages.reduce((max, m) => Math.max(max, m.id), 0);
+    if (maxStored >= nextId) nextId = maxStored + 1;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+    } catch {
+      // Storage full or unavailable (e.g. private browsing) — chat still
+      // works for the session, it just won't persist.
+    }
+  }, [messages]);
 
   // Reserves room on the page for the drawer (see .faq-chat-open in
   // Faq.css) so it pushes the Q&A content and navbar aside instead of
@@ -60,6 +110,7 @@ const AskAi = ({ open, onClose, onSaved }) => {
         correctedText: "",
         saving: false,
         saved: false,
+        time: Date.now(),
       },
     ]);
 
@@ -76,6 +127,26 @@ const AskAi = ({ open, onClose, onSaved }) => {
       return;
     }
     patchMessage(id, { loading: false, answer: data.answer });
+  };
+
+  const copyText = async (text, key) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1500);
+    } catch (err) {
+      console.error(err);
+      toast.error("Couldn't copy to clipboard.");
+    }
+  };
+
+  const clearChat = () => {
+    setMessages([]);
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Ignore — the in-memory state is already cleared either way.
+    }
   };
 
   const startCorrection = (msg) =>
@@ -119,14 +190,26 @@ const AskAi = ({ open, onClose, onSaved }) => {
           <Sparkles size={15} />
           Ask AI
         </span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="faq-icon-btn"
-          aria-label="Close"
-        >
-          <X size={16} />
-        </button>
+        <div className="faq-chat-header-actions">
+          <button
+            type="button"
+            onClick={clearChat}
+            className="faq-icon-btn faq-danger"
+            aria-label="Clear chat"
+            title="Clear chat"
+            disabled={messages.length === 0}
+          >
+            <Trash2 size={15} />
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="faq-icon-btn"
+            aria-label="Close"
+          >
+            <X size={16} />
+          </button>
+        </div>
       </div>
 
       <div className="faq-chat-messages" ref={listRef}>
@@ -141,6 +224,22 @@ const AskAi = ({ open, onClose, onSaved }) => {
         {messages.map((m) => (
           <div key={m.id} className="faq-chat-turn">
             <div className="faq-chat-bubble faq-chat-user">{m.question}</div>
+            <div className="faq-chat-meta faq-chat-meta-user">
+              <button
+                type="button"
+                className="faq-chat-copy-btn"
+                onClick={() => copyText(m.question, `${m.id}-q`)}
+                aria-label="Copy question"
+                title="Copy"
+              >
+                {copiedKey === `${m.id}-q` ? (
+                  <Check size={11} />
+                ) : (
+                  <Copy size={11} />
+                )}
+              </button>
+              <span className="faq-chat-time">{formatTime(m.time)}</span>
+            </div>
 
             {m.loading && (
               <div className="faq-chat-bubble faq-chat-ai faq-chat-thinking">
@@ -158,6 +257,24 @@ const AskAi = ({ open, onClose, onSaved }) => {
               <div className="faq-chat-bubble faq-chat-ai">
                 {m.answer}
                 <div className="faq-chat-bubble-actions">
+                  <div className="faq-chat-meta">
+                    <button
+                      type="button"
+                      className="faq-chat-copy-btn"
+                      onClick={() => copyText(m.answer, `${m.id}-a`)}
+                      aria-label="Copy answer"
+                      title="Copy"
+                    >
+                      {copiedKey === `${m.id}-a` ? (
+                        <Check size={11} />
+                      ) : (
+                        <Copy size={11} />
+                      )}
+                    </button>
+                    <span className="faq-chat-time">
+                      {formatTime(m.time)}
+                    </span>
+                  </div>
                   {m.saved ? (
                     <span className="faq-chat-saved">Saved ✓</span>
                   ) : (
