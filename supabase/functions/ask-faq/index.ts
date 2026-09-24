@@ -47,17 +47,38 @@ const PRODUCT_CACHE_MS = 10 * 60 * 1000;
 const EXCLUDED_TITLES = new Set(["Partial Payment"]);
 
 type Product = {
+  handle: string;
   title: string;
   type: string;
   tags: string[];
   url: string;
+  image: string | null;
   prices: string;
   minPrice: number;
+  maxPrice: number;
+  available: boolean;
+  // Only set when there's exactly one variant, so "Add to cart" needs no
+  // size/colour choice; multi-variant products link to their page instead.
+  variantId: number | null;
   description: string;
   searchText: string;
 };
 
-type Turn = { question: string; answer: string };
+// What the chat UI renders as a product card. Every field comes straight
+// from Shopify, never from the model.
+type ProductCard = {
+  title: string;
+  price: string;
+  image: string | null;
+  url: string;
+  cartUrl: string | null;
+  available: boolean;
+};
+
+const MAX_CARDS = 6;
+
+// `products` are the titles of the cards shown under that answer.
+type Turn = { question: string; answer: string; products: string[] };
 const MAX_HISTORY_TURNS = 10;
 const MAX_TURN_CHARS = 2000;
 
@@ -84,14 +105,23 @@ function toProduct(p: any): Product {
     return `${label}Rs ${Math.round(Number(v.price))}${soldOut}`;
   }).join("; ");
   const description = stripHtml(p.body_html);
+  // deno-lint-ignore no-explicit-any
+  const variantPrices = (p.variants ?? []).map((v: any) => Number(v.price));
+  const image = p.images?.[0]?.src;
   return {
+    handle: p.handle,
     title: p.title,
     type,
     tags: p.tags ?? [],
     url: `${STORE_URL}/products/${p.handle}`,
+    // Shopify's CDN resizes on the fly; cards are small.
+    image: image ? `${image}${image.includes("?") ? "&" : "?"}width=300` : null,
     prices,
+    minPrice: Math.min(...variantPrices),
+    maxPrice: Math.max(...variantPrices),
     // deno-lint-ignore no-explicit-any
-    minPrice: Math.min(...(p.variants ?? []).map((v: any) => Number(v.price))),
+    available: (p.variants ?? []).some((v: any) => v.available),
+    variantId: p.variants?.length === 1 ? p.variants[0].id : null,
     description,
     searchText: `${p.title} ${type} ${(p.tags ?? []).join(" ")} ${description}`
       .toLowerCase(),
@@ -123,6 +153,25 @@ const STOPWORDS = new Set(
     "much many that this there from about want need show tell me some one " +
     "get give like looking price cost").split(" "),
 );
+
+const formatRupees = (n: number) => `Rs ${Math.round(n).toLocaleString("en-IN")}`;
+
+function toCard(p: Product): ProductCard {
+  return {
+    title: p.title,
+    price: p.minPrice === p.maxPrice
+      ? formatRupees(p.minPrice)
+      : `From ${formatRupees(p.minPrice)}`,
+    image: p.image,
+    url: p.url,
+    // Shopify's /cart/add adds the item to the shopper's cart on the store
+    // and redirects to /cart.
+    cartUrl: p.available && p.variantId
+      ? `${STORE_URL}/cart/add?id=${p.variantId}&quantity=1`
+      : null,
+    available: p.available,
+  };
+}
 
 // The most recent "under 2000" / "below 5k" / "less than ₹1500" in the
 // text, as a number of rupees.
@@ -183,6 +232,9 @@ Deno.serve(async (req) => {
       .map((t) => ({
         question: t.question.slice(0, MAX_TURN_CHARS),
         answer: t.answer.slice(0, MAX_TURN_CHARS),
+        products: (Array.isArray(t.products) ? t.products : [])
+          .filter((name: unknown) => typeof name === "string")
+          .slice(0, MAX_CARDS),
       }));
 
     const supabase = createClient(
@@ -212,8 +264,10 @@ Deno.serve(async (req) => {
       console.error("Product feed failed:", err);
     }
 
+    // The model refers to products by handle only; links, images and
+    // prices for the cards are filled in from Shopify afterwards.
     const catalog = products
-      .map((p) => `${p.title} | ${p.type || "Other"} | ${p.prices} | ${p.url}`)
+      .map((p) => `${p.handle} | ${p.title} | ${p.type || "Other"} | ${p.prices}`)
       .join("\n");
 
     // Match on recent questions too, so a follow-up like "under 2000?"
@@ -232,9 +286,9 @@ Deno.serve(async (req) => {
 
     const details = matches
       .map((p) =>
-        `${p.title}\nType: ${p.type || "Other"}\nPrice: ${p.prices}\nTags: ${
+        `${p.title}\nID: ${p.handle}\nType: ${p.type || "Other"}\nPrice: ${p.prices}\nTags: ${
           p.tags.join(", ")
-        }\nLink: ${p.url}\nDescription: ${p.description}`
+        }\nDescription: ${p.description}`
       )
       .join("\n\n");
 
@@ -253,12 +307,18 @@ Keep replies as short as the moment calls for:
 
 Answer in a friendly, conversational tone, like you're explaining it to someone new. Write in plain text only, no markdown — don't use asterisks for bold or italics, and don't use em dashes. If you need a list, write it as plain lines or "1., 2., 3." rather than markdown bullets. Don't repeat the question back before answering it. If the answer isn't covered in the FAQ content or catalog, say so honestly in one line and suggest they contact the team directly, don't make anything up.
 
-When the question is about products, recommend real ones from the catalog by their exact name, with the price, and put the product link on its own line so it's clickable. Suggest at most 3 or 4 products unless they ask for more. Prices are in Indian Rupees. Treat budgets strictly: "under 2000" means below Rs 2000, so a Rs 2000 item doesn't qualify, and for sets use the set price as listed. If something is marked sold out, say so. Only mention products that appear in the catalog.
+Respond as JSON with two fields:
+- "reply": your message, following all the rules above.
+- "products": the IDs of the products you're recommending, best first, taken exactly from the catalog's first column. Use an empty list when you aren't recommending products.
+
+Each product you list is shown under your reply as a card with its photo, name, live price, stock status, and an add to cart button, so don't write links or prices in the reply and don't list the products out again. Just talk about them naturally, for example why they suit this person, referring to them by name where it helps. Recommend 3 or 4 products unless they ask for more. Prices are in Indian Rupees. Treat budgets strictly: "under 2000" means below Rs 2000, so a Rs 2000 item doesn't qualify, and for sets use the set price as listed. Prefer products that are in stock. Only recommend products that appear in the catalog.
+
+Earlier replies of yours in this chat may end with a note like "(Product cards shown: ...)"; that's what the person saw under that reply, so "the second one" or "that set" refers to those.
 
 FAQ content:
 ${context}
 
-Product catalog (every product currently on the online store; name | type | price | link):
+Product catalog (every product currently on the online store; ID | name | type | price):
 ${catalog}
 
 Full details for the products that best match the conversation so far:
@@ -271,7 +331,14 @@ ${details || "(none matched by keyword, use the catalog above)"}${
     const contents = [
       ...history.flatMap((t) => [
         { role: "user", parts: [{ text: t.question }] },
-        { role: "model", parts: [{ text: t.answer }] },
+        {
+          role: "model",
+          parts: [{
+            text: t.products.length
+              ? `${t.answer}\n(Product cards shown: ${t.products.join("; ")})`
+              : t.answer,
+          }],
+        },
       ]),
       { role: "user", parts: [{ text: question }] },
     ];
@@ -289,7 +356,18 @@ ${details || "(none matched by keyword, use the catalog above)"}${
       // enough to leave room for this model's invisible "thinking"
       // tokens too (they share this same budget, and a low cap here
       // was silently truncating real answers before the fix).
-      generationConfig: { maxOutputTokens: 2048 },
+      generationConfig: {
+        maxOutputTokens: 2048,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            reply: { type: "STRING" },
+            products: { type: "ARRAY", items: { type: "STRING" } },
+          },
+          required: ["reply", "products"],
+        },
+      },
     });
 
     // Free-tier models regularly return 503 "high demand" (or 429) on
@@ -311,11 +389,31 @@ ${details || "(none matched by keyword, use the catalog above)"}${
     }
 
     const result = await res.json();
-    const answer =
-      result?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ??
-      "Sorry, I couldn't come up with an answer just now.";
+    const text: string =
+      result?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
 
-    return json({ answer });
+    let answer = "";
+    let picked: string[] = [];
+    try {
+      const parsed = JSON.parse(text);
+      answer = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
+      picked = Array.isArray(parsed.products) ? parsed.products : [];
+    } catch {
+      // Not JSON after all — show whatever it said, just without cards.
+      answer = text;
+    }
+    if (!answer) answer = "Sorry, I couldn't come up with an answer just now.";
+
+    // Resolve the model's picks against the real catalog: unknown IDs are
+    // dropped, duplicates removed, and the budget is re-checked here too.
+    const byHandle = new Map(products.map((p) => [p.handle, p]));
+    const cards = [...new Set(picked)]
+      .map((h) => byHandle.get(String(h).trim()))
+      .filter((p): p is Product => !!p && (!budget || p.minPrice < budget))
+      .slice(0, MAX_CARDS)
+      .map(toCard);
+
+    return json({ answer, products: cards });
   } catch (err) {
     console.error(err);
     return json({ error: "Something went wrong" }, 500);

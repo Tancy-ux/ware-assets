@@ -64,6 +64,47 @@ const linkify = (text) =>
     ),
   );
 
+// A product the AI recommended. Everything shown here comes from the
+// Shopify catalog via the function, not from the model's text. Single-
+// variant products add straight to the store's cart; ones with options
+// (size, colour) go to the product page to pick.
+const ProductCard = ({ product }) => {
+  const action = !product.available
+    ? { href: product.url, label: "View" }
+    : product.cartUrl
+      ? { href: product.cartUrl, label: "Add to cart" }
+      : { href: product.url, label: "Shop now" };
+  return (
+    <div className="faq-chat-product">
+      <a
+        href={product.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="faq-chat-product-link"
+      >
+        <div className="faq-chat-product-img">
+          {product.image && <img src={product.image} alt="" loading="lazy" />}
+          {!product.available && (
+            <span className="faq-chat-product-badge">Sold out</span>
+          )}
+        </div>
+        <div className="faq-chat-product-title">{product.title}</div>
+        <div className="faq-chat-product-price">{product.price}</div>
+      </a>
+      <a
+        href={action.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`faq-chat-product-btn${
+          product.available ? "" : " faq-chat-product-btn-muted"
+        }`}
+      >
+        {action.label}
+      </a>
+    </div>
+  );
+};
+
 const loadStoredMessages = () => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -180,7 +221,11 @@ const AskAi = ({ open, onClose, onSaved }) => {
       .slice(lastReset + 1)
       .filter((m) => m.answer && m.time > cutoff)
       .slice(-HISTORY_MAX_TURNS)
-      .map(({ question, answer }) => ({ question, answer }));
+      .map(({ question, answer, products }) => ({
+        question,
+        answer,
+        products: (products ?? []).map((p) => p.title),
+      }));
     const { data, error } = await askFaq(question, history);
 
     if (error || data?.error) {
@@ -191,7 +236,11 @@ const AskAi = ({ open, onClose, onSaved }) => {
       });
       return;
     }
-    patchMessage(id, { loading: false, answer: data.answer });
+    patchMessage(id, {
+      loading: false,
+      answer: data.answer,
+      products: data.products ?? [],
+    });
   };
 
   const copyText = async (text, key) => {
@@ -322,6 +371,13 @@ const AskAi = ({ open, onClose, onSaved }) => {
             {m.answer && !m.correcting && (
               <div className="faq-chat-bubble faq-chat-ai">
                 {linkify(m.answer)}
+                {m.products?.length > 0 && (
+                  <div className="faq-chat-products">
+                    {m.products.map((p) => (
+                      <ProductCard key={p.url} product={p} />
+                    ))}
+                  </div>
+                )}
                 <div className="faq-chat-bubble-actions">
                   <div className="faq-chat-meta">
                     <button
