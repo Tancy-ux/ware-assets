@@ -504,6 +504,12 @@
   font-size: 13.5px;
   line-height: 1.55;
   white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.faq-chat-bubble a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .faq-chat-user {
   align-self: flex-end;

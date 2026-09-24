@@ -23,6 +23,20 @@ const formatTime = (ms) =>
       })
     : "";
 
+// Answers are plain text, but product replies include store links — turn
+// those into real anchors so they're clickable.
+const URL_PATTERN = /(https?:\/\/[^\s)]+)/g;
+const linkify = (text) =>
+  text.split(URL_PATTERN).map((part, i) =>
+    i % 2 === 1 ? (
+      <a key={i} href={part} target="_blank" rel="noopener noreferrer">
+        {part}
+      </a>
+    ) : (
+      part
+    ),
+  );
+
 const loadStoredMessages = () => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -255,7 +269,7 @@ const AskAi = ({ open, onClose, onSaved }) => {
 
             {m.answer && !m.correcting && (
               <div className="faq-chat-bubble faq-chat-ai">
-                {m.answer}
+                {linkify(m.answer)}
                 <div className="faq-chat-bubble-actions">
                   <div className="faq-chat-meta">
                     <button
