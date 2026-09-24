@@ -532,6 +532,28 @@
   color: #b3441f;
 }
 
+/* "Would you like to see similar…" under a sold-out card */
+.faq-chat-similar-offer {
+  margin-top: 10px;
+  white-space: normal;
+}
+.faq-chat-similar-btn {
+  display: block;
+  margin-top: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--faq-accent);
+  border-radius: var(--faq-radius);
+  background: var(--faq-panel);
+  color: var(--faq-accent);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.faq-chat-similar-btn:hover {
+  background: var(--faq-accent);
+  color: #fff;
+}
+
 /* Product recommendations inside an AI answer */
 .faq-chat-products {
   display: grid;

@@ -62,6 +62,9 @@ type Product = {
   variantId: number | null;
   description: string;
   searchText: string;
+  nameWords: Set<string>;
+  colors: Set<string>;
+  keyTags: Set<string>;
 };
 
 // What the chat UI renders as a product card. Every field comes straight
@@ -73,9 +76,33 @@ type ProductCard = {
   url: string;
   cartUrl: string | null;
   available: boolean;
+  // Sold-out cards only: in-stock alternatives the UI offers behind a
+  // "see similar" button, picked by similarProducts() below.
+  similar?: ProductCard[];
 };
 
 const MAX_CARDS = 6;
+const MAX_SIMILAR = 4;
+
+// Colour words used in product names, grouped into families so "Sage"
+// counts as close to "Lime Green". Anything not listed here is treated as
+// part of the product's name (collection + item).
+const COLOR_FAMILIES: Record<string, string> = {
+  green: "green", sage: "green", lime: "green", mint: "green", verde: "green",
+  blue: "blue", aqua: "blue", pacific: "blue", midnight: "blue", stormy: "blue",
+  black: "black", onyx: "black", nero: "black",
+  white: "white", nude: "neutral", tan: "neutral", caramel: "neutral",
+  brown: "brown", warm: "brown", burnt: "brown",
+  pink: "pink", blush: "pink", rose: "pink", misty: "pink", lilac: "pink",
+  red: "red", maroon: "red", melon: "orange", orange: "orange",
+  yellow: "yellow", lemon: "yellow", mustard: "yellow", ochre: "yellow",
+  gold: "metal", silver: "metal", grey: "grey", gray: "grey",
+};
+// Words that describe a colour or finish without naming the product.
+const SHADE_WORDS = new Set(["deep", "matt", "gloss"]);
+const NAME_FILLER = new Set(
+  "set of the and with without pieces piece in for a".split(" "),
+);
 
 // `products` are the titles of the cards shown under that answer.
 type Turn = { question: string; answer: string; products: string[] };
@@ -125,7 +152,52 @@ function toProduct(p: any): Product {
     description,
     searchText: `${p.title} ${type} ${(p.tags ?? []).join(" ")} ${description}`
       .toLowerCase(),
+    ...splitTitle(p.title),
+    keyTags: new Set(), // filled in by loadProducts once all tags are known
   };
+}
+
+// "Pod 90ml Espresso Cup Matt Tan (Set of 2) - Gift Set" ->
+//   nameWords {pod, espresso, cup, gift}, colors {neutral}
+function splitTitle(title: string) {
+  const words = title.toLowerCase().match(/[a-z]+/g) ?? [];
+  const nameWords = new Set<string>();
+  const colors = new Set<string>();
+  for (const w of words) {
+    if (COLOR_FAMILIES[w]) colors.add(COLOR_FAMILIES[w]);
+    else if (!SHADE_WORDS.has(w) && !NAME_FILLER.has(w) && w !== "ml") {
+      nameWords.add(w);
+    }
+  }
+  return { nameWords, colors };
+}
+
+function overlap(a: Set<string>, b: Set<string>) {
+  if (!a.size || !b.size) return 0;
+  let shared = 0;
+  for (const x of a) if (b.has(x)) shared++;
+  return shared / (a.size + b.size - shared);
+}
+
+// In-stock alternatives to a (usually sold-out) product. All signals
+// count at once, weighted in priority order: name (same collection/item)
+// > type > price > shared distinctive tags > colour.
+function similarProducts(target: Product, products: Product[]) {
+  return products
+    .filter((p) => p.available && p.handle !== target.handle)
+    .map((p) => {
+      const priceGap = Math.abs(p.minPrice - target.minPrice) /
+        Math.max(p.minPrice, target.minPrice, 1);
+      const score = 4 * overlap(p.nameWords, target.nameWords) +
+        3 * (p.type && p.type === target.type ? 1 : 0) +
+        2 * Math.max(0, 1 - priceGap) +
+        1.5 * overlap(p.keyTags, target.keyTags) +
+        1 * overlap(p.colors, target.colors);
+      return { p, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_SIMILAR)
+    .map((x) => x.p);
 }
 
 async function loadProducts(): Promise<Product[]> {
@@ -144,6 +216,17 @@ async function loadProducts(): Promise<Product[]> {
   const products = raw
     .filter((p) => !EXCLUDED_TITLES.has(p.title))
     .map(toProduct);
+  // Tags on a big share of the catalog (active, google, ceramic, sale
+  // tags...) say nothing about similarity; keep only the distinctive ones.
+  const tagCount = new Map<string, number>();
+  for (const p of products) {
+    for (const t of p.tags) tagCount.set(t, (tagCount.get(t) ?? 0) + 1);
+  }
+  for (const p of products) {
+    p.keyTags = new Set(
+      p.tags.filter((t) => (tagCount.get(t) ?? 0) < products.length * 0.15),
+    );
+  }
   productCache = { at: Date.now(), products };
   return products;
 }
@@ -313,6 +396,8 @@ Respond as JSON with two fields:
 
 Each product you list is shown under your reply as a card with its photo, name, live price, stock status, and an add to cart button, so don't write links or prices in the reply and don't list the products out again. Just talk about them naturally, for example why they suit this person, referring to them by name where it helps. Recommend 3 or 4 products unless they ask for more. Prices are in Indian Rupees. Treat budgets strictly: "under 2000" means below Rs 2000, so a Rs 2000 item doesn't qualify, and for sets use the set price as listed. Prefer products that are in stock. Only recommend products that appear in the catalog.
 
+If someone asks about a specific product that's sold out, still include it in "products" and lead with the positive, then the stock status, for example: "The Bites and Delights Lime Green is a lovely pick for corporate gifting, but it's currently sold out." Don't suggest alternatives to it yourself and don't ask whether they'd like to see similar items; the app automatically offers similar in-stock products under a sold-out card.
+
 Earlier replies of yours in this chat may end with a note like "(Product cards shown: ...)"; that's what the person saw under that reply, so "the second one" or "that set" refers to those.
 
 FAQ content:
@@ -411,7 +496,15 @@ ${details || "(none matched by keyword, use the catalog above)"}${
       .map((h) => byHandle.get(String(h).trim()))
       .filter((p): p is Product => !!p && (!budget || p.minPrice < budget))
       .slice(0, MAX_CARDS)
-      .map(toCard);
+      .map((p) => {
+        const card = toCard(p);
+        if (!p.available) {
+          card.similar = similarProducts(p, products)
+            .filter((s) => !budget || s.minPrice < budget)
+            .map(toCard);
+        }
+        return card;
+      });
 
     return json({ answer, products: cards });
   } catch (err) {

@@ -243,6 +243,26 @@ const AskAi = ({ open, onClose, onSaved }) => {
     });
   };
 
+  // The alternatives were already picked by the function alongside the
+  // sold-out card, so this just shows them — no second AI call.
+  const showSimilar = (msg, product) => {
+    patchMessage(msg.id, {
+      similarShown: { ...msg.similarShown, [product.url]: true },
+    });
+    const id = nextId++;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id,
+        question: "Yes, show me similar ones",
+        answer: `Here are some pieces similar to the ${product.title} that are in stock:`,
+        products: product.similar,
+        isLocal: true,
+        time: Date.now(),
+      },
+    ]);
+  };
+
   const copyText = async (text, key) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -378,6 +398,24 @@ const AskAi = ({ open, onClose, onSaved }) => {
                     ))}
                   </div>
                 )}
+                {m.products
+                  ?.filter((p) => p.similar?.length && !m.similarShown?.[p.url])
+                  .map((p) => (
+                    <div key={p.url} className="faq-chat-similar-offer">
+                      {m.products.length > 1
+                        ? `${p.title} is sold out right now. `
+                        : ""}
+                      Would you like to see similar products that are in
+                      stock?
+                      <button
+                        type="button"
+                        className="faq-chat-similar-btn"
+                        onClick={() => showSimilar(m, p)}
+                      >
+                        Yes, show me
+                      </button>
+                    </div>
+                  ))}
                 <div className="faq-chat-bubble-actions">
                   <div className="faq-chat-meta">
                     <button
@@ -397,7 +435,7 @@ const AskAi = ({ open, onClose, onSaved }) => {
                       {formatTime(m.time)}
                     </span>
                   </div>
-                  {m.isReset ? null : m.saved ? (
+                  {m.isReset || m.isLocal ? null : m.saved ? (
                     <span className="faq-chat-saved">Saved ✓</span>
                   ) : (
                     <button
