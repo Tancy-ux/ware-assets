@@ -269,6 +269,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
       loading: false,
       answer: data.answer,
       products: data.products ?? [],
+      images: data.images ?? [],
     });
   };
 
@@ -472,6 +473,28 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
                           patchMessage(m.id, { restockOpen: p.url })
                         }
                       />
+                    ))}
+                  </div>
+                )}
+                {/* Gift packaging photos — only sent for gift packaging
+                    questions, and only when real photos exist. */}
+                {m.images?.length > 0 && (
+                  <div className="faq-chat-products">
+                    {m.images.map((img) => (
+                      <a
+                        key={img.src}
+                        href={img.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="faq-chat-gift-image"
+                      >
+                        <img
+                          src={img.src}
+                          alt={`Gift packaging for ${img.productTitle}`}
+                          loading="lazy"
+                        />
+                        <span>{img.productTitle}</span>
+                      </a>
                     ))}
                   </div>
                 )}

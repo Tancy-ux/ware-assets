@@ -803,6 +803,42 @@
   color: var(--faq-text-muted);
 }
 
+/* Gift packaging photos (same swipeable row as the product cards) */
+.faq-chat-bubble a.faq-chat-gift-image {
+  flex: 0 0 200px;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  background: var(--faq-panel);
+  border: 1px solid var(--faq-border);
+  border-radius: 8px;
+  overflow: hidden;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.15s ease;
+}
+.faq-chat-bubble a.faq-chat-gift-image:hover {
+  border-color: var(--faq-border-strong);
+}
+.faq-chat-gift-image img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  display: block;
+  background: var(--faq-bg);
+}
+.faq-chat-gift-image span {
+  padding: 6px 8px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--faq-text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 /* "Check restock" form under the cards */
 .faq-chat-restock {
   margin-top: 10px;

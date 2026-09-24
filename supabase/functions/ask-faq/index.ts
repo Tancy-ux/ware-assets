@@ -66,7 +66,17 @@ type Product = {
   nameWords: Set<string>;
   colors: Set<string>;
   keyTags: Set<string>;
+  // Photos of this product's gift packaging (box, sleeve, hamper).
+  giftImages: string[];
+  // Only true with evidence: a gift packaging photo, or "Gift Set" /
+  // "Gift Box" in the name. The model may only call something gift-packed
+  // when this is set (see the prompt).
+  giftPacked: boolean;
 };
+
+// A gift packaging photo shown in the chat instead of product cards.
+type GiftImage = { src: string; productTitle: string; url: string };
+const MAX_GIFT_IMAGES = 6;
 
 // What the chat UI renders as a product card. Every field comes straight
 // from Shopify, never from the model.
@@ -136,6 +146,10 @@ function toProduct(p: any): Product {
   // deno-lint-ignore no-explicit-any
   const variantPrices = (p.variants ?? []).map((v: any) => Number(v.price));
   const image = p.images?.[0]?.src;
+  // deno-lint-ignore no-explicit-any
+  const giftImages = (p.images ?? []).filter((i: any) => isGiftImage(i.src))
+    // deno-lint-ignore no-explicit-any
+    .map((i: any) => resized(i.src, 600));
   return {
     handle: p.handle,
     title: p.title,
@@ -143,7 +157,9 @@ function toProduct(p: any): Product {
     tags: p.tags ?? [],
     url: `${STORE_URL}/products/${p.handle}`,
     // Shopify's CDN resizes on the fly; cards are small.
-    image: image ? `${image}${image.includes("?") ? "&" : "?"}width=300` : null,
+    image: image ? resized(image, 300) : null,
+    giftImages,
+    giftPacked: giftImages.length > 0 || /gift (set|box)/i.test(p.title),
     prices,
     minPrice: Math.min(...variantPrices),
     maxPrice: Math.max(...variantPrices),
@@ -156,6 +172,77 @@ function toProduct(p: any): Product {
     ...splitTitle(p.title),
     keyTags: new Set(), // filled in by loadProducts once all tags are known
   };
+}
+
+const resized = (src: string, width: number) =>
+  `${src}${src.includes("?") ? "&" : "?"}width=${width}`;
+
+// Gift packaging photos are recognisable by file name today
+// ("..._gift_box_front_shot.jpg", "gifting_sleeve.jpg") and by alt text
+// once the team adds it in Shopify (checked in loadGiftAlts).
+const GIFT_WORDS = /gift|hamper/i;
+function isGiftImage(src: string) {
+  const file = decodeURIComponent(src.split("/").pop()?.split("?")[0] ?? "");
+  return GIFT_WORDS.test(file);
+}
+
+// The bulk products.json feed leaves out image alt text, but each
+// product's own .js endpoint includes it. Only fetched for the few
+// products a gift packaging question is about, and cached.
+const giftAltCache = new Map<string, { at: number; srcs: string[] }>();
+async function loadGiftAlts(handle: string): Promise<string[]> {
+  const cached = giftAltCache.get(handle);
+  if (cached && Date.now() - cached.at < PRODUCT_CACHE_MS) return cached.srcs;
+  try {
+    const res = await fetch(`${STORE_URL}/products/${handle}.js`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const srcs: string[] = (data.media ?? [])
+      // deno-lint-ignore no-explicit-any
+      .filter((m: any) => m.src && m.alt && /gift|box|pack|wrap|hamper/i.test(m.alt))
+      // deno-lint-ignore no-explicit-any
+      .map((m: any) => resized(m.src.startsWith("//") ? `https:${m.src}` : m.src, 600));
+    giftAltCache.set(handle, { at: Date.now(), srcs });
+    return srcs;
+  } catch {
+    return [];
+  }
+}
+
+// Gift packaging photos for a gift packaging question: the asked-about
+// products' own photos (file name or alt text), or, for a general
+// question, a few distinct examples from across the catalog. Empty when
+// nothing real exists, so the reply stays text-only.
+async function giftImagesFor(
+  picked: Product[],
+  products: Product[],
+): Promise<GiftImage[]> {
+  const out: GiftImage[] = [];
+  const seen = new Set<string>();
+  const add = (src: string, p: Product) => {
+    // The same photo is often reused across products under different
+    // Shopify file suffixes ("gifting_sleeve_4.jpg", "..._<uuid>.jpg").
+    const key = decodeURIComponent(src.split("/").pop()?.split("?")[0] ?? "")
+      .replace(/(_[0-9a-f-]{36}|_\d+)?\.\w+$/i, "");
+    if (seen.has(key) || out.length >= MAX_GIFT_IMAGES) return;
+    seen.add(key);
+    out.push({ src, productTitle: p.title, url: p.url });
+  };
+
+  if (picked.length) {
+    for (const p of picked.slice(0, 4)) {
+      const fromAlt = await loadGiftAlts(p.handle);
+      for (const src of [...p.giftImages, ...fromAlt]) add(src, p);
+    }
+    return out;
+  }
+
+  for (const p of products) {
+    if (p.available && p.giftImages[0]) add(p.giftImages[0], p);
+  }
+  return out;
 }
 
 // "Pod 90ml Espresso Cup Matt Tan (Set of 2) - Gift Set" ->
@@ -529,7 +616,11 @@ Deno.serve(async (req) => {
     // The model refers to products by handle only; links, images and
     // prices for the cards are filled in from Shopify afterwards.
     const catalog = products
-      .map((p) => `${p.handle} | ${p.title} | ${p.type || "Other"} | ${p.prices}`)
+      .map((p) =>
+        `${p.handle} | ${p.title} | ${p.type || "Other"} | ${p.prices}${
+          p.giftPacked ? " | gift-packed" : ""
+        }`
+      )
       .join("\n");
 
     // Match on recent questions too, so a follow-up like "under 2000?"
@@ -548,7 +639,9 @@ Deno.serve(async (req) => {
 
     const details = matches
       .map((p) =>
-        `${p.title}\nID: ${p.handle}\nType: ${p.type || "Other"}\nPrice: ${p.prices}\nTags: ${
+        `${p.title}\nID: ${p.handle}\nType: ${p.type || "Other"}\nPrice: ${p.prices}\nGift packaging: ${
+          p.giftPacked ? "yes" : "no"
+        }\nTags: ${
           p.tags.join(", ")
         }\nDescription: ${p.description}`
       )
@@ -571,12 +664,19 @@ Answer in a friendly, conversational tone, like you're explaining it to someone 
 
 Respond as JSON with these fields:
 - "reply": your message, following all the rules above.
-- "products": the IDs of the products you're recommending, best first, taken exactly from the catalog's first column. Use an empty list when you aren't recommending products.
+- "intent": what this reply is doing:
+  "recommend" when you're suggesting products for them;
+  "product" when they asked about specific products (details, price, stock, colours);
+  "gift_packaging" when they're asking about gift packaging, gift boxes or wrapping, or what a gift looks like when it arrives;
+  "general" for everything else (greetings, policies, shipping, payments, the process, follow-up questions without new products).
+- "products": the IDs of the products this reply is about, best first, taken exactly from the catalog's first column. For "recommend" and "product", the products you're recommending or were asked about. For "gift_packaging", the specific products they asked about, or an empty list if they asked about gift packaging in general. For "general", always an empty list.
 - "visitorName" and "company": the person's own name and their company or business name, if they've stated them anywhere in this chat; otherwise empty strings. Only use what they actually said about themselves, never guess. This is recorded quietly for the team; don't mention it or ask for it.
 
-Each product you list is shown under your reply as a card with its photo, name, live price, stock status, and an add to cart button, so don't write links or prices in the reply and don't list the products out again. Just talk about them naturally, for example why they suit this person, referring to them by name where it helps. Recommend 3 or 4 products unless they ask for more. Prices are in Indian Rupees. Treat budgets strictly: "under 2000" means below Rs 2000, so a Rs 2000 item doesn't qualify, and for sets use the set price as listed. Prefer products that are in stock. Only recommend products that appear in the catalog.
+Only products that are directly relevant get shown, so don't attach products to replies that aren't about them. For "recommend" and "product", each product you list is shown under your reply as a card with its photo, name, live price, stock status, and an add to cart button, so don't write links or prices in the reply and don't list the products out again. Just talk about them naturally, for example why they suit this person, referring to them by name where it helps. Recommend 3 or 4 products unless they ask for more. Prices are in Indian Rupees. Treat budgets strictly: "under 2000" means below Rs 2000, so a Rs 2000 item doesn't qualify, and for sets use the set price as listed. Prefer products that are in stock. Only recommend products that appear in the catalog.
 
 If someone asks about a specific product that's sold out, still include it in "products" and lead with the positive, then the stock status, for example: "The Bites and Delights Lime Green is a lovely pick for corporate gifting, but it's currently sold out." Don't suggest alternatives to it yourself and don't ask whether they'd like to see similar items; the app automatically offers similar in-stock products under a sold-out card. Pre-orders aren't available, and never promise a restock or a date. A sold-out card has a "Check restock" button where they can leave their details for the team to check; mention it only if they ask when it'll be back.
+
+Gift packaging: a product only comes gift-packed (in a gift box, sleeve or as a gift set) if the catalog marks it "gift-packed". Never say or imply a product is a gift set or comes gift-packed otherwise, even if it's giftable or tagged for gifting; just describe it as the product it is. If the FAQ describes packaging for gifting orders (ribbons, notes, boxes), that's about gifting orders placed with the team, so present it that way rather than as something a particular product comes with. For "gift_packaging" questions, photos of the packaging are shown automatically when they exist, so don't describe photos or promise to show any.
 
 Earlier replies of yours in this chat may end with a note like "(Product cards shown: ...)"; that's what the person saw under that reply, so "the second one" or "that set" refers to those.
 ${
@@ -630,11 +730,15 @@ ${details || "(none matched by keyword, use the catalog above)"}${
           type: "OBJECT",
           properties: {
             reply: { type: "STRING" },
+            intent: {
+              type: "STRING",
+              enum: ["recommend", "product", "gift_packaging", "general"],
+            },
             products: { type: "ARRAY", items: { type: "STRING" } },
             visitorName: { type: "STRING" },
             company: { type: "STRING" },
           },
-          required: ["reply", "products", "visitorName", "company"],
+          required: ["reply", "intent", "products", "visitorName", "company"],
         },
       },
     });
@@ -648,10 +752,12 @@ ${details || "(none matched by keyword, use the catalog above)"}${
     let picked: string[] = [];
     let visitorName = "";
     let company = "";
+    let intent = "general";
     try {
       const parsed = JSON.parse(text);
       answer = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
       picked = Array.isArray(parsed.products) ? parsed.products : [];
+      if (typeof parsed.intent === "string") intent = parsed.intent;
       visitorName = cleanField(parsed.visitorName);
       company = cleanField(parsed.company);
     } catch {
@@ -663,9 +769,20 @@ ${details || "(none matched by keyword, use the catalog above)"}${
     // Resolve the model's picks against the real catalog: unknown IDs are
     // dropped, duplicates removed, and the budget is re-checked here too.
     const byHandle = new Map(products.map((p) => [p.handle, p]));
-    const cards = [...new Set(picked)]
+    const pickedProducts = [...new Set(picked)]
       .map((h) => byHandle.get(String(h).trim()))
-      .filter((p): p is Product => !!p && (!budget || p.minPrice < budget))
+      .filter((p): p is Product => !!p);
+
+    // What gets shown is decided here, not left to the model: cards only
+    // when products are the point of the reply, gift packaging photos only
+    // for gift packaging questions (and only real ones), otherwise text.
+    const showCards = intent === "recommend" || intent === "product";
+    const images = intent === "gift_packaging"
+      ? await giftImagesFor(pickedProducts, products)
+      : [];
+
+    const cards = (showCards ? pickedProducts : [])
+      .filter((p) => !budget || p.minPrice < budget)
       .slice(0, MAX_CARDS)
       .map((p) => {
         const card = toCard(p);
@@ -693,7 +810,7 @@ ${details || "(none matched by keyword, use the catalog above)"}${
       console.error("Chat log failed:", err);
     }
 
-    return json({ answer, products: cards });
+    return json({ answer, products: cards, images });
   } catch (err) {
     console.error(err);
     return json({ error: "Something went wrong" }, 500);
