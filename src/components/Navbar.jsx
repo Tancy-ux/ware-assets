@@ -32,6 +32,14 @@ export default function Navbar() {
             FAQs
           </Link>
 
+          {/* The page has its own login; the link is just kept out of
+              non-members' way. */}
+          {isAuth && (
+            <Link to="/chats" className="hover:opacity-70 transition">
+              Chats
+            </Link>
+          )}
+
           <span className="hidden md:inline text-white/30">|</span>
 
           {!isAuth && (

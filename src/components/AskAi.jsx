@@ -31,6 +31,22 @@ const STORAGE_KEY = "askAiChat";
 const HISTORY_MAX_TURNS = 10;
 const HISTORY_MAX_AGE_MS = 30 * 60 * 60 * 1000;
 
+// One anonymous ID per browser, so the Chats page can group a person's
+// conversations together. Falls back to a throwaway ID if storage is off.
+const VISITOR_KEY = "askAiVisitorId";
+const getVisitorId = () => {
+  try {
+    let id = localStorage.getItem(VISITOR_KEY);
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem(VISITOR_KEY, id);
+    }
+    return id;
+  } catch {
+    return crypto.randomUUID();
+  }
+};
+
 let nextId = 1;
 
 const formatTime = (ms) =>
@@ -197,11 +213,32 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
       return;
     }
 
+    // Only the turns since the last "reset", and none older than
+    // HISTORY_MAX_AGE_MS — a stale chat shouldn't color a new one.
+    const lastReset = messages.findLastIndex((m) => m.isReset);
+    const cutoff = Date.now() - HISTORY_MAX_AGE_MS;
+    const recent = messages
+      .slice(lastReset + 1)
+      .filter((m) => m.answer && m.time > cutoff)
+      .slice(-HISTORY_MAX_TURNS);
+    const history = recent.map(({ question, answer, products }) => ({
+      question,
+      answer,
+      products: (products ?? []).map((p) => p.title),
+    }));
+    // Same rule for the saved chat log: no context carried over (first
+    // message, after "reset" / clearing / 30h idle) means a new
+    // conversation in the Chats page.
+    const conversationId =
+      recent.findLast((m) => m.conversationId)?.conversationId ??
+      crypto.randomUUID();
+
     setMessages((prev) => [
       ...prev,
       {
         id,
         question,
+        conversationId,
         answer: null,
         loading: true,
         error: null,
@@ -213,20 +250,12 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
       },
     ]);
 
-    // Only the turns since the last "reset", and none older than
-    // HISTORY_MAX_AGE_MS — a stale chat shouldn't color a new one.
-    const lastReset = messages.findLastIndex((m) => m.isReset);
-    const cutoff = Date.now() - HISTORY_MAX_AGE_MS;
-    const history = messages
-      .slice(lastReset + 1)
-      .filter((m) => m.answer && m.time > cutoff)
-      .slice(-HISTORY_MAX_TURNS)
-      .map(({ question, answer, products }) => ({
-        question,
-        answer,
-        products: (products ?? []).map((p) => p.title),
-      }));
-    const { data, error } = await callAskFaq({ question, history });
+    const { data, error } = await callAskFaq({
+      question,
+      history,
+      conversationId,
+      visitorId: getVisitorId(),
+    });
 
     if (error || data?.error) {
       console.error(error ?? data?.error);
@@ -386,7 +415,8 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
             Ask it anything a customer might. If a reply isn't quite right,
             hit "Improve answer" — saved answers collect under "
             {CORRECTIONS_CATEGORY}" so they're ready to hand off. It
-            remembers the conversation; type "reset" to start fresh.
+            remembers the conversation; type "reset" to start fresh. Chats
+            are saved so the team can review them.
           </p>
         )}
 

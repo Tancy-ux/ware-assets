@@ -8,6 +8,7 @@ import Fonts from "./components/Fonts";
 import Login from "./components/Login";
 import AssetLibrary from "./components/AssetLibrary";
 import Faq from "./components/Faq";
+import ChatLogs from "./components/ChatLogs";
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/assets" element={<AssetLibrary />} />
           <Route path="/faq" element={<Faq />} />
+          <Route path="/chats" element={<ChatLogs />} />
           <Route path="/colors" element={<Colors />} />
           <Route path="/logos" element={<Logos />} />
           <Route path="/fonts" element={<Fonts />} />

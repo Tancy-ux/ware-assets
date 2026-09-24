@@ -42,6 +42,7 @@ const GEMINI_MODELS = [
   "gemini-3.8-flash",
   "gemini-3.5-flash-lite",
 ];
+const GEMINI_TIMEOUT_MS = 25_000;
 const PRODUCT_CACHE_MS = 10 * 60 * 1000;
 // Checkout helpers that live in the feed but aren't real products.
 const EXCLUDED_TITLES = new Set(["Partial Payment"]);
@@ -298,10 +299,23 @@ function relevantProducts(products: Product[], question: string, limit = 12) {
 // ours; fall through to the next model instead of failing outright.
 async function callGemini(key: string, body: string): Promise<string | null> {
   for (const model of GEMINI_MODELS) {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body },
-    );
+    let res: Response;
+    try {
+      res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          // An overloaded model sometimes just hangs instead of returning
+          // 503; give up on it and try the next one.
+          signal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
+        },
+      );
+    } catch (err) {
+      console.error(`Gemini ${model} timed out / failed:`, err);
+      continue;
+    }
     if (res.ok) {
       const result = await res.json();
       return result?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
@@ -358,6 +372,73 @@ ${note}`;
   } catch {
     return null;
   }
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Treats the model's "none" / "unknown" / "N/A" style answers as empty.
+function cleanField(value: unknown) {
+  const s = typeof value === "string" ? value.trim().slice(0, 100) : "";
+  return /^(|none|unknown|n\/?a|null|not provided|not mentioned)$/i.test(s)
+    ? ""
+    : s;
+}
+
+// Saves one question/answer to chat_conversations + chat_messages for the
+// Chats page. Uses the service role key, since those tables have no anon
+// access at all. Skipped quietly if the key or IDs are missing (e.g. a
+// local run without the key set).
+async function logTurn(turn: {
+  conversationId: unknown;
+  visitorId: unknown;
+  question: string;
+  answer: string;
+  cards: ProductCard[];
+  visitorName: string;
+  company: string;
+  isFirst: boolean;
+}) {
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const { conversationId, visitorId } = turn;
+  if (
+    !serviceKey ||
+    typeof conversationId !== "string" || !UUID_RE.test(conversationId) ||
+    typeof visitorId !== "string" || !UUID_RE.test(visitorId)
+  ) {
+    return;
+  }
+
+  const admin = createClient(Deno.env.get("SUPABASE_URL") ?? "", serviceKey);
+  const now = new Date().toISOString();
+
+  // Only overwrite name/company when the model actually found one, so a
+  // later turn with nothing new doesn't blank them out.
+  const conversation: Record<string, string> = {
+    id: conversationId,
+    visitor_id: visitorId,
+    last_message_at: now,
+  };
+  if (turn.visitorName) conversation.visitor_name = turn.visitorName;
+  if (turn.company) conversation.company = turn.company;
+  if (turn.isFirst) conversation.first_question = turn.question.slice(0, 300);
+
+  const { error: convError } = await admin
+    .from("chat_conversations")
+    .upsert(conversation, { onConflict: "id" });
+  if (convError) throw convError;
+
+  const { error: msgError } = await admin.from("chat_messages").insert({
+    conversation_id: conversationId,
+    question: turn.question,
+    answer: turn.answer,
+    products: turn.cards.map((c) => ({
+      title: c.title,
+      url: c.url,
+      available: c.available,
+    })),
+  });
+  if (msgError) throw msgError;
 }
 
 Deno.serve(async (req) => {
@@ -488,9 +569,10 @@ Keep replies as short as the moment calls for:
 
 Answer in a friendly, conversational tone, like you're explaining it to someone new. Write in plain text only, no markdown — don't use asterisks for bold or italics, and don't use em dashes. If you need a list, write it as plain lines or "1., 2., 3." rather than markdown bullets. Don't repeat the question back before answering it. If the answer isn't covered in the FAQ content or catalog, say so honestly in one line and suggest they contact the team directly, don't make anything up.
 
-Respond as JSON with two fields:
+Respond as JSON with these fields:
 - "reply": your message, following all the rules above.
 - "products": the IDs of the products you're recommending, best first, taken exactly from the catalog's first column. Use an empty list when you aren't recommending products.
+- "visitorName" and "company": the person's own name and their company or business name, if they've stated them anywhere in this chat; otherwise empty strings. Only use what they actually said about themselves, never guess. This is recorded quietly for the team; don't mention it or ask for it.
 
 Each product you list is shown under your reply as a card with its photo, name, live price, stock status, and an add to cart button, so don't write links or prices in the reply and don't list the products out again. Just talk about them naturally, for example why they suit this person, referring to them by name where it helps. Recommend 3 or 4 products unless they ask for more. Prices are in Indian Rupees. Treat budgets strictly: "under 2000" means below Rs 2000, so a Rs 2000 item doesn't qualify, and for sets use the set price as listed. Prefer products that are in stock. Only recommend products that appear in the catalog.
 
@@ -549,8 +631,10 @@ ${details || "(none matched by keyword, use the catalog above)"}${
           properties: {
             reply: { type: "STRING" },
             products: { type: "ARRAY", items: { type: "STRING" } },
+            visitorName: { type: "STRING" },
+            company: { type: "STRING" },
           },
-          required: ["reply", "products"],
+          required: ["reply", "products", "visitorName", "company"],
         },
       },
     });
@@ -562,10 +646,14 @@ ${details || "(none matched by keyword, use the catalog above)"}${
 
     let answer = "";
     let picked: string[] = [];
+    let visitorName = "";
+    let company = "";
     try {
       const parsed = JSON.parse(text);
       answer = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
       picked = Array.isArray(parsed.products) ? parsed.products : [];
+      visitorName = cleanField(parsed.visitorName);
+      company = cleanField(parsed.company);
     } catch {
       // Not JSON after all — show whatever it said, just without cards.
       answer = text;
@@ -588,6 +676,22 @@ ${details || "(none matched by keyword, use the catalog above)"}${
         }
         return card;
       });
+
+    // Logging must never cost the visitor their answer.
+    try {
+      await logTurn({
+        conversationId: payload.conversationId,
+        visitorId: payload.visitorId,
+        question,
+        answer,
+        cards,
+        visitorName,
+        company,
+        isFirst: history.length === 0,
+      });
+    } catch (err) {
+      console.error("Chat log failed:", err);
+    }
 
     return json({ answer, products: cards });
   } catch (err) {

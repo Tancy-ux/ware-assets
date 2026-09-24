@@ -1,0 +1,168 @@
+// Supabase Edge Function: chat-admin
+//
+// Backs the site's Chats page: its own login (separate from the site's
+// shared login, and checked here on the server, never in the browser),
+// then lists / reads / labels the Ask AI conversations that ask-faq logs.
+// The chat tables have no anon access, so this function (using the
+// service role key) is the only way to read them.
+//
+// Deploy: supabase functions deploy chat-admin
+// Requires the secrets:
+//   supabase secrets set CHATS_USERNAME=... CHATS_PASSWORD=...
+// (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided automatically
+// once deployed; for local runs they go in supabase/functions/.env.local.)
+//
+// Run locally: npm run dev:chats  (serves on http://localhost:8002)
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+};
+
+const SESSION_HOURS = 12;
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+  });
+}
+
+const encoder = new TextEncoder();
+
+// Compares without bailing out at the first different character, so
+// response timing doesn't leak how much of a guess was right.
+function safeEqual(a: string, b: string) {
+  const x = encoder.encode(a);
+  const y = encoder.encode(b);
+  let diff = x.length ^ y.length;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    diff |= (x[i] ?? 0) ^ (y[i] ?? 0);
+  }
+  return diff === 0;
+}
+
+// Session tokens are "<expiry ms>.<HMAC of expiry>", signed with a key
+// derived from the password + service key. Changing the password logs
+// everyone out.
+async function sign(value: string, secret: string) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(value));
+  return btoa(String.fromCharCode(...new Uint8Array(sig)));
+}
+
+async function makeToken(secret: string) {
+  const expires = String(Date.now() + SESSION_HOURS * 60 * 60 * 1000);
+  return `${expires}.${await sign(expires, secret)}`;
+}
+
+async function tokenIsValid(token: unknown, secret: string) {
+  if (typeof token !== "string") return false;
+  const [expires, sig] = token.split(".", 2);
+  if (!expires || !sig || Number(expires) < Date.now()) return false;
+  return safeEqual(sig, await sign(expires, secret));
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: CORS_HEADERS });
+  }
+
+  try {
+    const username = Deno.env.get("CHATS_USERNAME");
+    const password = Deno.env.get("CHATS_PASSWORD");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!username || !password || !serviceKey) {
+      return json({ error: "Chats login isn't configured yet" }, 500);
+    }
+    const secret = `${password}:${serviceKey}`;
+
+    const body = await req.json();
+
+    if (body.action === "login") {
+      const ok = safeEqual(String(body.username ?? ""), username) &&
+        safeEqual(String(body.password ?? ""), password);
+      if (!ok) {
+        // Slows down password guessing.
+        await new Promise((r) => setTimeout(r, 800));
+        return json({ error: "Wrong username or password" }, 401);
+      }
+      return json({ token: await makeToken(secret) });
+    }
+
+    if (!(await tokenIsValid(body.token, secret))) {
+      return json({ error: "Session expired, please log in again" }, 401);
+    }
+
+    const db = createClient(Deno.env.get("SUPABASE_URL") ?? "", serviceKey);
+
+    if (body.action === "list") {
+      const { data, error } = await db
+        .from("chat_conversations")
+        .select(
+          "id, visitor_id, visitor_name, company, label, first_question, started_at, last_message_at, chat_messages(count)",
+        )
+        .order("last_message_at", { ascending: false })
+        .limit(500);
+      if (error) throw error;
+
+      return json({
+        conversations: (data ?? []).map((c) => ({
+          id: c.id,
+          visitorId: c.visitor_id,
+          visitorName: c.visitor_name,
+          company: c.company,
+          label: c.label,
+          startedAt: c.started_at,
+          lastMessageAt: c.last_message_at,
+          // deno-lint-ignore no-explicit-any
+          messageCount: (c.chat_messages as any)?.[0]?.count ?? 0,
+          preview: c.first_question ?? "",
+        })),
+      });
+    }
+
+    if (body.action === "messages") {
+      if (!UUID_RE.test(String(body.conversationId))) {
+        return json({ error: "Bad conversation id" }, 400);
+      }
+      const { data, error } = await db
+        .from("chat_messages")
+        .select("id, question, answer, products, created_at")
+        .eq("conversation_id", body.conversationId)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return json({ messages: data ?? [] });
+    }
+
+    if (body.action === "label") {
+      if (!UUID_RE.test(String(body.conversationId))) {
+        return json({ error: "Bad conversation id" }, 400);
+      }
+      const label = String(body.label ?? "").trim().slice(0, 100) || null;
+      const { error } = await db
+        .from("chat_conversations")
+        .update({ label })
+        .eq("id", body.conversationId);
+      if (error) throw error;
+      return json({ ok: true, label });
+    }
+
+    return json({ error: "Unknown action" }, 400);
+  } catch (err) {
+    console.error(err);
+    return json({ error: "Something went wrong" }, 500);
+  }
+});
