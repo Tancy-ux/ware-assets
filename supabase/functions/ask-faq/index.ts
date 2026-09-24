@@ -68,9 +68,8 @@ type Product = {
   keyTags: Set<string>;
   // Photos of this product's gift packaging (box, sleeve, hamper).
   giftImages: string[];
-  // Only true with evidence: a gift packaging photo, or "Gift Set" /
-  // "Gift Box" in the name. The model may only call something gift-packed
-  // when this is set (see the prompt).
+  // Tagged "gift-wrap" in Shopify. The model may only call something
+  // gift-packed when this is set (see the prompt).
   giftPacked: boolean;
 };
 
@@ -146,10 +145,20 @@ function toProduct(p: any): Product {
   // deno-lint-ignore no-explicit-any
   const variantPrices = (p.variants ?? []).map((v: any) => Number(v.price));
   const image = p.images?.[0]?.src;
-  // deno-lint-ignore no-explicit-any
-  const giftImages = (p.images ?? []).filter((i: any) => isGiftImage(i.src))
-    // deno-lint-ignore no-explicit-any
-    .map((i: any) => resized(i.src, 600));
+  // The team tags every product that comes gift-packed with "gift-wrap"
+  // in Shopify; that tag is the only source of truth for it.
+  const giftPacked = (p.tags ?? []).some(
+    (t: string) => t.toLowerCase() === GIFT_TAG,
+  );
+  // Gift photos only for tagged products, so a photo can never suggest
+  // gift packaging the tag doesn't back up.
+  const giftImages = giftPacked
+    ? (p.images ?? [])
+      // deno-lint-ignore no-explicit-any
+      .filter((i: any) => isGiftImage(i.src))
+      // deno-lint-ignore no-explicit-any
+      .map((i: any) => resized(i.src, 600))
+    : [];
   return {
     handle: p.handle,
     title: p.title,
@@ -159,7 +168,7 @@ function toProduct(p: any): Product {
     // Shopify's CDN resizes on the fly; cards are small.
     image: image ? resized(image, 300) : null,
     giftImages,
-    giftPacked: giftImages.length > 0 || /gift (set|box)/i.test(p.title),
+    giftPacked,
     prices,
     minPrice: Math.min(...variantPrices),
     maxPrice: Math.max(...variantPrices),
@@ -181,6 +190,7 @@ const resized = (src: string, width: number) =>
 // ("..._gift_box_front_shot.jpg", "gifting_sleeve.jpg") and by alt text
 // once the team adds it in Shopify (checked in loadGiftAlts).
 const GIFT_WORDS = /gift|hamper/i;
+const GIFT_TAG = "gift-wrap";
 function isGiftImage(src: string) {
   const file = decodeURIComponent(src.split("/").pop()?.split("?")[0] ?? "");
   return GIFT_WORDS.test(file);
@@ -232,7 +242,7 @@ async function giftImagesFor(
   };
 
   if (picked.length) {
-    for (const p of picked.slice(0, 4)) {
+    for (const p of picked.filter((p) => p.giftPacked).slice(0, 4)) {
       const fromAlt = await loadGiftAlts(p.handle);
       for (const src of [...p.giftImages, ...fromAlt]) add(src, p);
     }
