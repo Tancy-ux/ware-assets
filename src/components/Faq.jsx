@@ -490,6 +490,7 @@ const Faq = () => {
         open={showAskAi}
         onClose={() => setShowAskAi(false)}
         onSaved={handleAdded}
+        canEdit={canEdit}
       />
 
       <AddFaqForm

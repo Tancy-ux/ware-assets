@@ -532,6 +532,139 @@
   color: #b3441f;
 }
 
+/* "Improve AI" — header button and the guidelines panel */
+.faq-icon-btn.faq-chat-improve-ai-btn {
+  width: auto;
+  gap: 5px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--faq-text-secondary);
+}
+.faq-guidelines {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.faq-guidelines-intro {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--faq-text-secondary);
+}
+.faq-guidelines textarea {
+  font-size: 13px;
+}
+.faq-guidelines .faq-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.faq-guidelines-warning {
+  padding: 8px 10px;
+  border-radius: var(--faq-radius);
+  background: #fbf3e4;
+  border: 1px solid #ecd9b0;
+  color: #6b5220;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.faq-guidelines-list-head {
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--faq-border);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faq-text-muted);
+}
+.faq-guideline {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--faq-border);
+  border-radius: 8px;
+  background: var(--faq-panel);
+}
+.faq-guideline.faq-edit-form {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.faq-guideline-off .faq-guideline-body {
+  opacity: 0.5;
+}
+.faq-guideline-body {
+  flex: 1;
+  min-width: 0;
+  transition: opacity 0.15s ease;
+}
+.faq-guideline-text {
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.faq-guideline-original {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--faq-text-muted);
+  white-space: pre-line;
+}
+.faq-guideline-original summary {
+  cursor: pointer;
+}
+.faq-guideline-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+/* On/off switch */
+.faq-guideline-toggle {
+  position: relative;
+  flex-shrink: 0;
+  width: 30px;
+  height: 18px;
+  margin-top: 1px;
+  cursor: pointer;
+}
+.faq-guideline-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.faq-guideline-toggle span {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--faq-border-strong);
+  transition: background-color 0.15s ease;
+}
+.faq-guideline-toggle span::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease;
+}
+.faq-guideline-toggle input:checked + span {
+  background: var(--faq-accent);
+}
+.faq-guideline-toggle input:checked + span::after {
+  transform: translateX(12px);
+}
+.faq-guideline-toggle input:focus-visible + span {
+  outline: 2px solid var(--faq-accent);
+  outline-offset: 2px;
+}
+
 /* "Would you like to see similar…" under a sold-out card */
 .faq-chat-similar-offer {
   margin-top: 10px;

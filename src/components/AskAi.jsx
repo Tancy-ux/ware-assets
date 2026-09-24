@@ -1,7 +1,19 @@
 import { useEffect, useRef, useState } from "react";
-import { Sparkles, X, Pencil, Send, Trash2, Copy, Check } from "lucide-react";
+import {
+  Sparkles,
+  X,
+  Pencil,
+  Send,
+  Trash2,
+  Copy,
+  Check,
+  ArrowLeft,
+  GraduationCap,
+} from "lucide-react";
 import { toast } from "react-toastify";
 import { supabase } from "./supabase";
+import { callAskFaq } from "../lib/askFaq";
+import AiGuidelines from "./AiGuidelines";
 
 // Improved answers get saved as real rows in this category, so they're
 // easy to find, review, and hand off — and since the ask-faq function
@@ -12,28 +24,6 @@ const CORRECTIONS_CATEGORY = "WhatsApp Bot FAQ";
 // Chat history persists here so it survives refreshes/navigation — it's
 // only ever cleared by the user hitting the clear button.
 const STORAGE_KEY = "askAiChat";
-
-// Set in .env.local (dev only) to test a locally running ask-faq function
-// instead of the deployed one — see the note at the top of that function.
-const LOCAL_ASK_FAQ_URL = import.meta.env.VITE_ASK_FAQ_URL;
-
-const askFaq = async (question, history) => {
-  if (!LOCAL_ASK_FAQ_URL) {
-    return supabase.functions.invoke("ask-faq", {
-      body: { question, history },
-    });
-  }
-  try {
-    const res = await fetch(LOCAL_ASK_FAQ_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, history }),
-    });
-    return { data: await res.json(), error: null };
-  } catch (error) {
-    return { data: null, error };
-  }
-};
 
 // How much of the chat goes along with each question as context. The
 // function caps turns too; this just avoids sending what it'd drop.
@@ -128,8 +118,9 @@ const loadStoredMessages = () => {
 // A small chat popup for testing the FAQ bot turn by turn. The earlier
 // answered turns go along with each question so the model can follow the
 // conversation; clearing the chat starts it fresh.
-const AskAi = ({ open, onClose, onSaved }) => {
+const AskAi = ({ open, onClose, onSaved, canEdit }) => {
   const [messages, setMessages] = useState(loadStoredMessages);
+  const [showGuidelines, setShowGuidelines] = useState(false);
   const [input, setInput] = useState("");
   const [copiedKey, setCopiedKey] = useState(null);
   const listRef = useRef(null);
@@ -226,7 +217,7 @@ const AskAi = ({ open, onClose, onSaved }) => {
         answer,
         products: (products ?? []).map((p) => p.title),
       }));
-    const { data, error } = await askFaq(question, history);
+    const { data, error } = await callAskFaq({ question, history });
 
     if (error || data?.error) {
       console.error(error ?? data?.error);
@@ -320,21 +311,49 @@ const AskAi = ({ open, onClose, onSaved }) => {
   return (
     <div className={`faq-chat-popup ${open ? "faq-chat-popup-open" : ""}`}>
       <div className="faq-chat-header">
-        <span className="faq-chat-title">
-          <Sparkles size={15} />
-          Ask AI
-        </span>
+        {showGuidelines ? (
+          <span className="faq-chat-title">
+            <button
+              type="button"
+              onClick={() => setShowGuidelines(false)}
+              className="faq-icon-btn"
+              aria-label="Back to chat"
+              title="Back to chat"
+            >
+              <ArrowLeft size={15} />
+            </button>
+            Improve AI
+          </span>
+        ) : (
+          <span className="faq-chat-title">
+            <Sparkles size={15} />
+            Ask AI
+          </span>
+        )}
         <div className="faq-chat-header-actions">
-          <button
-            type="button"
-            onClick={clearChat}
-            className="faq-icon-btn faq-danger"
-            aria-label="Clear chat"
-            title="Clear chat"
-            disabled={messages.length === 0}
-          >
-            <Trash2 size={15} />
-          </button>
+          {canEdit && !showGuidelines && (
+            <button
+              type="button"
+              onClick={() => setShowGuidelines(true)}
+              className="faq-icon-btn faq-chat-improve-ai-btn"
+              title="Improve AI: teach it how to answer"
+            >
+              <GraduationCap size={15} />
+              Improve AI
+            </button>
+          )}
+          {!showGuidelines && (
+            <button
+              type="button"
+              onClick={clearChat}
+              className="faq-icon-btn faq-danger"
+              aria-label="Clear chat"
+              title="Clear chat"
+              disabled={messages.length === 0}
+            >
+              <Trash2 size={15} />
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}
@@ -346,6 +365,12 @@ const AskAi = ({ open, onClose, onSaved }) => {
         </div>
       </div>
 
+      {showGuidelines ? (
+        <div className="faq-chat-messages">
+          <AiGuidelines />
+        </div>
+      ) : (
+      <>
       <div className="faq-chat-messages" ref={listRef}>
         {messages.length === 0 && (
           <p className="faq-chat-empty">
@@ -495,6 +520,8 @@ const AskAi = ({ open, onClose, onSaved }) => {
           <Send size={15} />
         </button>
       </form>
+      </>
+      )}
     </div>
   );
 };

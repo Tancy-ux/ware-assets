@@ -293,13 +293,99 @@ function relevantProducts(products: Product[], question: string, limit = 12) {
     .map((x) => x.p);
 }
 
+// Returns the model's text, or null if every model failed. Free-tier
+// models regularly return 503 "high demand" (or 429) on big prompts like
+// ours; fall through to the next model instead of failing outright.
+async function callGemini(key: string, body: string): Promise<string | null> {
+  for (const model of GEMINI_MODELS) {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body },
+    );
+    if (res.ok) {
+      const result = await res.json();
+      return result?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
+    }
+    console.error(`Gemini ${model} error:`, await res.text());
+    if (res.status !== 503 && res.status !== 429) return null;
+  }
+  return null;
+}
+
+const MAX_RULE_CHARS = 400;
+const MAX_NOTE_CHARS = 3000;
+
+// "Improve AI" panel: turns a team member's rough note into clear,
+// standalone rules for them to review before saving. Nothing is stored
+// here; the panel saves what they approve.
+async function tidyGuideline(key: string, note: string) {
+  const prompt = `A team member at Ware Innovations (a ceramic tableware brand) typed the note below to change how their customer-facing chat assistant behaves. It may be rough, run-on, or full of shorthand.
+
+Rewrite it as one or more clear, short instructions addressed to the assistant, in plain English. Each instruction must stand on its own and be under ${MAX_RULE_CHARS} characters. Split unrelated points into separate instructions; keep related ones together. Keep the team member's meaning exactly. Don't add requirements they didn't state, and don't soften or strengthen them.
+
+Also write "note": one short sentence for the team member ONLY if something is worth flagging, otherwise an empty string. Flag it if the note:
+- mentions a specific product's stock, price or availability (those change, and the assistant already gets them live from the store), or
+- is about one particular customer or conversation rather than how to treat customers in general, or
+- is too unclear to turn into an instruction (then say what's unclear).
+
+Team member's note:
+${note}`;
+
+  const text = await callGemini(key, JSON.stringify({
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      maxOutputTokens: 2048,
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: "OBJECT",
+        properties: {
+          rules: { type: "ARRAY", items: { type: "STRING" } },
+          note: { type: "STRING" },
+        },
+        required: ["rules", "note"],
+      },
+    },
+  }));
+  if (text === null) return null;
+  try {
+    const parsed = JSON.parse(text);
+    return {
+      rules: (Array.isArray(parsed.rules) ? parsed.rules : [])
+        .filter((r: unknown) => typeof r === "string" && r.trim())
+        .map((r: string) => r.trim().slice(0, MAX_RULE_CHARS)),
+      note: typeof parsed.note === "string" ? parsed.note.trim() : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: CORS_HEADERS });
   }
 
   try {
-    const { question, history: rawHistory } = await req.json();
+    const payload = await req.json();
+
+    const geminiKey = Deno.env.get("GEMINI_API_KEY");
+    if (!geminiKey) {
+      return json({ error: "AI is not configured yet" }, 500);
+    }
+
+    if (payload.mode === "tidy") {
+      const note = typeof payload.note === "string" ? payload.note.trim() : "";
+      if (!note) return json({ error: "Missing note" }, 400);
+      const tidied = await tidyGuideline(
+        geminiKey,
+        note.slice(0, MAX_NOTE_CHARS),
+      );
+      return tidied
+        ? json(tidied)
+        : json({ error: "AI request failed" }, 502);
+    }
+
+    const { question, history: rawHistory } = payload;
     if (!question || typeof question !== "string" || !question.trim()) {
       return json({ error: "Missing question" }, 400);
     }
@@ -338,6 +424,18 @@ Deno.serve(async (req) => {
     const context = (faqs ?? [])
       .map((f) => `Category: ${f.category}\nQ: ${f.question}\nA: ${f.answer}`)
       .join("\n\n");
+
+    // Team-written rules from the "Improve AI" panel. If the table is
+    // missing or unreachable, answer without them rather than failing.
+    const { data: guidelineRows, error: guidelineError } = await supabase
+      .from("ai_guidelines")
+      .select("rule")
+      .eq("enabled", true)
+      .order("created_at");
+    if (guidelineError) console.error("Guidelines failed:", guidelineError);
+    const guidelines = (guidelineRows ?? [])
+      .map((g) => `- ${String(g.rule).slice(0, MAX_RULE_CHARS)}`)
+      .join("\n");
 
     // If Shopify is down, still answer from the FAQs alone.
     let products: Product[] = [];
@@ -399,7 +497,14 @@ Each product you list is shown under your reply as a card with its photo, name, 
 If someone asks about a specific product that's sold out, still include it in "products" and lead with the positive, then the stock status, for example: "The Bites and Delights Lime Green is a lovely pick for corporate gifting, but it's currently sold out." Don't suggest alternatives to it yourself and don't ask whether they'd like to see similar items; the app automatically offers similar in-stock products under a sold-out card.
 
 Earlier replies of yours in this chat may end with a note like "(Product cards shown: ...)"; that's what the person saw under that reply, so "the second one" or "that set" refers to those.
-
+${
+      guidelines
+        ? `
+Team guidelines. The Ware team added these to fine-tune how you answer; follow them. If one ever conflicts with the rules above (only use the FAQ and catalog, never invent products or facts, reply in the JSON format described), the rules above win.
+${guidelines}
+`
+        : ""
+    }
 FAQ content:
 ${context}
 
@@ -428,11 +533,6 @@ ${details || "(none matched by keyword, use the catalog above)"}${
       { role: "user", parts: [{ text: question }] },
     ];
 
-    const geminiKey = Deno.env.get("GEMINI_API_KEY");
-    if (!geminiKey) {
-      return json({ error: "AI is not configured yet" }, 500);
-    }
-
     const body = JSON.stringify({
       systemInstruction: { parts: [{ text: systemPrompt }] },
       contents,
@@ -455,27 +555,10 @@ ${details || "(none matched by keyword, use the catalog above)"}${
       },
     });
 
-    // Free-tier models regularly return 503 "high demand" (or 429) on
-    // big prompts like ours; fall through to the next model instead of
-    // failing the whole answer.
-    let res: Response | null = null;
-    for (const model of GEMINI_MODELS) {
-      res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
-        { method: "POST", headers: { "Content-Type": "application/json" }, body },
-      );
-      if (res.ok) break;
-      console.error(`Gemini ${model} error:`, await res.text());
-      if (res.status !== 503 && res.status !== 429) break;
-    }
-
-    if (!res?.ok) {
+    const text = await callGemini(geminiKey, body);
+    if (text === null) {
       return json({ error: "AI request failed" }, 502);
     }
-
-    const result = await res.json();
-    const text: string =
-      result?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
 
     let answer = "";
     let picked: string[] = [];
