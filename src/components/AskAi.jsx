@@ -14,6 +14,7 @@ import { toast } from "react-toastify";
 import { supabase } from "./supabase";
 import { callAskFaq } from "../lib/askFaq";
 import AiGuidelines from "./AiGuidelines";
+import RestockForm from "./RestockForm";
 
 // Improved answers get saved as real rows in this category, so they're
 // easy to find, review, and hand off — and since the ask-faq function
@@ -58,12 +59,10 @@ const linkify = (text) =>
 // Shopify catalog via the function, not from the model's text. Single-
 // variant products add straight to the store's cart; ones with options
 // (size, colour) go to the product page to pick.
-const ProductCard = ({ product }) => {
-  const action = !product.available
-    ? { href: product.url, label: "View" }
-    : product.cartUrl
-      ? { href: product.cartUrl, label: "Add to cart" }
-      : { href: product.url, label: "Shop now" };
+const ProductCard = ({ product, restockState, onCheckRestock }) => {
+  const action = product.cartUrl
+    ? { href: product.cartUrl, label: "Add to cart" }
+    : { href: product.url, label: "Shop now" };
   return (
     <div className="faq-chat-product">
       <a
@@ -81,16 +80,26 @@ const ProductCard = ({ product }) => {
         <div className="faq-chat-product-title">{product.title}</div>
         <div className="faq-chat-product-price">{product.price}</div>
       </a>
-      <a
-        href={action.href}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={`faq-chat-product-btn${
-          product.available ? "" : " faq-chat-product-btn-muted"
-        }`}
-      >
-        {action.label}
-      </a>
+      {product.available ? (
+        <a
+          href={action.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="faq-chat-product-btn"
+        >
+          {action.label}
+        </a>
+      ) : (
+        // Sold out: no pre-orders, but the team can check for stock.
+        <button
+          type="button"
+          className="faq-chat-product-btn faq-chat-product-btn-muted"
+          disabled={restockState === "done"}
+          onClick={onCheckRestock}
+        >
+          {restockState === "done" ? "Requested ✓" : "Check restock"}
+        </button>
+      )}
     </div>
   );
 };
@@ -419,10 +428,49 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
                 {m.products?.length > 0 && (
                   <div className="faq-chat-products">
                     {m.products.map((p) => (
-                      <ProductCard key={p.url} product={p} />
+                      <ProductCard
+                        key={p.url}
+                        product={p}
+                        restockState={
+                          m.restockDone?.[p.url]
+                            ? "done"
+                            : m.restockOpen === p.url
+                              ? "open"
+                              : null
+                        }
+                        onCheckRestock={() =>
+                          patchMessage(m.id, { restockOpen: p.url })
+                        }
+                      />
                     ))}
                   </div>
                 )}
+                {m.products
+                  ?.filter((p) => m.restockOpen === p.url)
+                  .map((p) => (
+                    <RestockForm
+                      key={p.url}
+                      product={p}
+                      onCancel={() => patchMessage(m.id, { restockOpen: null })}
+                      onDone={(contact) =>
+                        patchMessage(m.id, {
+                          restockOpen: null,
+                          restockDone: {
+                            ...m.restockDone,
+                            [p.url]: contact,
+                          },
+                        })
+                      }
+                    />
+                  ))}
+                {m.products
+                  ?.filter((p) => m.restockDone?.[p.url])
+                  .map((p) => (
+                    <div key={p.url} className="faq-chat-restock-done">
+                      Thanks! We'll check stock for the {p.title} and reach
+                      out at {m.restockDone[p.url]}.
+                    </div>
+                  ))}
                 {m.products
                   ?.filter((p) => p.similar?.length && !m.similarShown?.[p.url])
                   .map((p) => (

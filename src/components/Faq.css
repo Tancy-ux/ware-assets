@@ -688,14 +688,35 @@
 }
 
 /* Product recommendations inside an AI answer */
+/* One swipeable row; cards snap into place and the next one peeks in so
+   it's obvious there's more to scroll to. */
 .faq-chat-products {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
   gap: 8px;
-  margin-top: 10px;
+  margin: 10px -12px 0;
+  padding: 0 12px 6px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-padding: 0 12px;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--faq-border-strong) transparent;
   white-space: normal;
 }
+.faq-chat-products::-webkit-scrollbar {
+  height: 5px;
+}
+.faq-chat-products::-webkit-scrollbar-thumb {
+  background: var(--faq-border-strong);
+  border-radius: 999px;
+}
+/* Answers with cards use the full bubble width, so the row has room. */
+.faq-chat-bubble:has(.faq-chat-products) {
+  width: 88%;
+}
 .faq-chat-product {
+  flex: 0 0 148px;
+  scroll-snap-align: start;
   display: flex;
   flex-direction: column;
   background: var(--faq-panel);
@@ -747,24 +768,63 @@
   font-size: 12.5px;
   font-weight: 600;
 }
-.faq-chat-bubble a.faq-chat-product-btn {
+.faq-chat-bubble .faq-chat-product-btn {
   margin: 0 8px 8px;
   padding: 6px 8px;
+  border: 1px solid var(--faq-accent);
   border-radius: var(--faq-radius);
   background: var(--faq-accent);
   color: #fff;
+  font-family: inherit;
   font-size: 12px;
+  line-height: 1.3;
   text-align: center;
   text-decoration: none;
-  transition: opacity 0.15s ease;
+  cursor: pointer;
+  transition: opacity 0.15s ease, background-color 0.15s ease,
+    border-color 0.15s ease, color 0.15s ease;
 }
-.faq-chat-bubble a.faq-chat-product-btn:hover {
+.faq-chat-bubble .faq-chat-product-btn:hover {
   opacity: 0.88;
 }
-.faq-chat-bubble a.faq-chat-product-btn-muted {
-  background: none;
-  border: 1px solid var(--faq-border-strong);
+.faq-chat-bubble .faq-chat-product-btn-muted {
+  background: var(--faq-panel);
+  border-color: var(--faq-border-strong);
   color: var(--faq-text-secondary);
+}
+.faq-chat-bubble .faq-chat-product-btn-muted:hover {
+  opacity: 1;
+  border-color: var(--faq-accent);
+  color: var(--faq-accent);
+}
+.faq-chat-bubble .faq-chat-product-btn:disabled {
+  cursor: default;
+  border-color: var(--faq-border);
+  color: var(--faq-text-muted);
+}
+
+/* "Check restock" form under the cards */
+.faq-chat-restock {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--faq-border);
+  border-radius: 8px;
+  background: var(--faq-panel);
+  white-space: normal;
+  gap: 8px;
+}
+.faq-chat-restock-title {
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.faq-chat-restock input {
+  font-size: 13px;
+}
+.faq-chat-restock-done {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--faq-accent);
+  white-space: normal;
 }
 .faq-chat-bubble-actions {
   margin-top: 8px;
