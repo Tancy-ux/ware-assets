@@ -111,9 +111,9 @@ Deno.serve(async (req) => {
     if (body.action === "list") {
       const { data, error } = await db
         .from("chat_conversations")
-        .select(
-          "id, visitor_id, visitor_name, company, label, first_question, started_at, last_message_at, chat_messages(count)",
-        )
+        // "*" rather than a column list, so this keeps working whether or
+        // not last_question has been added to the table yet.
+        .select("*, chat_messages(count)")
         .order("last_message_at", { ascending: false })
         .limit(500);
       if (error) throw error;
@@ -129,7 +129,9 @@ Deno.serve(async (req) => {
           lastMessageAt: c.last_message_at,
           // deno-lint-ignore no-explicit-any
           messageCount: (c.chat_messages as any)?.[0]?.count ?? 0,
-          preview: c.first_question ?? "",
+          // Latest question; older chats from before that column existed
+          // fall back to their first one.
+          preview: c.last_question ?? c.first_question ?? "",
         })),
       });
     }

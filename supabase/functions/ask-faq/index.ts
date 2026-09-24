@@ -519,10 +519,19 @@ async function logTurn(turn: {
   if (turn.visitorName) conversation.visitor_name = turn.visitorName;
   if (turn.company) conversation.company = turn.company;
   if (turn.isFirst) conversation.first_question = turn.question.slice(0, 300);
+  conversation.last_question = turn.question.slice(0, 300);
 
-  const { error: convError } = await admin
+  let { error: convError } = await admin
     .from("chat_conversations")
     .upsert(conversation, { onConflict: "id" });
+  // Database not migrated yet (no last_question column): save the rest
+  // rather than losing the whole turn.
+  if (convError?.code === "PGRST204") {
+    delete conversation.last_question;
+    ({ error: convError } = await admin
+      .from("chat_conversations")
+      .upsert(conversation, { onConflict: "id" }));
+  }
   if (convError) throw convError;
 
   const { error: msgError } = await admin.from("chat_messages").insert({

@@ -199,7 +199,7 @@ const ChatLogs = () => {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name, company, or first question"
+              placeholder="Search name, company, or latest question"
             />
             {search && (
               <button type="button" onClick={() => setSearch("")} aria-label="Clear search">

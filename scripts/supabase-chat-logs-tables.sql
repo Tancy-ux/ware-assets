@@ -19,11 +19,15 @@ create table if not exists public.chat_conversations (
   company text,
   -- Set by the team in the Chats page, overrides the name in the list.
   label text,
-  -- Shown as a preview in the Chats list.
   first_question text,
   started_at timestamptz not null default now(),
   last_message_at timestamptz not null default now()
 );
+
+-- The most recent question, shown as the preview in the Chats list.
+-- (Added after the table first shipped, hence the separate statement.)
+alter table public.chat_conversations
+  add column if not exists last_question text;
 
 create index if not exists chat_conversations_last_message_idx
   on public.chat_conversations (last_message_at desc);
