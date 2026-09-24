@@ -71,6 +71,12 @@ const linkify = (text) =>
     ),
   );
 
+// "Check restock" on sold-out cards. Off for now: the restock_requests
+// table (scripts/supabase-restock-requests-table.sql) isn't set up yet.
+// Flip to true once it is, and restore the "Check restock" sentence in the
+// ask-faq prompt.
+const RESTOCK_CHECK_ENABLED = false;
+
 // A product the AI recommended. Everything shown here comes from the
 // Shopify catalog via the function, not from the model's text. Single-
 // variant products add straight to the store's cart; ones with options
@@ -104,6 +110,15 @@ const ProductCard = ({ product, restockState, onCheckRestock }) => {
           className="faq-chat-product-btn"
         >
           {action.label}
+        </a>
+      ) : !RESTOCK_CHECK_ENABLED ? (
+        <a
+          href={product.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="faq-chat-product-btn faq-chat-product-btn-muted"
+        >
+          View
         </a>
       ) : (
         // Sold out: no pre-orders, but the team can check for stock.

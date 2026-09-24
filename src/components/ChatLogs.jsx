@@ -6,6 +6,7 @@ import {
   Pencil,
   RefreshCw,
   Search,
+  Trash2,
   X,
 } from "lucide-react";
 import { toast } from "react-toastify";
@@ -130,6 +131,24 @@ const ChatLogs = () => {
       prev.map((c) => (c.id === selectedId ? { ...c, label: data.label } : c)),
     );
     setEditingLabel(null);
+  };
+
+  const deleteConversation = async () => {
+    const convo = conversations.find((c) => c.id === selectedId);
+    if (
+      !convo ||
+      !window.confirm(
+        `Delete this chat with ${titleOf(convo)}?\n\nAll ${convo.messageCount} messages will be permanently removed.`,
+      )
+    ) {
+      return;
+    }
+    const data = await api({ action: "delete", conversationId: convo.id });
+    if (!data) return;
+    setConversations((prev) => prev.filter((c) => c.id !== convo.id));
+    setSelectedId(null);
+    setMessages([]);
+    toast.success("Chat deleted");
   };
 
   const visitorCounts = useMemo(() => {
@@ -333,6 +352,15 @@ const ChatLogs = () => {
                     </button>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  className="chats-icon-btn chats-delete"
+                  onClick={deleteConversation}
+                  aria-label="Delete chat"
+                  title="Delete chat"
+                >
+                  <Trash2 size={15} />
+                </button>
               </div>
 
               <div className="chats-transcript">

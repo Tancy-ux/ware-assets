@@ -2,7 +2,8 @@
 //
 // Backs the site's Chats page: its own login (separate from the site's
 // shared login, and checked here on the server, never in the browser),
-// then lists / reads / labels the Ask AI conversations that ask-faq logs.
+// then lists / reads / labels / deletes the Ask AI conversations that
+// ask-faq logs.
 // The chat tables have no anon access, so this function (using the
 // service role key) is the only way to read them.
 //
@@ -160,6 +161,19 @@ Deno.serve(async (req) => {
         .eq("id", body.conversationId);
       if (error) throw error;
       return json({ ok: true, label });
+    }
+
+    if (body.action === "delete") {
+      if (!UUID_RE.test(String(body.conversationId))) {
+        return json({ error: "Bad conversation id" }, 400);
+      }
+      // Its chat_messages go too (on delete cascade).
+      const { error } = await db
+        .from("chat_conversations")
+        .delete()
+        .eq("id", body.conversationId);
+      if (error) throw error;
+      return json({ ok: true });
     }
 
     return json({ error: "Unknown action" }, 400);

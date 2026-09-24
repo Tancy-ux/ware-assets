@@ -100,6 +100,15 @@
   background: #f0efea;
   color: var(--chats-text);
 }
+.chats-icon-btn.chats-delete {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+}
+.chats-icon-btn.chats-delete:hover {
+  background: #f8ecea;
+  color: #a34133;
+}
 .chats-link-btn {
   border: none;
   background: none;
