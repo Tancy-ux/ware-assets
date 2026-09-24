@@ -9,6 +9,12 @@
 //
 // Deploy: supabase functions deploy ask-faq
 // Requires the secret: supabase secrets set GEMINI_API_KEY=your-key
+//
+// Run locally (no Supabase CLI needed): put SUPABASE_URL, SUPABASE_ANON_KEY
+// and GEMINI_API_KEY in supabase/functions/.env.local, then
+//   npm run dev:ai
+// and set VITE_ASK_FAQ_URL=http://localhost:8000 in .env.local so the dev
+// site's Ask AI talks to it.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 

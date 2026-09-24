@@ -13,6 +13,26 @@ const CORRECTIONS_CATEGORY = "WhatsApp Bot FAQ";
 // only ever cleared by the user hitting the clear button.
 const STORAGE_KEY = "askAiChat";
 
+// Set in .env.local (dev only) to test a locally running ask-faq function
+// instead of the deployed one — see the note at the top of that function.
+const LOCAL_ASK_FAQ_URL = import.meta.env.VITE_ASK_FAQ_URL;
+
+const askFaq = async (question) => {
+  if (!LOCAL_ASK_FAQ_URL) {
+    return supabase.functions.invoke("ask-faq", { body: { question } });
+  }
+  try {
+    const res = await fetch(LOCAL_ASK_FAQ_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+    return { data: await res.json(), error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+};
+
 let nextId = 1;
 
 const formatTime = (ms) =>
@@ -128,9 +148,7 @@ const AskAi = ({ open, onClose, onSaved }) => {
       },
     ]);
 
-    const { data, error } = await supabase.functions.invoke("ask-faq", {
-      body: { question },
-    });
+    const { data, error } = await askFaq(question);
 
     if (error || data?.error) {
       console.error(error ?? data?.error);
