@@ -17,21 +17,28 @@ const STORAGE_KEY = "askAiChat";
 // instead of the deployed one — see the note at the top of that function.
 const LOCAL_ASK_FAQ_URL = import.meta.env.VITE_ASK_FAQ_URL;
 
-const askFaq = async (question) => {
+const askFaq = async (question, history) => {
   if (!LOCAL_ASK_FAQ_URL) {
-    return supabase.functions.invoke("ask-faq", { body: { question } });
+    return supabase.functions.invoke("ask-faq", {
+      body: { question, history },
+    });
   }
   try {
     const res = await fetch(LOCAL_ASK_FAQ_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, history }),
     });
     return { data: await res.json(), error: null };
   } catch (error) {
     return { data: null, error };
   }
 };
+
+// How much of the chat goes along with each question as context. The
+// function caps turns too; this just avoids sending what it'd drop.
+const HISTORY_MAX_TURNS = 10;
+const HISTORY_MAX_AGE_MS = 30 * 60 * 60 * 1000;
 
 let nextId = 1;
 
@@ -77,9 +84,9 @@ const loadStoredMessages = () => {
   }
 };
 
-// A small chat popup for testing the FAQ bot turn by turn. Each question
-// is answered independently (no conversation memory is sent to the
-// model) — that matches how the FAQ itself works and keeps things simple.
+// A small chat popup for testing the FAQ bot turn by turn. The earlier
+// answered turns go along with each question so the model can follow the
+// conversation; clearing the chat starts it fresh.
 const AskAi = ({ open, onClose, onSaved }) => {
   const [messages, setMessages] = useState(loadStoredMessages);
   const [input, setInput] = useState("");
@@ -132,6 +139,23 @@ const AskAi = ({ open, onClose, onSaved }) => {
     setInput("");
 
     const id = nextId++;
+
+    // "reset" starts a new conversation without wiping the visible chat —
+    // handled right here, no AI call needed.
+    if (/^\/?reset$/i.test(question)) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id,
+          question,
+          answer: "Okay, starting fresh. I've forgotten the earlier chat.",
+          isReset: true,
+          time: Date.now(),
+        },
+      ]);
+      return;
+    }
+
     setMessages((prev) => [
       ...prev,
       {
@@ -148,7 +172,16 @@ const AskAi = ({ open, onClose, onSaved }) => {
       },
     ]);
 
-    const { data, error } = await askFaq(question);
+    // Only the turns since the last "reset", and none older than
+    // HISTORY_MAX_AGE_MS — a stale chat shouldn't color a new one.
+    const lastReset = messages.findLastIndex((m) => m.isReset);
+    const cutoff = Date.now() - HISTORY_MAX_AGE_MS;
+    const history = messages
+      .slice(lastReset + 1)
+      .filter((m) => m.answer && m.time > cutoff)
+      .slice(-HISTORY_MAX_TURNS)
+      .map(({ question, answer }) => ({ question, answer }));
+    const { data, error } = await askFaq(question, history);
 
     if (error || data?.error) {
       console.error(error ?? data?.error);
@@ -249,7 +282,8 @@ const AskAi = ({ open, onClose, onSaved }) => {
           <p className="faq-chat-empty">
             Ask it anything a customer might. If a reply isn't quite right,
             hit "Improve answer" — saved answers collect under "
-            {CORRECTIONS_CATEGORY}" so they're ready to hand off.
+            {CORRECTIONS_CATEGORY}" so they're ready to hand off. It
+            remembers the conversation; type "reset" to start fresh.
           </p>
         )}
 
@@ -307,7 +341,7 @@ const AskAi = ({ open, onClose, onSaved }) => {
                       {formatTime(m.time)}
                     </span>
                   </div>
-                  {m.saved ? (
+                  {m.isReset ? null : m.saved ? (
                     <span className="faq-chat-saved">Saved ✓</span>
                   ) : (
                     <button

@@ -52,9 +52,14 @@ type Product = {
   tags: string[];
   url: string;
   prices: string;
+  minPrice: number;
   description: string;
   searchText: string;
 };
+
+type Turn = { question: string; answer: string };
+const MAX_HISTORY_TURNS = 10;
+const MAX_TURN_CHARS = 2000;
 
 let productCache: { at: number; products: Product[] } | null = null;
 
@@ -85,6 +90,8 @@ function toProduct(p: any): Product {
     tags: p.tags ?? [],
     url: `${STORE_URL}/products/${p.handle}`,
     prices,
+    // deno-lint-ignore no-explicit-any
+    minPrice: Math.min(...(p.variants ?? []).map((v: any) => Number(v.price))),
     description,
     searchText: `${p.title} ${type} ${(p.tags ?? []).join(" ")} ${description}`
       .toLowerCase(),
@@ -117,6 +124,19 @@ const STOPWORDS = new Set(
     "get give like looking price cost").split(" "),
 );
 
+// The most recent "under 2000" / "below 5k" / "less than ₹1500" in the
+// text, as a number of rupees.
+function maxBudget(text: string): number | null {
+  const re =
+    /\b(?:under|below|less than|within|upto|up to|max(?:imum)?)\s*(?:rs\.?|inr|₹)?\s*([\d,]+(?:\.\d+)?)\s*(k)?\b/gi;
+  let last: number | null = null;
+  for (const m of text.matchAll(re)) {
+    const n = Number(m[1].replace(/,/g, "")) * (m[2] ? 1000 : 1);
+    if (n > 0) last = n;
+  }
+  return last;
+}
+
 // Cheap keyword match so the full descriptions of the few products the
 // question is actually about fit in the prompt, instead of all ~600.
 function relevantProducts(products: Product[], question: string, limit = 12) {
@@ -147,10 +167,23 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { question } = await req.json();
+    const { question, history: rawHistory } = await req.json();
     if (!question || typeof question !== "string" || !question.trim()) {
       return json({ error: "Missing question" }, 400);
     }
+
+    // Earlier turns of this chat, so the model can follow along ("I
+    // already said corporate gifting") instead of treating every message
+    // as brand new. Capped so a long chat can't blow up the prompt.
+    const history: Turn[] = (Array.isArray(rawHistory) ? rawHistory : [])
+      .filter((t) =>
+        typeof t?.question === "string" && typeof t?.answer === "string"
+      )
+      .slice(-MAX_HISTORY_TURNS)
+      .map((t) => ({
+        question: t.question.slice(0, MAX_TURN_CHARS),
+        answer: t.answer.slice(0, MAX_TURN_CHARS),
+      }));
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
@@ -183,7 +216,21 @@ Deno.serve(async (req) => {
       .map((p) => `${p.title} | ${p.type || "Other"} | ${p.prices} | ${p.url}`)
       .join("\n");
 
-    const details = relevantProducts(products, question)
+    // Match on recent questions too, so a follow-up like "under 2000?"
+    // still pulls in the cups/vases/etc. the chat is about.
+    const searchQuery = [
+      ...history.slice(-2).map((t) => t.question),
+      question,
+    ].join(" ");
+
+    // Enforce "under 2000"-style budgets in code; the fallback models
+    // don't reliably respect them from the prompt alone.
+    const budget = maxBudget(searchQuery);
+    const matches = relevantProducts(products, searchQuery, budget ? 40 : 12)
+      .filter((p) => !budget || p.minPrice < budget)
+      .slice(0, 12);
+
+    const details = matches
       .map((p) =>
         `${p.title}\nType: ${p.type || "Other"}\nPrice: ${p.prices}\nTags: ${
           p.tags.join(", ")
@@ -191,7 +238,13 @@ Deno.serve(async (req) => {
       )
       .join("\n\n");
 
-    const prompt = `You are a helpful assistant answering questions about Ware Innovations, a ceramic tableware brand, using ONLY the FAQ content and product catalog below.
+    const systemPrompt = `You are a helpful assistant answering questions about Ware Innovations, a ceramic tableware brand, using ONLY the FAQ content and product catalog below.
+
+This is an ongoing conversation. Read the whole chat before replying and carry everything the person has already told you forward: who they are (for example a company doing corporate gifting, a restaurant or hotel, or someone shopping for their home), the occasion, budget, quantity, colours, and product types. Never ask for something they've already said. Build each reply on what came before, so a short follow-up like "under 2000?" or "in blue?" refines the earlier request instead of starting over.
+
+Lean towards being useful straight away. If you have enough to make a reasonable suggestion, make it, and ask at most one short follow-up question only if it would genuinely change your recommendation. When you do need more, ask for just the one or two most important missing details.
+
+Use what you know about them. For corporate or bulk gifting, favour gift sets and giftable items, and bring in anything the FAQ says about bulk orders, custom branding, gift wrapping, or volume pricing that's relevant. For restaurants, hotels or cafes, draw on the HoReCa FAQ content.
 
 Keep replies as short as the moment calls for:
 - Greetings or small talk ("hi", "thanks", "ok") get a brief, friendly line back. Don't summarize the FAQ or introduce yourself.
@@ -200,7 +253,7 @@ Keep replies as short as the moment calls for:
 
 Answer in a friendly, conversational tone, like you're explaining it to someone new. Write in plain text only, no markdown — don't use asterisks for bold or italics, and don't use em dashes. If you need a list, write it as plain lines or "1., 2., 3." rather than markdown bullets. Don't repeat the question back before answering it. If the answer isn't covered in the FAQ content or catalog, say so honestly in one line and suggest they contact the team directly, don't make anything up.
 
-When the question is about products, recommend real ones from the catalog by their exact name, with the price, and put the product link on its own line so it's clickable. Suggest at most 3 or 4 products unless they ask for more. Prices are in Indian Rupees. If something is marked sold out, say so. Only mention products that appear in the catalog.
+When the question is about products, recommend real ones from the catalog by their exact name, with the price, and put the product link on its own line so it's clickable. Suggest at most 3 or 4 products unless they ask for more. Prices are in Indian Rupees. Treat budgets strictly: "under 2000" means below Rs 2000, so a Rs 2000 item doesn't qualify, and for sets use the set price as listed. If something is marked sold out, say so. Only mention products that appear in the catalog.
 
 FAQ content:
 ${context}
@@ -208,12 +261,20 @@ ${context}
 Product catalog (every product currently on the online store; name | type | price | link):
 ${catalog}
 
-Full details for the products that best match this question:
-${details || "(none matched by keyword, use the catalog above)"}
+Full details for the products that best match the conversation so far:
+${details || "(none matched by keyword, use the catalog above)"}${
+      budget
+        ? `\n\nThe person's budget is strictly under Rs ${budget}. Only suggest products priced below Rs ${budget}; anything at Rs ${budget} or more doesn't qualify.`
+        : ""
+    }`;
 
-Question: ${question}
-
-Answer:`;
+    const contents = [
+      ...history.flatMap((t) => [
+        { role: "user", parts: [{ text: t.question }] },
+        { role: "model", parts: [{ text: t.answer }] },
+      ]),
+      { role: "user", parts: [{ text: question }] },
+    ];
 
     const geminiKey = Deno.env.get("GEMINI_API_KEY");
     if (!geminiKey) {
@@ -221,7 +282,8 @@ Answer:`;
     }
 
     const body = JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents,
       // A safety cap, not the main lever — the prompt above is what
       // actually teaches it to keep short answers short. Set high
       // enough to leave room for this model's invisible "thinking"
