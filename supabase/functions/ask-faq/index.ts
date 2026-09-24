@@ -35,6 +35,13 @@ function json(body: unknown, status = 200) {
 // products published to the Online Store channel, so POS-only items never
 // show up here. No token needed.
 const STORE_URL = "https://www.wareinnovations.com";
+
+// Tried in order; later ones are fallbacks for when Gemini is overloaded.
+const GEMINI_MODELS = [
+  "gemini-3.6-flash",
+  "gemini-3.8-flash",
+  "gemini-3.5-flash-lite",
+];
 const PRODUCT_CACHE_MS = 10 * 60 * 1000;
 // Checkout helpers that live in the feed but aren't real products.
 const EXCLUDED_TITLES = new Set(["Partial Payment"]);
@@ -213,25 +220,31 @@ Answer:`;
       return json({ error: "AI is not configured yet" }, 500);
     }
 
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          // A safety cap, not the main lever — the prompt above is what
-          // actually teaches it to keep short answers short. Set high
-          // enough to leave room for this model's invisible "thinking"
-          // tokens too (they share this same budget, and a low cap here
-          // was silently truncating real answers before the fix).
-          generationConfig: { maxOutputTokens: 2048 },
-        }),
-      },
-    );
+    const body = JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      // A safety cap, not the main lever — the prompt above is what
+      // actually teaches it to keep short answers short. Set high
+      // enough to leave room for this model's invisible "thinking"
+      // tokens too (they share this same budget, and a low cap here
+      // was silently truncating real answers before the fix).
+      generationConfig: { maxOutputTokens: 2048 },
+    });
 
-    if (!res.ok) {
-      console.error("Gemini error:", await res.text());
+    // Free-tier models regularly return 503 "high demand" (or 429) on
+    // big prompts like ours; fall through to the next model instead of
+    // failing the whole answer.
+    let res: Response | null = null;
+    for (const model of GEMINI_MODELS) {
+      res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body },
+      );
+      if (res.ok) break;
+      console.error(`Gemini ${model} error:`, await res.text());
+      if (res.status !== 503 && res.status !== 429) break;
+    }
+
+    if (!res?.ok) {
       return json({ error: "AI request failed" }, 502);
     }
 
