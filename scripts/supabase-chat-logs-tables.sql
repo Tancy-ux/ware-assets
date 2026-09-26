@@ -29,6 +29,23 @@ create table if not exists public.chat_conversations (
 alter table public.chat_conversations
   add column if not exists last_question text;
 
+-- Phone number from the chat's "leave your details" card.
+alter table public.chat_conversations
+  add column if not exists visitor_phone text;
+
+-- Human takeover: set when a team member clicks "Take over" in the Chats
+-- page (the AI stops answering), cleared on "Hand back to AI". Expires by
+-- itself after 24 hours.
+alter table public.chat_conversations
+  add column if not exists takeover_at timestamptz;
+
+-- Who wrote each chat_messages row:
+--   'ai'       — a customer question + the AI's answer (the usual pair)
+--   'customer' — a customer message during a takeover (answer is empty)
+--   'agent'    — a team member's reply during a takeover (question is empty)
+alter table public.chat_messages
+  add column if not exists sender text not null default 'ai';
+
 create index if not exists chat_conversations_last_message_idx
   on public.chat_conversations (last_message_at desc);
 create index if not exists chat_conversations_visitor_idx

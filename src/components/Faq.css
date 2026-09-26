@@ -524,9 +524,117 @@
   color: var(--faq-text);
   border-bottom-left-radius: 4px;
 }
-.faq-chat-thinking {
+/* Human takeover: team replies, "team joined" notes, "sent to team" */
+.faq-chat-bubble.faq-chat-team {
+  background: #eef4fb;
+  border-color: #cfdcec;
+}
+.faq-chat-team-label {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #3d5a80;
+}
+.faq-chat-system {
+  align-self: center;
+  max-width: 90%;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--faq-accent-soft);
+  color: var(--faq-text-secondary);
+  font-size: 11.5px;
+  text-align: center;
+}
+.faq-chat-sent-team {
   color: var(--faq-text-muted);
-  font-style: italic;
+}
+
+/* Three bouncing dots while a reply is on its way */
+.faq-chat-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 14px;
+}
+.faq-chat-typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--faq-text-muted);
+  animation: faq-chat-typing 1.2s ease-in-out infinite;
+}
+.faq-chat-typing span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.faq-chat-typing span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes faq-chat-typing {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .faq-chat-typing span {
+    animation: none;
+  }
+}
+
+/* "Leave your details" — collapsed one-line prompt */
+.faq-chat-bubble.faq-chat-contact-prompt {
+  white-space: normal;
+}
+.faq-chat-contact-prompt-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+.faq-chat-contact-prompt-actions .faq-chat-similar-btn {
+  margin-top: 0;
+}
+.faq-chat-contact-skip {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--faq-text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.faq-chat-contact-skip:hover {
+  color: var(--faq-text);
+}
+
+/* "Leave your details" card */
+.faq-chat-bubble.faq-chat-contact {
+  width: 88%;
+  white-space: normal;
+  gap: 8px;
+}
+.faq-chat-contact-title {
+  font-size: 13px;
+  line-height: 1.45;
+}
+.faq-chat-contact input {
+  font-size: 13px;
+}
+.faq-chat-contact-note {
+  font-size: 11.5px;
+  color: var(--faq-text-muted);
+}
+.faq-chat-contact-error {
+  font-size: 12px;
+  color: var(--faq-danger);
 }
 .faq-chat-error {
   color: #b3441f;
@@ -801,6 +909,30 @@
   cursor: default;
   border-color: var(--faq-border);
   color: var(--faq-text-muted);
+}
+
+/* "Chat with us on WhatsApp" (talk-to-a-human replies) */
+/* A soft, muted green: still reads as WhatsApp, but calm next to the
+   site's sage palette instead of the bright brand green. */
+.faq-chat-bubble a.faq-chat-whatsapp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 8px 14px;
+  border: 1px solid #b7d9c2;
+  border-radius: 999px;
+  background: #e3f1e7;
+  color: #2f6a45;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.faq-chat-bubble a.faq-chat-whatsapp-btn:hover {
+  background: #d4eadb;
+  border-color: #9fcbad;
 }
 
 /* Gift packaging photos (same swipeable row as the product cards) */

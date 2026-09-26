@@ -6,7 +6,10 @@ import {
   Pencil,
   RefreshCw,
   Search,
+  Send,
   Trash2,
+  UserRound,
+  Bot,
   X,
 } from "lucide-react";
 import { toast } from "react-toastify";
@@ -16,6 +19,9 @@ import "./Chats.css";
 // Session token from the chat-admin function. sessionStorage, not
 // localStorage: closing the browser logs you out of chat history.
 const TOKEN_KEY = "chatsToken";
+
+// How often an open, taken-over chat re-fetches its transcript.
+const TRANSCRIPT_REFRESH_MS = 5000;
 
 const readToken = () => {
   try {
@@ -51,6 +57,8 @@ const ChatLogs = () => {
   const [search, setSearch] = useState("");
   const [visitorFilter, setVisitorFilter] = useState(null);
   const [editingLabel, setEditingLabel] = useState(null);
+  const [reply, setReply] = useState("");
+  const [sendingReply, setSendingReply] = useState(false);
 
   const logout = useCallback(() => {
     try {
@@ -110,15 +118,77 @@ const ChatLogs = () => {
     };
   }, [token, handleResponse]);
 
+  const setTakeoverFlag = (id, takeover) =>
+    setConversations((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, takeover } : c)),
+    );
+
   const open = async (id) => {
     setSelectedId(id);
     setMessages([]);
     setEditingLabel(null);
+    setReply("");
     setLoadingMessages(true);
     const data = await api({ action: "messages", conversationId: id });
     setLoadingMessages(false);
-    if (data) setMessages(data.messages);
+    if (data) {
+      setMessages(data.messages);
+      setTakeoverFlag(id, data.takeover);
+    }
   };
+
+  const toggleTakeover = async () => {
+    const on = !conversations.find((c) => c.id === selectedId)?.takeover;
+    const data = await api({
+      action: "takeover",
+      conversationId: selectedId,
+      on,
+    });
+    if (!data) return;
+    setTakeoverFlag(selectedId, data.takeover);
+    toast.success(
+      on
+        ? "You've taken over. The AI won't reply until you hand back."
+        : "Handed back to the AI.",
+    );
+  };
+
+  const sendReply = async (e) => {
+    e.preventDefault();
+    const text = reply.trim();
+    if (!text || sendingReply) return;
+    setSendingReply(true);
+    const data = await api({
+      action: "reply",
+      conversationId: selectedId,
+      text,
+    });
+    setSendingReply(false);
+    if (!data) return;
+    setReply("");
+    setMessages((prev) => [...prev, data.message]);
+  };
+
+  // While the team is handling the open chat, keep the transcript fresh so
+  // new customer messages show up without clicking Refresh.
+  const selectedTakeover = conversations.find(
+    (c) => c.id === selectedId,
+  )?.takeover;
+  useEffect(() => {
+    if (!selectedId || !selectedTakeover) return;
+    const timer = setInterval(async () => {
+      const res = await callFunction("chat-admin", {
+        action: "messages",
+        conversationId: selectedId,
+        token,
+      });
+      const data = handleResponse(res);
+      if (!data) return;
+      setMessages(data.messages);
+      setTakeoverFlag(selectedId, data.takeover);
+    }, TRANSCRIPT_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [selectedId, selectedTakeover, token, handleResponse]);
 
   const saveLabel = async () => {
     const data = await api({
@@ -138,7 +208,7 @@ const ChatLogs = () => {
     if (
       !convo ||
       !window.confirm(
-        `Delete this chat with ${titleOf(convo)}?\n\nAll ${convo.messageCount} messages will be permanently removed.`,
+        `Delete this chat with ${titleOf(convo)}?\n\nAll ${convo.messageCount} messages and their saved details (name, phone) will be permanently removed.`,
       )
     ) {
       return;
@@ -165,7 +235,7 @@ const ChatLogs = () => {
       (c) =>
         (!visitorFilter || c.visitorId === visitorFilter) &&
         (!q ||
-          [c.label, c.visitorName, c.company, c.preview]
+          [c.label, c.visitorName, c.company, c.visitorPhone, c.preview]
             .filter(Boolean)
             .some((s) => s.toLowerCase().includes(q))),
     );
@@ -218,7 +288,7 @@ const ChatLogs = () => {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name, company, or latest question"
+              placeholder="Search name, company, phone, or latest question"
             />
             {search && (
               <button type="button" onClick={() => setSearch("")} aria-label="Clear search">
@@ -260,12 +330,19 @@ const ChatLogs = () => {
               onClick={() => open(c.id)}
             >
               <div className="chats-item-top">
-                <span className="chats-item-title">{titleOf(c)}</span>
+                <span className="chats-item-title">
+                  {titleOf(c)}
+                  {c.takeover && <span className="chats-team-badge">Team</span>}
+                </span>
                 <span className="chats-item-date">{formatDate(c.lastMessageAt)}</span>
               </div>
-              {c.company && titleOf(c) !== c.company && (
-                <div className="chats-item-company">{c.company}</div>
-              )}
+              {(c.company && titleOf(c) !== c.company) || c.visitorPhone ? (
+                <div className="chats-item-company">
+                  {[titleOf(c) !== c.company && c.company, c.visitorPhone]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </div>
+              ) : null}
               <div className="chats-item-preview">{c.preview}</div>
               <div className="chats-item-meta">
                 <MessageSquare size={11} />
@@ -339,6 +416,20 @@ const ChatLogs = () => {
                   <div className="chats-detail-meta">
                     {selected.visitorName && <span>Name: {selected.visitorName}</span>}
                     {selected.company && <span>Company: {selected.company}</span>}
+                    {selected.visitorPhone && (
+                      <span>
+                        Phone:{" "}
+                        <a
+                          className="chats-link-btn"
+                          href={`https://wa.me/${selected.visitorPhone.replace(/\D/g, "")}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Open in WhatsApp"
+                        >
+                          {selected.visitorPhone}
+                        </a>
+                      </span>
+                    )}
                     <span>Started {formatDate(selected.startedAt)}</span>
                     <button
                       type="button"
@@ -354,6 +445,19 @@ const ChatLogs = () => {
                 </div>
                 <button
                   type="button"
+                  className={`chats-btn${selected.takeover ? "" : " chats-btn-primary"}`}
+                  onClick={toggleTakeover}
+                  title={
+                    selected.takeover
+                      ? "Let the AI answer this chat again"
+                      : "Stop the AI and reply yourself (for up to 24 hours)"
+                  }
+                >
+                  {selected.takeover ? <Bot size={14} /> : <UserRound size={14} />}
+                  {selected.takeover ? "Hand back to AI" : "Take over"}
+                </button>
+                <button
+                  type="button"
                   className="chats-icon-btn chats-delete"
                   onClick={deleteConversation}
                   aria-label="Delete chat"
@@ -365,12 +469,26 @@ const ChatLogs = () => {
 
               <div className="chats-transcript">
                 {loadingMessages && <p className="chats-empty">Loading...</p>}
-                {messages.map((m) => (
+                {messages.map((m) => m.sender === "system" ? (
+                  <div key={m.id} className="chats-system-note">
+                    {m.answer} · {formatDate(m.created_at)}
+                  </div>
+                ) : (
                   <div key={m.id} className="chats-turn">
-                    <div className="chats-bubble chats-bubble-user">
-                      {m.question}
-                      <span className="chats-time">{formatDate(m.created_at)}</span>
-                    </div>
+                    {m.question && (
+                      <div className="chats-bubble chats-bubble-user">
+                        {m.question}
+                        <span className="chats-time">{formatDate(m.created_at)}</span>
+                      </div>
+                    )}
+                    {m.sender === "agent" && (
+                      <div className="chats-bubble chats-bubble-team">
+                        <span className="chats-bubble-label">Ware team</span>
+                        {m.answer}
+                        <span className="chats-time">{formatDate(m.created_at)}</span>
+                      </div>
+                    )}
+                    {m.answer && m.sender !== "agent" && (
                     <div className="chats-bubble chats-bubble-ai">
                       {m.answer}
                       {m.products?.length > 0 && (
@@ -392,9 +510,36 @@ const ChatLogs = () => {
                         </div>
                       )}
                     </div>
+                    )}
                   </div>
                 ))}
               </div>
+
+              {selected.takeover && (
+                <form className="chats-reply" onSubmit={sendReply}>
+                  <textarea
+                    value={reply}
+                    onChange={(e) => setReply(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        sendReply(e);
+                      }
+                    }}
+                    placeholder="Reply as the Ware team… (Enter to send, Shift+Enter for a new line)"
+                    rows={2}
+                    maxLength={2000}
+                  />
+                  <button
+                    type="submit"
+                    className="chats-btn chats-btn-primary"
+                    disabled={!reply.trim() || sendingReply}
+                  >
+                    <Send size={14} />
+                    Send
+                  </button>
+                </form>
+              )}
             </>
           )}
         </section>

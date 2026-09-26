@@ -76,6 +76,14 @@ async function tokenIsValid(token: unknown, secret: string) {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Must match TAKEOVER_HOURS in ask-faq.
+const TAKEOVER_HOURS = 24;
+function takeoverActive(takeoverAt: string | null | undefined) {
+  if (!takeoverAt) return false;
+  return Date.now() - new Date(takeoverAt).getTime() <
+    TAKEOVER_HOURS * 60 * 60 * 1000;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: CORS_HEADERS });
@@ -125,6 +133,7 @@ Deno.serve(async (req) => {
           visitorId: c.visitor_id,
           visitorName: c.visitor_name,
           company: c.company,
+          visitorPhone: c.visitor_phone ?? null,
           label: c.label,
           startedAt: c.started_at,
           lastMessageAt: c.last_message_at,
@@ -133,6 +142,7 @@ Deno.serve(async (req) => {
           // Latest question; older chats from before that column existed
           // fall back to their first one.
           preview: c.last_question ?? c.first_question ?? "",
+          takeover: takeoverActive(c.takeover_at),
         })),
       });
     }
@@ -141,13 +151,91 @@ Deno.serve(async (req) => {
       if (!UUID_RE.test(String(body.conversationId))) {
         return json({ error: "Bad conversation id" }, 400);
       }
+      // "*" so this works before and after the `sender` column exists.
       const { data, error } = await db
         .from("chat_messages")
-        .select("id, question, answer, products, created_at")
+        .select("*")
         .eq("conversation_id", body.conversationId)
         .order("created_at", { ascending: true });
       if (error) throw error;
-      return json({ messages: data ?? [] });
+      const { data: convo } = await db
+        .from("chat_conversations")
+        .select("*")
+        .eq("id", body.conversationId)
+        .maybeSingle();
+      return json({
+        messages: (data ?? []).map((m) => ({
+          id: m.id,
+          question: m.question,
+          answer: m.answer,
+          products: m.products,
+          created_at: m.created_at,
+          sender: m.sender ?? "ai",
+        })),
+        takeover: takeoverActive(convo?.takeover_at),
+      });
+    }
+
+    // Take a chat over from the AI (it stops answering) or hand it back.
+    if (body.action === "takeover") {
+      if (!UUID_RE.test(String(body.conversationId))) {
+        return json({ error: "Bad conversation id" }, 400);
+      }
+      const { error } = await db
+        .from("chat_conversations")
+        .update({ takeover_at: body.on ? new Date().toISOString() : null })
+        .eq("id", body.conversationId);
+      if (error) {
+        if (error.code === "PGRST204") {
+          return json({ error: "Run the latest chat SQL script first" }, 400);
+        }
+        throw error;
+      }
+      return json({ ok: true, takeover: !!body.on });
+    }
+
+    // A team member's reply during a takeover. The customer's chat window
+    // picks it up on its next check (ask-faq "updates").
+    if (body.action === "reply") {
+      if (!UUID_RE.test(String(body.conversationId))) {
+        return json({ error: "Bad conversation id" }, 400);
+      }
+      const text = String(body.text ?? "").trim().slice(0, 2000);
+      if (!text) return json({ error: "Empty reply" }, 400);
+      const { data: convo, error: convoError } = await db
+        .from("chat_conversations")
+        .select("*")
+        .eq("id", body.conversationId)
+        .maybeSingle();
+      if (convoError) throw convoError;
+      if (!takeoverActive(convo?.takeover_at)) {
+        return json({ error: "Take over the chat first" }, 400);
+      }
+      const { data, error } = await db
+        .from("chat_messages")
+        .insert({
+          conversation_id: body.conversationId,
+          question: "",
+          answer: text,
+          sender: "agent",
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      await db
+        .from("chat_conversations")
+        .update({ last_message_at: new Date().toISOString() })
+        .eq("id", body.conversationId);
+      return json({
+        message: {
+          id: data.id,
+          question: "",
+          answer: data.answer,
+          products: [],
+          created_at: data.created_at,
+          sender: "agent",
+        },
+      });
     }
 
     if (body.action === "label") {

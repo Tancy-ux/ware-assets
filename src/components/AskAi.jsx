@@ -9,12 +9,14 @@ import {
   Check,
   ArrowLeft,
   GraduationCap,
+  MessageCircle,
 } from "lucide-react";
 import { toast } from "react-toastify";
 import { supabase } from "./supabase";
 import { callAskFaq } from "../lib/askFaq";
 import AiGuidelines from "./AiGuidelines";
 import RestockForm from "./RestockForm";
+import ContactCard from "./ContactCard";
 
 // Improved answers get saved as real rows in this category, so they're
 // easy to find, review, and hand off — and since the ask-faq function
@@ -77,14 +79,73 @@ const linkify = (text) =>
 // ask-faq prompt.
 const RESTOCK_CHECK_ENABLED = false;
 
+// A reply shows up to 4 product cards; "Show more" posts the next 6 as a
+// new message (and so on, for the up-to-16 similar products).
+const FIRST_PAGE = 4;
+const MORE_PAGE = 6;
+
+// Human takeover: how often the chat checks for team replies, and when it
+// stops bothering (matches the 24h takeover limit in ask-faq).
+// Each check is one Supabase function call (no AI), so the idle rate is
+// kept low: that's what counts towards the free tier's monthly allowance.
+const POLL_TEAM_MS = 4000;
+const POLL_IDLE_MS = 20000;
+const POLL_IDLE_CUTOFF_MS = 10 * 60 * 1000;
+const TAKEOVER_WINDOW_MS = 24 * 60 * 60 * 1000;
+const SYSTEM_NOTES = {
+  "team-joined": "A member of the Ware team has joined the chat.",
+  "team-left": "You're chatting with the Ware assistant again.",
+};
+
+// How long local replies (Show more, similar products) "type" for.
+const LOCAL_REPLY_MIN_MS = 1000;
+const LOCAL_REPLY_JITTER_MS = 600;
+
+// Whether to offer the "leave your details" card: { dismissed } after "Not
+// now", { saved } mirroring what the server says (the name/phone themselves
+// live only on the server, so deleting the chat in the Chats page really
+// forgets them, and the card comes back). Clearing the chat resets this.
+const CONTACT_KEY = "askAiContact";
+// Without a follow-up-worthy enquiry, the details prompt waits this long.
+const CONTACT_AFTER_MESSAGES = 5;
+const loadContactPrefs = () => {
+  try {
+    const v = JSON.parse(localStorage.getItem(CONTACT_KEY)) ?? {};
+    return { dismissed: !!v.dismissed, saved: !!v.saved };
+  } catch {
+    return { dismissed: false, saved: false };
+  }
+};
+const storeContactPrefs = (value) => {
+  try {
+    localStorage.setItem(CONTACT_KEY, JSON.stringify(value));
+  } catch {
+    // Still applies for this page view.
+  }
+};
+
+// Tells the server the visitor started over ("reset" / clear chat): ends
+// any team takeover and marks the spot in the Chats transcript. Their chat
+// stays one conversation there.
+const notifyReset = () =>
+  callAskFaq({
+    mode: "reset",
+    conversationId: getVisitorId(),
+    visitorId: getVisitorId(),
+  });
+
 // A product the AI recommended. Everything shown here comes from the
 // Shopify catalog via the function, not from the model's text. Single-
 // variant products add straight to the store's cart; ones with options
 // (size, colour) go to the product page to pick.
 const ProductCard = ({ product, restockState, onCheckRestock }) => {
-  const action = product.cartUrl
-    ? { href: product.cartUrl, label: "Add to cart" }
-    : { href: product.url, label: "Shop now" };
+  // Ware Atelier pieces are made to order: no cart, just a WhatsApp
+  // enquiry (the function already hides their price).
+  const action = product.enquireUrl
+    ? { href: product.enquireUrl, label: "Enquire" }
+    : product.cartUrl
+      ? { href: product.cartUrl, label: "Add to cart" }
+      : { href: product.url, label: "Shop now" };
   return (
     <div className="faq-chat-product">
       <a
@@ -161,6 +222,8 @@ const loadStoredMessages = () => {
 const AskAi = ({ open, onClose, onSaved, canEdit }) => {
   const [messages, setMessages] = useState(loadStoredMessages);
   const [showGuidelines, setShowGuidelines] = useState(false);
+  const [contactPrefs, setContactPrefs] = useState(loadContactPrefs);
+  const [contactThanks, setContactThanks] = useState(null);
   const [input, setInput] = useState("");
   const [copiedKey, setCopiedKey] = useState(null);
   const listRef = useRef(null);
@@ -209,12 +272,14 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
     const question = input.trim();
     if (!question) return;
     setInput("");
+    setContactThanks(null);
 
     const id = nextId++;
 
-    // "reset" starts a new conversation without wiping the visible chat —
-    // handled right here, no AI call needed.
+    // "reset" wipes the AI's memory of the chat without wiping what's on
+    // screen — handled right here, no AI call needed.
     if (/^\/?reset$/i.test(question)) {
+      notifyReset();
       setMessages((prev) => [
         ...prev,
         {
@@ -232,21 +297,21 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
     // HISTORY_MAX_AGE_MS — a stale chat shouldn't color a new one.
     const lastReset = messages.findLastIndex((m) => m.isReset);
     const cutoff = Date.now() - HISTORY_MAX_AGE_MS;
+    // Includes team replies and the customer's messages to the team from
+    // a takeover, so the AI knows what was said once it's handed back.
     const recent = messages
       .slice(lastReset + 1)
-      .filter((m) => m.answer && m.time > cutoff)
+      .filter((m) => (m.answer || m.awaitingTeam) && m.time > cutoff)
       .slice(-HISTORY_MAX_TURNS);
-    const history = recent.map(({ question, answer, products }) => ({
-      question,
-      answer,
-      products: (products ?? []).map((p) => p.title),
+    const history = recent.map((m) => ({
+      question: m.question ?? "",
+      answer: m.answer ?? "",
+      products: (m.products ?? []).map((p) => p.title),
+      fromTeam: !!m.isAgent,
     }));
-    // Same rule for the saved chat log: no context carried over (first
-    // message, after "reset" / clearing / 30h idle) means a new
-    // conversation in the Chats page.
-    const conversationId =
-      recent.findLast((m) => m.conversationId)?.conversationId ??
-      crypto.randomUUID();
+    // One conversation per visitor in the Chats page, so it's keyed on the
+    // browser's visitor ID; resets only clear the AI's memory above.
+    const conversationId = getVisitorId();
 
     setMessages((prev) => [
       ...prev,
@@ -271,6 +336,9 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
       conversationId,
       visitorId: getVisitorId(),
     });
+    if (data && typeof data.contactSaved === "boolean") {
+      syncContactSaved(data.contactSaved);
+    }
 
     if (error || data?.error) {
       console.error(error ?? data?.error);
@@ -280,11 +348,21 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
       });
       return;
     }
+    // The team has taken this chat over: no AI answer, the message waits
+    // for them (their replies arrive through the polling below).
+    if (data.takeover) {
+      patchMessage(id, { loading: false, awaitingTeam: true });
+      if (!teamActive) addSystemNote("team-joined");
+      return;
+    }
     patchMessage(id, {
       loading: false,
       answer: data.answer,
-      products: data.products ?? [],
+      products: (data.products ?? []).slice(0, FIRST_PAGE),
+      moreProducts: (data.products ?? []).slice(FIRST_PAGE),
       images: data.images ?? [],
+      whatsappUrl: data.whatsappUrl ?? null,
+      askForDetails: !!data.askForDetails,
     });
   };
 
@@ -294,19 +372,169 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
     patchMessage(msg.id, {
       similarShown: { ...msg.similarShown, [product.url]: true },
     });
+    postLocalReply("Yes, show me similar ones", {
+      answer: `Here are some pieces similar to the ${product.title} that are in stock:`,
+      products: product.similar.slice(0, FIRST_PAGE),
+      moreProducts: product.similar.slice(FIRST_PAGE),
+    });
+  };
+
+  // "Show more" continues the conversation: a "Show me more" turn and a
+  // new bot message with the next batch, which can offer more again.
+  // Everything was already sent by the function, so no AI call.
+  const showMore = (msg) => {
+    patchMessage(msg.id, { moreProducts: [] });
+    postLocalReply("Show me more", {
+      answer: "Here are a few more:",
+      products: msg.moreProducts.slice(0, MORE_PAGE),
+      moreProducts: msg.moreProducts.slice(MORE_PAGE),
+    });
+  };
+
+  // Replies the chat already has the answer to still "type" for a moment
+  // (the three dots), so they don't pop in unnaturally fast.
+  const postLocalReply = (question, reply) => {
     const id = nextId++;
     setMessages((prev) => [
       ...prev,
-      {
-        id,
-        question: "Yes, show me similar ones",
-        answer: `Here are some pieces similar to the ${product.title} that are in stock:`,
-        products: product.similar,
-        isLocal: true,
-        time: Date.now(),
-      },
+      { id, question, loading: true, isLocal: true, time: Date.now() },
+    ]);
+    const delay = LOCAL_REPLY_MIN_MS + Math.random() * LOCAL_REPLY_JITTER_MS;
+    setTimeout(() => patchMessage(id, { loading: false, ...reply }), delay);
+  };
+
+  // The conversation the details card attaches to: the latest one the
+  // function has logged (since the last "reset").
+  const lastResetIndex = messages.findLastIndex((m) => m.isReset);
+  const currentConversationId = messages
+    .slice(lastResetIndex + 1)
+    .findLast((m) => m.conversationId && m.answer)?.conversationId;
+  // Offer it only when it's useful: the function flagged an enquiry the
+  // team should follow up on (bulk / custom / quote...), or they've been
+  // chatting a while. Not from the very first message.
+  const customerMessages = messages.filter(
+    (m) => m.question && !m.isLocal && !m.isReset,
+  ).length;
+  const showContactCard =
+    !contactPrefs.dismissed &&
+    !contactPrefs.saved &&
+    !!currentConversationId &&
+    !messages.some((m) => m.loading) &&
+    (messages.some((m) => m.askForDetails) ||
+      customerMessages >= CONTACT_AFTER_MESSAGES);
+
+  const updateContactPrefs = (patch) =>
+    setContactPrefs((prev) => {
+      const next = { ...prev, ...patch };
+      storeContactPrefs(next);
+      return next;
+    });
+  // The server says whether this visitor's details are on file; if the
+  // team deleted the chat, that flips back to false and the card returns.
+  const syncContactSaved = (saved) => {
+    if (saved !== contactPrefs.saved) updateContactPrefs({ saved });
+  };
+
+  // ---- Human takeover (a team member replying from the Chats page) ----
+  const sinceReset = messages.slice(lastResetIndex + 1);
+  const teamActive =
+    sinceReset.findLast((m) => m.isSystem)?.kind === "team-joined";
+  const lastAgentTime = sinceReset.findLast((m) => m.isAgent)?.serverTime;
+  const lastActivity = sinceReset.findLast((m) => !m.isSystem)?.time ?? 0;
+
+  const addSystemNote = (kind) => {
+    const id = nextId++;
+    setMessages((prev) => [
+      ...prev,
+      { id, isSystem: true, kind, text: SYSTEM_NOTES[kind], time: Date.now() },
     ]);
   };
+
+  // Checks for team replies and takeover changes: every few seconds while
+  // the team is in the chat, less often otherwise, and not at all once the
+  // chat has gone quiet (nobody would be waiting on it).
+  useEffect(() => {
+    if (!open || !currentConversationId) return;
+    const idleFor = Date.now() - lastActivity;
+    if (!teamActive && idleFor > POLL_IDLE_CUTOFF_MS) return;
+    if (teamActive && idleFor > TAKEOVER_WINDOW_MS) return;
+
+    const timer = setInterval(
+      async () => {
+        // Nobody's looking at a background tab; catch up once it's back.
+        if (document.hidden) return;
+        const { data } = await callAskFaq({
+          mode: "updates",
+          conversationId: currentConversationId,
+          visitorId: getVisitorId(),
+          after: lastAgentTime,
+        });
+        if (!data || data.error) return;
+        const incoming = (data.messages ?? []).map((r) => ({
+          id: nextId++,
+          answer: r.answer,
+          isAgent: true,
+          isLocal: true,
+          serverId: r.id,
+          serverTime: r.created_at,
+          conversationId: currentConversationId,
+          time: Date.now(),
+        }));
+        setMessages((prev) => {
+          const seen = new Set(prev.map((m) => m.serverId).filter(Boolean));
+          const fresh = incoming.filter((m) => !seen.has(m.serverId));
+          const notes = [];
+          if (data.takeover && !teamActive) notes.push("team-joined");
+          if (!data.takeover && teamActive) notes.push("team-left");
+          if (!fresh.length && !notes.length) return prev;
+          return [
+            ...prev,
+            ...notes
+              .filter((k) => k === "team-joined")
+              .map((kind) => ({
+                id: nextId++,
+                isSystem: true,
+                kind,
+                text: SYSTEM_NOTES[kind],
+                time: Date.now(),
+              })),
+            ...fresh,
+            ...notes
+              .filter((k) => k === "team-left")
+              .map((kind) => ({
+                id: nextId++,
+                isSystem: true,
+                kind,
+                text: SYSTEM_NOTES[kind],
+                time: Date.now(),
+              })),
+          ];
+        });
+      },
+      teamActive ? POLL_TEAM_MS : POLL_IDLE_MS,
+    );
+    return () => clearInterval(timer);
+  }, [open, currentConversationId, teamActive, lastAgentTime, lastActivity]);
+
+  const saveContact = async (details) => {
+    const { data, error } = await callAskFaq({
+      mode: "contact",
+      contact: details,
+      conversationId: getVisitorId(),
+      visitorId: getVisitorId(),
+    });
+    if (error || data?.error) {
+      console.error(error ?? data?.error);
+      return false;
+    }
+    updateContactPrefs({ saved: true });
+    setContactThanks(
+      `Thanks${details.name ? `, ${details.name}` : ""}! Our team can reach you on ${details.phone}.`,
+    );
+    return true;
+  };
+
+  const dismissContact = () => updateContactPrefs({ dismissed: true });
 
   const copyText = async (text, key) => {
     try {
@@ -319,8 +547,14 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
     }
   };
 
+  // Starting over: the AI forgets the chat, any takeover ends, and "Not
+  // now" is forgotten so the details card can be offered again. (It stays
+  // one conversation in the Chats page, with a reset marker.)
   const clearChat = () => {
+    notifyReset();
     setMessages([]);
+    setContactThanks(null);
+    updateContactPrefs({ dismissed: false });
     try {
       localStorage.removeItem(STORAGE_KEY);
     } catch {
@@ -436,10 +670,17 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
           </p>
         )}
 
-        {messages.map((m) => (
+        {messages.map((m) => m.isSystem ? (
+          <div key={m.id} className="faq-chat-system">{m.text}</div>
+        ) : (
           <div key={m.id} className="faq-chat-turn">
+            {m.question && (
+            <>
             <div className="faq-chat-bubble faq-chat-user">{m.question}</div>
             <div className="faq-chat-meta faq-chat-meta-user">
+              {m.awaitingTeam && (
+                <span className="faq-chat-sent-team">Sent to the Ware team ·</span>
+              )}
               <button
                 type="button"
                 className="faq-chat-copy-btn"
@@ -455,10 +696,17 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
               </button>
               <span className="faq-chat-time">{formatTime(m.time)}</span>
             </div>
+            </>
+            )}
 
             {m.loading && (
-              <div className="faq-chat-bubble faq-chat-ai faq-chat-thinking">
-                Thinking...
+              <div
+                className="faq-chat-bubble faq-chat-ai faq-chat-typing"
+                aria-label="Typing"
+              >
+                <span />
+                <span />
+                <span />
               </div>
             )}
 
@@ -469,7 +717,10 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
             )}
 
             {m.answer && !m.correcting && (
-              <div className="faq-chat-bubble faq-chat-ai">
+              <div
+                className={`faq-chat-bubble faq-chat-ai${m.isAgent ? " faq-chat-team" : ""}`}
+              >
+                {m.isAgent && <span className="faq-chat-team-label">Ware team</span>}
                 {linkify(m.answer)}
                 {m.products?.length > 0 && (
                   <div className="faq-chat-products">
@@ -490,6 +741,29 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
                       />
                     ))}
                   </div>
+                )}
+                {m.moreProducts?.length > 0 && (
+                  <button
+                    type="button"
+                    className="faq-chat-similar-btn faq-chat-more-btn"
+                    onClick={() => showMore(m)}
+                  >
+                    Show more
+                  </button>
+                )}
+                {/* "Talk to a human" — the function only sends this link
+                    when someone asks for the team, with a pre-filled
+                    message carrying their name / products for context. */}
+                {m.whatsappUrl && (
+                  <a
+                    href={m.whatsappUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="faq-chat-whatsapp-btn"
+                  >
+                    <MessageCircle size={15} />
+                    Chat with us on WhatsApp
+                  </a>
                 )}
                 {/* Gift packaging photos — only sent for gift packaging
                     questions, and only when real photos exist. */}
@@ -623,6 +897,13 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
             )}
           </div>
         ))}
+
+        {showContactCard && (
+          <ContactCard onSave={saveContact} onDismiss={dismissContact} />
+        )}
+        {contactThanks && (
+          <div className="faq-chat-bubble faq-chat-ai">{contactThanks}</div>
+        )}
       </div>
 
       <form onSubmit={send} className="faq-chat-input-row">

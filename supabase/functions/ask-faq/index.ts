@@ -65,6 +65,11 @@ type Product = {
   searchText: string;
   nameWords: Set<string>;
   colors: Set<string>;
+  collection: string;
+  typePath: string[];
+  // Which of Ware's lines it belongs to. Similar products never cross
+  // lines, and Atelier pieces are handled differently (no prices).
+  line: "atelier" | "collectibles" | "marble" | "ceramic";
   keyTags: Set<string>;
   // Photos of this product's gift packaging (box, sleeve, hamper).
   giftImages: string[];
@@ -86,13 +91,17 @@ type ProductCard = {
   url: string;
   cartUrl: string | null;
   available: boolean;
+  // Ware Atelier pieces only: made to order and customised, so no price or
+  // stock status; the card's button opens a WhatsApp enquiry instead.
+  enquireUrl?: string;
   // Sold-out cards only: in-stock alternatives the UI offers behind a
   // "see similar" button, picked by similarProducts() below.
   similar?: ProductCard[];
 };
 
 const MAX_CARDS = 6;
-const MAX_SIMILAR = 4;
+// The chat shows 4, then 6 per "Show more" (4 + 6 + 6).
+const MAX_SIMILAR = 16;
 
 // Colour words used in product names, grouped into families so "Sage"
 // counts as close to "Lime Green". Anything not listed here is treated as
@@ -114,8 +123,14 @@ const NAME_FILLER = new Set(
   "set of the and with without pieces piece in for a".split(" "),
 );
 
-// `products` are the titles of the cards shown under that answer.
-type Turn = { question: string; answer: string; products: string[] };
+// `products` are the titles of the cards shown under that answer;
+// `fromTeam` marks a reply a team member typed during a takeover.
+type Turn = {
+  question: string;
+  answer: string;
+  products: string[];
+  fromTeam: boolean;
+};
 const MAX_HISTORY_TURNS = 10;
 const MAX_TURN_CHARS = 2000;
 
@@ -179,8 +194,31 @@ function toProduct(p: any): Product {
     searchText: `${p.title} ${type} ${(p.tags ?? []).join(" ")} ${description}`
       .toLowerCase(),
     ...splitTitle(p.title),
+    line: productLine(p),
+    typePath: (p.product_type || "")
+      .split(/[<>]/)
+      .map((s: string) => s.trim().toLowerCase())
+      .filter(Boolean),
     keyTags: new Set(), // filled in by loadProducts once all tags are known
   };
+}
+
+// Ware Atelier comes in two kinds, both tagged by the team in Shopify:
+//   "ware atelier" — custom bespoke marble furniture / lighting, customised
+//                    per client: no prices, WhatsApp enquiry instead.
+//   "collectibles" — one-of-a-kind marble vases, tissue boxes etc.,
+//                    priced and sold normally.
+// Other marble pieces (Lush trays, trivets, coasters) are marble
+// tableware; everything else is the ceramic line.
+// deno-lint-ignore no-explicit-any
+function productLine(p: any): Product["line"] {
+  const tags: string[] = (p.tags ?? []).map((t: string) =>
+    t.toLowerCase().trim()
+  );
+  if (tags.includes("ware atelier")) return "atelier";
+  if (tags.includes("collectibles")) return "collectibles";
+  if (tags.includes("marble") || /\bmarble\b/i.test(p.title)) return "marble";
+  return "ceramic";
 }
 
 const resized = (src: string, width: number) =>
@@ -267,8 +305,15 @@ function splitTitle(title: string) {
       nameWords.add(w);
     }
   }
-  return { nameWords, colors };
+  // Ware names lead with the collection: "Pivot Big Main Course Serving
+  // Set", "Whirl Bowl...", "030 Rosso Arc Marble..." (numbers skipped).
+  // "Big & Small Whirl..." style names put a size word first, so skip
+  // those too.
+  const collection = words.find((w) => !SIZE_WORDS.has(w) && !NAME_FILLER.has(w)) ?? "";
+  return { nameWords, colors, collection };
 }
+
+const SIZE_WORDS = new Set(["big", "small", "medium", "large", "mini"]);
 
 function overlap(a: Set<string>, b: Set<string>) {
   if (!a.size || !b.size) return 0;
@@ -277,17 +322,68 @@ function overlap(a: Set<string>, b: Set<string>) {
   return shared / (a.size + b.size - shared);
 }
 
+// Shopify types are paths ("Home & Garden > ... > Tableware > Serveware")
+// and aren't always applied consistently (a Pivot serveware set is filed
+// under "...Dinnerware > Bowls"), so related types get partial credit by
+// how much of the path they share: 1 for the same type, ~0.6 for
+// Serveware vs Bowls (both Tableware), ~0.2 for Serveware vs Vases.
+function typeCloseness(a: string[], b: string[]) {
+  if (!a.length || !b.length) return 0;
+  let shared = 0;
+  while (shared < a.length && shared < b.length && a[shared] === b[shared]) {
+    shared++;
+  }
+  return shared / Math.max(a.length, b.length);
+}
+
+// Like overlap(), but each word counts by how rare it is in the catalog,
+// so a shared "pivot" (a handful of products) matters far more than a
+// shared "serving" or "main course" (dozens).
+function weightedOverlap(
+  a: Set<string>,
+  b: Set<string>,
+  weight: (w: string) => number,
+) {
+  let shared = 0;
+  let total = 0;
+  for (const x of new Set([...a, ...b])) {
+    const w = weight(x);
+    total += w;
+    if (a.has(x) && b.has(x)) shared += w;
+  }
+  return total ? shared / total : 0;
+}
+
 // In-stock alternatives to a (usually sold-out) product. All signals
-// count at once, weighted in priority order: name (same collection/item)
-// > type > price > shared distinctive tags > colour.
+// count at once, weighted in priority order: same collection and name
+// (rare words count most) > type > price > shared distinctive tags >
+// colour.
 function similarProducts(target: Product, products: Product[]) {
+  // How many products each name word appears in, for weighting.
+  const df = new Map<string, number>();
+  for (const p of products) {
+    for (const w of p.nameWords) df.set(w, (df.get(w) ?? 0) + 1);
+  }
+  const weight = (w: string) => Math.log(products.length / (df.get(w) ?? 1));
+
   return products
-    .filter((p) => p.available && p.handle !== target.handle)
+    // Never across lines: a marble vase's alternatives are marble, a
+    // ceramic cup's are ceramic, an Atelier piece's are Atelier.
+    .filter((p) =>
+      p.available && p.handle !== target.handle && p.line === target.line
+    )
     .map((p) => {
       const priceGap = Math.abs(p.minPrice - target.minPrice) /
         Math.max(p.minPrice, target.minPrice, 1);
-      const score = 4 * overlap(p.nameWords, target.nameWords) +
-        3 * (p.type && p.type === target.type ? 1 : 0) +
+      const sameCollection = !!target.collection &&
+        p.collection === target.collection;
+      const typeScore = typeCloseness(p.typePath, target.typePath);
+      // Some names span unrelated lines (ceramic Pivot tableware vs Pivot
+      // marble vases and candle stands), so the collection bonus shrinks
+      // when the types are far apart.
+      const score = 5 * (sameCollection ? 0.4 + 0.6 * typeScore : 0) +
+        4 * weightedOverlap(p.nameWords, target.nameWords, weight) +
+        3 * typeScore +
         2 * Math.max(0, 1 - priceGap) +
         1.5 * overlap(p.keyTags, target.keyTags) +
         1 * overlap(p.colors, target.colors);
@@ -337,7 +433,25 @@ const STOPWORDS = new Set(
 
 const formatRupees = (n: number) => `Rs ${Math.round(n).toLocaleString("en-IN")}`;
 
+// Ware Atelier's real prices never reach the model, so it can't quote one.
+const priceForModel = (p: Product) =>
+  p.line === "atelier"
+    ? "Ware Atelier, made to order, price on request"
+    : p.prices;
+
 function toCard(p: Product): ProductCard {
+  if (p.line === "atelier") {
+    return {
+      title: p.title,
+      price: "Price on request",
+      image: p.image,
+      url: p.url,
+      cartUrl: null,
+      // Made to order: never shown as sold out, no "similar in stock".
+      available: true,
+      enquireUrl: atelierEnquiryUrl(p.title),
+    };
+  }
   return {
     title: p.title,
     price: p.minPrice === p.maxPrice
@@ -474,12 +588,154 @@ ${note}`;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const WHATSAPP_NUMBER = "+919082820610";
+
+// Enquiries the team should follow up on personally (bulk / corporate /
+// custom / quotes / business orders / big quantities like "100 pcs").
+const FOLLOW_UP_WORDS =
+  /\b(bulk|corporate|wholesale|custom(ised|ized|ise|ize)?|personali[sz]ed?|branding|logo|quote|quotation|hamper|horeca|hotel|restaurant|cafe|caf[eé]|b2b)\b|\b\d{2,}\s*(pcs|pieces|units|qty|nos|boxes|sets|gifts)\b|\b(qty|quantity)\s*(of\s*)?\d{2,}/i;
+
+const whatsAppLink = (text: string) =>
+  `https://api.whatsapp.com/send/?${new URLSearchParams({
+    phone: WHATSAPP_NUMBER,
+    text,
+    type: "phone_number",
+    app_absent: "0",
+  })}`;
+
+// The "Enquire" button on a Ware Atelier card.
+const atelierEnquiryUrl = (title: string) =>
+  whatsAppLink(
+    `Hi! I'm interested in the ${title} from Ware Atelier. ` +
+      `Could you share pricing and customisation options?`,
+  );
+
+// e.g. "Hi! This is Priya from Fox Brains. I was chatting with the Ware
+// Innovations assistant and would like to speak to someone from the
+// team. I was looking at: Pivot Serveware Set Pacific Blue."
+function buildWhatsAppUrl(ctx: {
+  visitorName: string;
+  company: string;
+  products: string[];
+}) {
+  const who = ctx.visitorName && ctx.company
+    ? ` This is ${ctx.visitorName} from ${ctx.company}.`
+    : ctx.visitorName
+    ? ` This is ${ctx.visitorName}.`
+    : ctx.company
+    ? ` I'm reaching out from ${ctx.company}.`
+    : "";
+  const products = [...new Set(ctx.products)].slice(0, 3);
+  const text = `Hi!${who} I was chatting with the Ware Innovations assistant ` +
+    `and would like to speak to someone from the team.` +
+    (products.length ? ` I was looking at: ${products.join(", ")}.` : "");
+  return whatsAppLink(text);
+}
+
 // Treats the model's "none" / "unknown" / "N/A" style answers as empty.
 function cleanField(value: unknown) {
   const s = typeof value === "string" ? value.trim().slice(0, 100) : "";
   return /^(|none|unknown|n\/?a|null|not provided|not mentioned)$/i.test(s)
     ? ""
     : s;
+}
+
+// Columns added to chat_conversations after it first shipped. If the SQL
+// script hasn't been re-run yet, save without them rather than failing.
+const NEWER_COLUMNS = ["last_question", "visitor_phone"];
+
+// deno-lint-ignore no-explicit-any
+async function upsertConversation(admin: any, row: Record<string, string>) {
+  let { error } = await admin
+    .from("chat_conversations")
+    .upsert(row, { onConflict: "id" });
+  if (error?.code === "PGRST204") {
+    const trimmed = { ...row };
+    for (const c of NEWER_COLUMNS) delete trimmed[c];
+    ({ error } = await admin
+      .from("chat_conversations")
+      .upsert(trimmed, { onConflict: "id" }));
+  }
+  if (error) throw error;
+}
+
+// ---- Human takeover (from the Chats page) ----
+// A takeover lasts until the team hands back, TAKEOVER_HOURS pass, or the
+// visitor types "reset" / clears the chat (see the "reset" mode).
+const TAKEOVER_HOURS = 24;
+
+function adminClient() {
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  return serviceKey
+    ? createClient(Deno.env.get("SUPABASE_URL") ?? "", serviceKey)
+    : null;
+}
+
+const validIds = (conversationId: unknown, visitorId: unknown) =>
+  typeof conversationId === "string" && UUID_RE.test(conversationId) &&
+  typeof visitorId === "string" && UUID_RE.test(visitorId);
+
+// The conversation row, only if it belongs to this visitor (both IDs are
+// random UUIDs the browser holds, so one visitor can't read another's).
+async function ownConversation(conversationId: unknown, visitorId: unknown) {
+  const admin = adminClient();
+  if (!admin || !validIds(conversationId, visitorId)) return null;
+  const { data, error } = await admin
+    .from("chat_conversations")
+    .select("*")
+    .eq("id", conversationId)
+    .eq("visitor_id", visitorId)
+    .maybeSingle();
+  if (error) {
+    console.error("Conversation lookup failed:", error);
+    return null;
+  }
+  return data;
+}
+
+function takeoverActive(conversation: { takeover_at?: string | null } | null) {
+  if (!conversation?.takeover_at) return false;
+  const since = Date.now() - new Date(conversation.takeover_at).getTime();
+  return since < TAKEOVER_HOURS * 60 * 60 * 1000;
+}
+
+// A customer message during a takeover: saved with no AI answer, for the
+// team to reply to from the Chats page.
+async function logCustomerMessage(
+  conversationId: string,
+  visitorId: string,
+  question: string,
+) {
+  const admin = adminClient();
+  if (!admin) return;
+  await upsertConversation(admin, {
+    id: conversationId,
+    visitor_id: visitorId,
+    last_message_at: new Date().toISOString(),
+    last_question: question.slice(0, 300),
+  });
+  const { error } = await admin.from("chat_messages").insert({
+    conversation_id: conversationId,
+    question,
+    answer: "",
+    sender: "customer",
+  });
+  if (error) throw error;
+}
+
+// The name/phone a visitor types into the chat's "leave your details"
+// card. Stored only on their conversation row (never kept in the
+// browser), so deleting the chat in the Chats page forgets them for good.
+function readContact(raw: unknown) {
+  // deno-lint-ignore no-explicit-any
+  const c = (raw ?? {}) as any;
+  const name = typeof c.name === "string" ? c.name.trim().slice(0, 100) : "";
+  const phone = typeof c.phone === "string" ? c.phone.trim().slice(0, 30) : "";
+  return {
+    name,
+    // Loose check: people type +91, spaces, dashes.
+    phone: phone.replace(/\D/g, "").length >= 7 ? phone : "",
+  };
 }
 
 // Saves one question/answer to chat_conversations + chat_messages for the
@@ -521,18 +777,7 @@ async function logTurn(turn: {
   if (turn.isFirst) conversation.first_question = turn.question.slice(0, 300);
   conversation.last_question = turn.question.slice(0, 300);
 
-  let { error: convError } = await admin
-    .from("chat_conversations")
-    .upsert(conversation, { onConflict: "id" });
-  // Database not migrated yet (no last_question column): save the rest
-  // rather than losing the whole turn.
-  if (convError?.code === "PGRST204") {
-    delete conversation.last_question;
-    ({ error: convError } = await admin
-      .from("chat_conversations")
-      .upsert(conversation, { onConflict: "id" }));
-  }
-  if (convError) throw convError;
+  await upsertConversation(admin, conversation);
 
   const { error: msgError } = await admin.from("chat_messages").insert({
     conversation_id: conversationId,
@@ -554,6 +799,83 @@ Deno.serve(async (req) => {
 
   try {
     const payload = await req.json();
+
+    // The chat window checking in: is the team handling this chat, and
+    // have they replied since `after`? Cheap (no AI), so it can poll.
+    if (payload.mode === "updates") {
+      const conversation = await ownConversation(
+        payload.conversationId,
+        payload.visitorId,
+      );
+      if (!conversation) return json({ takeover: false, messages: [] });
+      const admin = adminClient()!;
+      let query = admin
+        .from("chat_messages")
+        .select("id, answer, created_at")
+        .eq("conversation_id", conversation.id)
+        .eq("sender", "agent")
+        .order("created_at", { ascending: true })
+        .limit(50);
+      if (typeof payload.after === "string" && !isNaN(Date.parse(payload.after))) {
+        query = query.gt("created_at", payload.after);
+      }
+      const { data, error } = await query;
+      if (error) console.error("Team replies lookup failed:", error);
+      return json({
+        takeover: takeoverActive(conversation),
+        messages: data ?? [],
+      });
+    }
+
+    // The visitor typed "reset" or cleared the chat. It's still the same
+    // conversation in the Chats page, so: end any takeover, and leave a
+    // marker in the transcript showing where they started over.
+    if (payload.mode === "reset") {
+      const conversation = await ownConversation(
+        payload.conversationId,
+        payload.visitorId,
+      );
+      if (!conversation) return json({ ok: true });
+      const admin = adminClient()!;
+      await admin
+        .from("chat_conversations")
+        .update({ takeover_at: null })
+        .eq("id", conversation.id);
+      await admin.from("chat_messages").insert({
+        conversation_id: conversation.id,
+        question: "",
+        answer: "Visitor reset the chat",
+        sender: "system",
+      });
+      return json({ ok: true });
+    }
+
+    // The chat's "leave your details" card: attach name + phone to the
+    // current conversation straight away (no AI involved).
+    if (payload.mode === "contact") {
+      const contact = readContact(payload.contact);
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      const { conversationId, visitorId } = payload;
+      if (!contact.phone) return json({ error: "Invalid phone number" }, 400);
+      if (
+        !serviceKey ||
+        typeof conversationId !== "string" || !UUID_RE.test(conversationId) ||
+        typeof visitorId !== "string" || !UUID_RE.test(visitorId)
+      ) {
+        return json({ error: "Can't save details right now" }, 400);
+      }
+      const row: Record<string, string> = {
+        id: conversationId,
+        visitor_id: visitorId,
+        visitor_phone: contact.phone,
+      };
+      if (contact.name) row.visitor_name = contact.name;
+      await upsertConversation(
+        createClient(Deno.env.get("SUPABASE_URL") ?? "", serviceKey),
+        row,
+      );
+      return json({ ok: true });
+    }
 
     const geminiKey = Deno.env.get("GEMINI_API_KEY");
     if (!geminiKey) {
@@ -591,7 +913,31 @@ Deno.serve(async (req) => {
         products: (Array.isArray(t.products) ? t.products : [])
           .filter((name: unknown) => typeof name === "string")
           .slice(0, MAX_CARDS),
+        fromTeam: t.fromTeam === true,
       }));
+
+    // A team member has taken this chat over from the Chats page: the AI
+    // stays quiet, and the message is saved for them to answer.
+    // One conversation per visitor, holding the details they left (name /
+    // phone) and any takeover. Null for a brand-new (or deleted) visitor.
+    const conversation = await ownConversation(
+      payload.conversationId,
+      payload.visitorId,
+    );
+    const contactSaved = !!conversation?.visitor_phone;
+
+    if (takeoverActive(conversation)) {
+      try {
+        await logCustomerMessage(
+          payload.conversationId,
+          payload.visitorId,
+          question,
+        );
+      } catch (err) {
+        console.error("Chat log failed:", err);
+      }
+      return json({ takeover: true, contactSaved });
+    }
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
@@ -636,7 +982,7 @@ Deno.serve(async (req) => {
     // prices for the cards are filled in from Shopify afterwards.
     const catalog = products
       .map((p) =>
-        `${p.handle} | ${p.title} | ${p.type || "Other"} | ${p.prices}${
+        `${p.handle} | ${p.title} | ${p.type || "Other"} | ${priceForModel(p)}${
           p.giftPacked ? " | gift-packed" : ""
         }`
       )
@@ -658,7 +1004,9 @@ Deno.serve(async (req) => {
 
     const details = matches
       .map((p) =>
-        `${p.title}\nID: ${p.handle}\nType: ${p.type || "Other"}\nPrice: ${p.prices}\nGift packaging: ${
+        `${p.title}\nID: ${p.handle}\nType: ${p.type || "Other"}\nPrice: ${
+          priceForModel(p)
+        }\nGift packaging: ${
           p.giftPacked ? "yes" : "no"
         }\nTags: ${
           p.tags.join(", ")
@@ -672,12 +1020,16 @@ This is an ongoing conversation. Read the whole chat before replying and carry e
 
 Lean towards being useful straight away. If you have enough to make a reasonable suggestion, make it, and ask at most one short follow-up question only if it would genuinely change your recommendation. When you do need more, ask for just the one or two most important missing details.
 
-Use what you know about them. For corporate or bulk gifting, favour gift sets and giftable items, and bring in anything the FAQ says about bulk orders, custom branding, gift wrapping, or volume pricing that's relevant. For restaurants, hotels or cafes, draw on the HoReCa FAQ content.
+Use what you know about them. For corporate or bulk gifting, favour gift sets and giftable items, and bring in the one or two FAQ details (bulk orders, custom branding, gift wrapping, volume pricing) that matter most for what they just asked.
 
-Keep replies as short as the moment calls for:
-- Greetings or small talk ("hi", "thanks", "ok") get a brief, friendly line back. Don't summarize the FAQ or introduce yourself.
-- Simple questions get a sentence or two.
-- Only go longer (a short paragraph, or a few lines) when the question genuinely needs the detail, like a pricing breakdown with multiple tiers.
+Keep replies short, like a helpful person texting on WhatsApp:
+- Most replies are 1 to 3 short sentences, around 40 words or less.
+- Greetings or small talk ("hi", "thanks", "ok") get one brief, friendly line. Don't summarize the FAQ or introduce yourself.
+- Answer only what they asked. Don't pile on extra details they didn't ask about (packaging, ribbons, delivery, other options); they can ask.
+- Don't repeat things you already told them earlier in the chat, and don't restate what they just said back to them.
+- Only go longer (a few short lines, never more than about 80 words) when the question genuinely needs it, like comparing pricing tiers they asked about.
+
+Never promise follow-up you can't guarantee: don't say the team "will be in touch", "will contact you", or that you've "noted everything down" or passed anything on, because nothing is sent to the team from this chat. When they're ready to order, want a quote, or want to finalise details with the team, use the "human" intent so they get the WhatsApp button to reach the team directly.
 
 Answer in a friendly, conversational tone, like you're explaining it to someone new. Write in plain text only, no markdown — don't use asterisks for bold or italics, and don't use em dashes. If you need a list, write it as plain lines or "1., 2., 3." rather than markdown bullets. Don't repeat the question back before answering it. If the answer isn't covered in the FAQ content or catalog, say so honestly in one line and suggest they contact the team directly, don't make anything up.
 
@@ -687,17 +1039,25 @@ Respond as JSON with these fields:
   "recommend" when you're suggesting products for them;
   "product" when they asked about specific products (details, price, stock, colours);
   "gift_packaging" when they're asking about gift packaging, gift boxes or wrapping, or what a gift looks like when it arrives;
+  "human" when they ask to talk to a person, an agent, someone from the team, want a call back or a phone number, or when you can't answer and are pointing them to the team;
   "general" for everything else (greetings, policies, shipping, payments, the process, follow-up questions without new products).
 - "products": the IDs of the products this reply is about, best first, taken exactly from the catalog's first column. For "recommend" and "product", the products you're recommending or were asked about. For "gift_packaging", the specific products they asked about, or an empty list if they asked about gift packaging in general. For "general", always an empty list.
 - "visitorName" and "company": the person's own name and their company or business name, if they've stated them anywhere in this chat; otherwise empty strings. Only use what they actually said about themselves, never guess. This is recorded quietly for the team; don't mention it or ask for it.
+- "followUp": true when this is the kind of enquiry the team should personally follow up on: bulk or corporate gifting, custom or personalised requirements (branding, logos, bespoke sets), large quantities, asking for a quote, or a business order (hotel, restaurant, cafe). Otherwise false. The app then offers them a way to leave their name and number; don't ask for their details yourself.
 
 Only products that are directly relevant get shown, so don't attach products to replies that aren't about them. For "recommend" and "product", each product you list is shown under your reply as a card with its photo, name, live price, stock status, and an add to cart button, so don't write links or prices in the reply and don't list the products out again. Just talk about them naturally, for example why they suit this person, referring to them by name where it helps. Recommend 3 or 4 products unless they ask for more. Prices are in Indian Rupees. Treat budgets strictly: "under 2000" means below Rs 2000, so a Rs 2000 item doesn't qualify, and for sets use the set price as listed. Prefer products that are in stock. Only recommend products that appear in the catalog.
 
 If someone asks about a specific product that's sold out, still include it in "products" and lead with the positive, then the stock status, for example: "The Bites and Delights Lime Green is a lovely pick for corporate gifting, but it's currently sold out." Don't suggest alternatives to it yourself and don't ask whether they'd like to see similar items; the app automatically offers similar in-stock products under a sold-out card. Pre-orders aren't available, and never promise a restock or a date; if they ask when it'll be back, suggest contacting the team.
 
+Reaching the team: for "human" replies, say warmly in a sentence or two that they can reach the team directly on WhatsApp using the button below your reply. A WhatsApp button with the team's number is added automatically, so never write a phone number or link yourself, and don't claim you're transferring them or that someone will contact them.
+
+Ware Atelier: products marked "Ware Atelier, made to order, price on request" are bespoke marble furniture and lighting, made with multiple marble components and usually customised for each client. Never state or guess a price for them, and never call them sold out or out of stock. Describe the piece, mention it's made to order and can be customised, and say the team will share pricing and options; each Atelier card has an Enquire button that opens WhatsApp with the team, and the app offers them a way to leave their details. Ware Atelier's other range is the Collectibles: one-of-a-kind marble vases and tissue boxes (Arc, Claude, Horizon and so on), which are priced and can be bought directly like any other product. The bespoke Atelier pieces, the Collectibles, the marble tableware (trays, trivets, coasters) and the ceramic tableware are different ranges: when recommending alternatives, stay within the range they're looking at.
+
 Gift packaging: a product only comes gift-packed (in a gift box, sleeve or as a gift set) if the catalog marks it "gift-packed". Never say or imply a product is a gift set or comes gift-packed otherwise, even if it's giftable or tagged for gifting; just describe it as the product it is. If the FAQ describes packaging for gifting orders (ribbons, notes, boxes), that's about gifting orders placed with the team, so present it that way rather than as something a particular product comes with. For "gift_packaging" questions, photos of the packaging are shown automatically when they exist, so don't describe photos or promise to show any.
 
-Earlier replies of yours in this chat may end with a note like "(Product cards shown: ...)"; that's what the person saw under that reply, so "the second one" or "that set" refers to those.
+Some earlier replies may be marked as written by a member of the Ware team, who took over the chat for a while. Stay consistent with anything they told the person, and pick up naturally from there.
+
+Earlier replies of yours in this chat may end with a note like "(Product cards shown: ...)"; that's what the person saw under that reply, so "the second one" or "that set" refers to those. When recommending again, suggest products they haven't been shown yet; only bring back an earlier one if they ask about it. Pick 3 or 4 of the best new options rather than a long list.
 ${
       guidelines
         ? `
@@ -719,20 +1079,28 @@ ${details || "(none matched by keyword, use the catalog above)"}${
         : ""
     }`;
 
-    const contents = [
-      ...history.flatMap((t) => [
-        { role: "user", parts: [{ text: t.question }] },
-        {
-          role: "model",
-          parts: [{
-            text: t.products.length
-              ? `${t.answer}\n(Product cards shown: ${t.products.join("; ")})`
-              : t.answer,
-          }],
-        },
-      ]),
-      { role: "user", parts: [{ text: question }] },
-    ];
+    // After a human takeover the history has customer messages nobody
+    // answered and team replies with no question, so consecutive same-side
+    // messages are merged into one turn and empty ones dropped.
+    const contents: { role: string; parts: { text: string }[] }[] = [];
+    const addTurn = (role: string, text: string) => {
+      if (!text.trim()) return;
+      const last = contents[contents.length - 1];
+      if (last?.role === role) last.parts[0].text += `\n\n${text}`;
+      else contents.push({ role, parts: [{ text }] });
+    };
+    for (const t of history) {
+      addTurn("user", t.question);
+      addTurn(
+        "model",
+        t.fromTeam
+          ? `(A member of the Ware team replied to them directly:) ${t.answer}`
+          : t.products.length
+          ? `${t.answer}\n(Product cards shown: ${t.products.join("; ")})`
+          : t.answer,
+      );
+    }
+    addTurn("user", question);
 
     const body = JSON.stringify({
       systemInstruction: { parts: [{ text: systemPrompt }] },
@@ -751,13 +1119,21 @@ ${details || "(none matched by keyword, use the catalog above)"}${
             reply: { type: "STRING" },
             intent: {
               type: "STRING",
-              enum: ["recommend", "product", "gift_packaging", "general"],
+              enum: ["recommend", "product", "gift_packaging", "human", "general"],
             },
             products: { type: "ARRAY", items: { type: "STRING" } },
             visitorName: { type: "STRING" },
             company: { type: "STRING" },
+            followUp: { type: "BOOLEAN" },
           },
-          required: ["reply", "intent", "products", "visitorName", "company"],
+          required: [
+            "reply",
+            "intent",
+            "products",
+            "visitorName",
+            "company",
+            "followUp",
+          ],
         },
       },
     });
@@ -772,11 +1148,13 @@ ${details || "(none matched by keyword, use the catalog above)"}${
     let visitorName = "";
     let company = "";
     let intent = "general";
+    let followUp = false;
     try {
       const parsed = JSON.parse(text);
       answer = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
       picked = Array.isArray(parsed.products) ? parsed.products : [];
       if (typeof parsed.intent === "string") intent = parsed.intent;
+      followUp = parsed.followUp === true;
       visitorName = cleanField(parsed.visitorName);
       company = cleanField(parsed.company);
     } catch {
@@ -800,7 +1178,17 @@ ${details || "(none matched by keyword, use the catalog above)"}${
       ? await giftImagesFor(pickedProducts, products)
       : [];
 
-    const cards = (showCards ? pickedProducts : [])
+    // Fresh suggestions each time: for "recommend", drop anything already
+    // shown earlier in this chat (they can still ask about one by name,
+    // which comes through as "product"). If every pick was a repeat, keep
+    // them rather than showing nothing.
+    const alreadyShown = new Set(history.flatMap((t) => t.products));
+    const fresh = intent === "recommend"
+      ? pickedProducts.filter((p) => !alreadyShown.has(p.title))
+      : pickedProducts;
+    const toShow = fresh.length ? fresh : pickedProducts;
+
+    const cards = (showCards ? toShow : [])
       .filter((p) => !budget || p.minPrice < budget)
       .slice(0, MAX_CARDS)
       .map((p) => {
@@ -813,6 +1201,9 @@ ${details || "(none matched by keyword, use the catalog above)"}${
         return card;
       });
 
+    // What they typed in the details card beats what the model inferred.
+    const name = conversation?.visitor_name || visitorName;
+
     // Logging must never cost the visitor their answer.
     try {
       await logTurn({
@@ -821,15 +1212,49 @@ ${details || "(none matched by keyword, use the catalog above)"}${
         question,
         answer,
         cards,
-        visitorName,
+        // Never overwrite a name they typed into the details card.
+        visitorName: conversation?.visitor_phone ? "" : visitorName,
         company,
-        isFirst: history.length === 0,
+        isFirst: !conversation?.first_question,
       });
     } catch (err) {
       console.error("Chat log failed:", err);
     }
 
-    return json({ answer, products: cards, images });
+    // "Talk to a human": a WhatsApp link whose pre-filled message carries
+    // what we know (name, company, products looked at), so the team has
+    // context the moment the chat opens.
+    const whatsappUrl = intent === "human"
+      ? buildWhatsAppUrl({
+        // The model reads the whole chat for these, not just this turn.
+        visitorName: name,
+        company,
+        products: [
+          ...pickedProducts.map((p) => p.title),
+          ...history.slice(-3).flatMap((t) => t.products),
+        ],
+      })
+      : null;
+
+    // Worth offering the "leave your details" prompt? The model's call,
+    // backed by a keyword check so an obvious bulk / custom enquiry is
+    // never missed. Not when they asked for a person: they get the
+    // WhatsApp button instead, and two asks at once is too much.
+    // Ware Atelier enquiries always qualify: those pieces are customised
+    // per client, so the team needs to take it from here.
+    const aboutAtelier = /\batelier\b/i.test(question) ||
+      pickedProducts.some((p) => p.line === "atelier");
+    const askForDetails = intent !== "human" &&
+      (followUp || aboutAtelier || FOLLOW_UP_WORDS.test(question));
+
+    return json({
+      answer,
+      products: cards,
+      images,
+      whatsappUrl,
+      contactSaved,
+      askForDetails,
+    });
   } catch (err) {
     console.error(err);
     return json({ error: "Something went wrong" }, 500);
