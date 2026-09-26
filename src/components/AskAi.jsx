@@ -10,6 +10,9 @@ import {
   ArrowLeft,
   GraduationCap,
   MessageCircle,
+  Maximize2,
+  Minimize2,
+  ArrowUpRight,
 } from "lucide-react";
 import { toast } from "react-toastify";
 import { supabase } from "./supabase";
@@ -46,6 +49,17 @@ const getVisitorId = () => {
     return id;
   } catch {
     return crypto.randomUUID();
+  }
+};
+
+// Whether the drawer is expanded to take most of the screen (like Gmail's
+// full-screen compose). Remembered per browser.
+const EXPANDED_KEY = "askAiExpanded";
+const loadExpanded = () => {
+  try {
+    return localStorage.getItem(EXPANDED_KEY) === "1";
+  } catch {
+    return false;
   }
 };
 
@@ -226,6 +240,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
   const [contactThanks, setContactThanks] = useState(null);
   const [input, setInput] = useState("");
   const [copiedKey, setCopiedKey] = useState(null);
+  const [expanded, setExpanded] = useState(loadExpanded);
   const listRef = useRef(null);
 
   // Keep nextId ahead of anything restored from storage so new messages
@@ -252,6 +267,33 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
     document.body.classList.toggle("faq-chat-open", open);
     return () => document.body.classList.remove("faq-chat-open");
   }, [open]);
+
+  // Expanded, the drawer overlays the page instead of pushing it aside
+  // (squeezing the page into the leftover strip would be useless).
+  const isExpanded = open && expanded;
+  useEffect(() => {
+    document.body.classList.toggle("faq-chat-expanded", isExpanded);
+    return () => document.body.classList.remove("faq-chat-expanded");
+  }, [isExpanded]);
+
+  const toggleExpanded = (value) => {
+    setExpanded(value);
+    try {
+      localStorage.setItem(EXPANDED_KEY, value ? "1" : "0");
+    } catch {
+      // Still applies for this page view.
+    }
+  };
+
+  // Esc shrinks it back to the side drawer.
+  useEffect(() => {
+    if (!isExpanded) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") toggleExpanded(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isExpanded]);
 
   useEffect(() => {
     if (!listRef.current) return;
@@ -415,10 +457,14 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
   const customerMessages = messages.filter(
     (m) => m.question && !m.isLocal && !m.isReset,
   ).length;
+  // Not straight after the WhatsApp button either: two asks at once.
+  const lastReplyHasWhatsApp = !!messages.findLast((m) => m.answer)
+    ?.whatsappUrl;
   const showContactCard =
     !contactPrefs.dismissed &&
     !contactPrefs.saved &&
     !!currentConversationId &&
+    !lastReplyHasWhatsApp &&
     !messages.some((m) => m.loading) &&
     (messages.some((m) => m.askForDetails) ||
       customerMessages >= CONTACT_AFTER_MESSAGES);
@@ -597,7 +643,17 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
   };
 
   return (
-    <div className={`faq-chat-popup ${open ? "faq-chat-popup-open" : ""}`}>
+    <>
+    {isExpanded && (
+      <div
+        className="faq-chat-backdrop"
+        onClick={() => toggleExpanded(false)}
+        aria-hidden="true"
+      />
+    )}
+    <div
+      className={`faq-chat-popup ${open ? "faq-chat-popup-open" : ""} ${isExpanded ? "faq-chat-popup-expanded" : ""}`}
+    >
       <div className="faq-chat-header">
         {showGuidelines ? (
           <span className="faq-chat-title">
@@ -642,6 +698,15 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
               <Trash2 size={15} />
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => toggleExpanded(!expanded)}
+            className="faq-icon-btn faq-chat-expand-btn"
+            aria-label={expanded ? "Exit full screen" : "Full screen"}
+            title={expanded ? "Exit full screen (Esc)" : "Full screen"}
+          >
+            {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+          </button>
           <button
             type="button"
             onClick={onClose}
@@ -761,8 +826,14 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
                     rel="noopener noreferrer"
                     className="faq-chat-whatsapp-btn"
                   >
-                    <MessageCircle size={15} />
-                    Chat with us on WhatsApp
+                    <span className="faq-chat-whatsapp-icon">
+                      <MessageCircle size={17} />
+                    </span>
+                    <span className="faq-chat-whatsapp-text">
+                      <strong>Chat with the Ware team</strong>
+                      <small>Continue on WhatsApp</small>
+                    </span>
+                    <ArrowUpRight size={16} className="faq-chat-whatsapp-arrow" />
                   </a>
                 )}
                 {/* Gift packaging photos — only sent for gift packaging
@@ -920,6 +991,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
       </>
       )}
     </div>
+    </>
   );
 };
 

@@ -613,9 +613,12 @@ const atelierEnquiryUrl = (title: string) =>
 // e.g. "Hi! This is Priya from Fox Brains. I was chatting with the Ware
 // Innovations assistant and would like to speak to someone from the
 // team. I was looking at: Pivot Serveware Set Pacific Blue."
+// With a request from the model, that replaces the generic middle part:
+// "... assistant. I'd like a shipping quote to Singapore (239432) ..."
 function buildWhatsAppUrl(ctx: {
   visitorName: string;
   company: string;
+  request: string;
   products: string[];
 }) {
   const who = ctx.visitorName && ctx.company
@@ -626,9 +629,14 @@ function buildWhatsAppUrl(ctx: {
     ? ` I'm reaching out from ${ctx.company}.`
     : "";
   const products = [...new Set(ctx.products)].slice(0, 3);
-  const text = `Hi!${who} I was chatting with the Ware Innovations assistant ` +
-    `and would like to speak to someone from the team.` +
-    (products.length ? ` I was looking at: ${products.join(", ")}.` : "");
+  const ask = ctx.request
+    ? `. ${ctx.request}`
+    : ` and would like to speak to someone from the team.`;
+  // Skip the product list when the request already names them.
+  const unmentioned = products.filter((p) => !ctx.request.includes(p));
+  const text = `Hi!${who} I was chatting with the Ware Innovations assistant` +
+    ask +
+    (unmentioned.length ? ` I was looking at: ${unmentioned.join(", ")}.` : "");
   return whatsAppLink(text);
 }
 
@@ -1020,6 +1028,10 @@ This is an ongoing conversation. Read the whole chat before replying and carry e
 
 Lean towards being useful straight away. If you have enough to make a reasonable suggestion, make it, and ask at most one short follow-up question only if it would genuinely change your recommendation. When you do need more, ask for just the one or two most important missing details.
 
+Answer what they actually asked, directly and confidently. When the answer is yes, open with a clear yes in their terms (for example "Yes, we do ship to Singapore!") and then say what happens next.
+
+Quotes only the team can work out (shipping to a particular address or country, bulk or custom pricing) need details first, so gather them the way a good salesperson would before handing off. Ask for what's still missing, mainly which products they're interested in and, for shipping, the delivery pincode and country, and briefly say why (shipping depends on the items and their weight). Once you have those, or if they'd rather just talk to the team, use the "human" intent so they can send it all to the team on WhatsApp. Don't hand off while the key details are still missing, and never say you'll check or get back to them yourself.
+
 Use what you know about them. For corporate or bulk gifting, favour gift sets and giftable items, and bring in the one or two FAQ details (bulk orders, custom branding, gift wrapping, volume pricing) that matter most for what they just asked.
 
 Keep replies short, like a helpful person texting on WhatsApp:
@@ -1029,7 +1041,7 @@ Keep replies short, like a helpful person texting on WhatsApp:
 - Don't repeat things you already told them earlier in the chat, and don't restate what they just said back to them.
 - Only go longer (a few short lines, never more than about 80 words) when the question genuinely needs it, like comparing pricing tiers they asked about.
 
-Never promise follow-up you can't guarantee: don't say the team "will be in touch", "will contact you", or that you've "noted everything down" or passed anything on, because nothing is sent to the team from this chat. When they're ready to order, want a quote, or want to finalise details with the team, use the "human" intent so they get the WhatsApp button to reach the team directly.
+Never promise follow-up you can't guarantee: don't say the team "will be in touch", "will contact you", or that you've "noted everything down" or passed anything on, because nothing is sent to the team from this chat. When they're ready to order, want a quote (once you have the details it needs, see above), or want to finalise details with the team, use the "human" intent so they get the WhatsApp button to reach the team directly.
 
 Answer in a friendly, conversational tone, like you're explaining it to someone new. Write in plain text only, no markdown — don't use asterisks for bold or italics, and don't use em dashes. If you need a list, write it as plain lines or "1., 2., 3." rather than markdown bullets. Don't repeat the question back before answering it. If the answer isn't covered in the FAQ content or catalog, say so honestly in one line and suggest they contact the team directly, don't make anything up.
 
@@ -1043,6 +1055,7 @@ Respond as JSON with these fields:
   "general" for everything else (greetings, policies, shipping, payments, the process, follow-up questions without new products).
 - "products": the IDs of the products this reply is about, best first, taken exactly from the catalog's first column. For "recommend" and "product", the products you're recommending or were asked about. For "gift_packaging", the specific products they asked about, or an empty list if they asked about gift packaging in general. For "general", always an empty list.
 - "visitorName" and "company": the person's own name and their company or business name, if they've stated them anywhere in this chat; otherwise empty strings. Only use what they actually said about themselves, never guess. This is recorded quietly for the team; don't mention it or ask for it.
+- "request": for "human" replies, one short sentence in their voice summarising what they need from the team, with the details they gave, for example "I'd like a shipping quote to Singapore (239432) for the Lunar Dinner Spread Nude." It pre-fills their WhatsApp message to the team. Empty string otherwise.
 - "followUp": true when this is the kind of enquiry the team should personally follow up on: bulk or corporate gifting, custom or personalised requirements (branding, logos, bespoke sets), large quantities, asking for a quote, or a business order (hotel, restaurant, cafe). Otherwise false. The app then offers them a way to leave their name and number; don't ask for their details yourself.
 
 Only products that are directly relevant get shown, so don't attach products to replies that aren't about them. For "recommend" and "product", each product you list is shown under your reply as a card with its photo, name, live price, stock status, and an add to cart button, so don't write links or prices in the reply and don't list the products out again. Just talk about them naturally, for example why they suit this person, referring to them by name where it helps. Recommend 3 or 4 products unless they ask for more. Prices are in Indian Rupees. Treat budgets strictly: "under 2000" means below Rs 2000, so a Rs 2000 item doesn't qualify, and for sets use the set price as listed. Prefer products that are in stock. Only recommend products that appear in the catalog.
@@ -1125,6 +1138,7 @@ ${details || "(none matched by keyword, use the catalog above)"}${
             visitorName: { type: "STRING" },
             company: { type: "STRING" },
             followUp: { type: "BOOLEAN" },
+            request: { type: "STRING" },
           },
           required: [
             "reply",
@@ -1149,6 +1163,7 @@ ${details || "(none matched by keyword, use the catalog above)"}${
     let company = "";
     let intent = "general";
     let followUp = false;
+    let request = "";
     try {
       const parsed = JSON.parse(text);
       answer = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
@@ -1157,6 +1172,9 @@ ${details || "(none matched by keyword, use the catalog above)"}${
       followUp = parsed.followUp === true;
       visitorName = cleanField(parsed.visitorName);
       company = cleanField(parsed.company);
+      request = typeof parsed.request === "string"
+        ? parsed.request.trim().slice(0, 300)
+        : "";
     } catch {
       // Not JSON after all — show whatever it said, just without cards.
       answer = text;
@@ -1229,6 +1247,7 @@ ${details || "(none matched by keyword, use the catalog above)"}${
         // The model reads the whole chat for these, not just this turn.
         visitorName: name,
         company,
+        request,
         products: [
           ...pickedProducts.map((p) => p.title),
           ...history.slice(-3).flatMap((t) => t.products),
