@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import { Route, Routes } from "react-router-dom";
+import { supabase } from "./components/supabase";
 import { ToastContainer } from "react-toastify";
 import HomePage from "./Pages/HomePage";
 import Colors from "./components/Colors";
@@ -11,6 +13,22 @@ import Faq from "./components/Faq";
 import ChatLogs from "./components/ChatLogs";
 
 function App() {
+  // The edit buttons follow the "auth" flag, but saving needs a real
+  // Supabase session. Anyone flagged without one (signed in with the old
+  // shared password, or their session ended) goes back to signed out.
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (!data.session && localStorage.getItem("auth") === "true") {
+        localStorage.removeItem("auth");
+        window.location.reload();
+      }
+    });
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") localStorage.removeItem("auth");
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
+
   return (
     <div className="min-h-screen bg-[#eef2e8] flex flex-col">
       <Navbar />

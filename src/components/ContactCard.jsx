@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { TEAM_HOURS } from "../lib/teamHours";
 
 // Loose on purpose: people type +91, spaces, dashes.
 const looksLikePhone = (s) => s.replace(/\D/g, "").length >= 7;
@@ -6,10 +7,12 @@ const looksLikePhone = (s) => s.replace(/\D/g, "").length >= 7;
 // Crisp-style "leave your details" prompt. Starts as a single line with a
 // button, so it doesn't take over the chat; the name / phone fields only
 // open when they choose to. Saving attaches them to this visitor's chat
-// for the team in the Chats page.
-const ContactCard = ({ onSave, onDismiss }) => {
-  const [expanded, setExpanded] = useState(false);
-  const [name, setName] = useState("");
+// for the team in the Chats page. With startOpen (the reply just asked if
+// the team can call them) the form shows straight away.
+const ContactCard = ({ onSave, onDismiss, startOpen = false, initialName = "" }) => {
+  const [expanded, setExpanded] = useState(startOpen);
+  // Already told us their name? Only the number is left to type.
+  const [name, setName] = useState(initialName);
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -57,7 +60,9 @@ const ContactCard = ({ onSave, onDismiss }) => {
       onSubmit={submit}
     >
       <div className="faq-chat-contact-title">
-        Leave your name and number and our team will get back to you.
+        {startOpen
+          ? "Share your name and number for a quick call from our team."
+          : "Leave your name and number and our team will get back to you."}
       </div>
       <input
         type="text"
@@ -66,7 +71,9 @@ const ContactCard = ({ onSave, onDismiss }) => {
         placeholder="Your name"
         maxLength={100}
         autoComplete="name"
-        autoFocus
+        // Only when they asked for the form, so it doesn't pull the phone
+        // keyboard up on its own.
+        autoFocus={!startOpen}
       />
       <input
         type="tel"
@@ -79,7 +86,8 @@ const ContactCard = ({ onSave, onDismiss }) => {
       />
       {error && <div className="faq-chat-contact-error">{error}</div>}
       <div className="faq-chat-contact-note">
-        We'll only use this to get back to you about your enquiry.
+        We'll only use this to get back to you about your enquiry. Our team is
+        available {TEAM_HOURS}.
       </div>
       <div className="faq-edit-actions">
         <button type="button" className="faq-btn faq-btn-ghost" onClick={onDismiss}>

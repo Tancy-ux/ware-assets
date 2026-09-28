@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
+  CalendarDays,
   LogOut,
   MessageSquare,
   Pencil,
@@ -45,8 +46,37 @@ const titleOf = (c) =>
 // Short, stable tag for grouping anonymous visitors by eye.
 const visitorTag = (id) => `#${id.slice(0, 6)}`;
 
-// Every Ask AI conversation, behind its own login (separate from the
-// site's shared login, checked server-side by the chat-admin function).
+// The date filter's choices; the list (and message search) only covers
+// conversations active in that window.
+const RANGES = [
+  { id: "7d", label: "Last 7 days", days: 7 },
+  { id: "30d", label: "Last 30 days", days: 30 },
+  { id: "90d", label: "Last 90 days", days: 90 },
+  { id: "all", label: "All time" },
+  { id: "custom", label: "Custom dates" },
+];
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// { since, until } for the chat-admin function. Custom dates are whole
+// days in the viewer's time zone, "to" included.
+const rangeBounds = (range, from, to) => {
+  const preset = RANGES.find((r) => r.id === range);
+  if (preset?.days) {
+    return { since: new Date(Date.now() - preset.days * DAY_MS).toISOString() };
+  }
+  if (range !== "custom") return {};
+  const bounds = {};
+  if (from) bounds.since = new Date(`${from}T00:00:00`).toISOString();
+  if (to) {
+    bounds.until = new Date(
+      new Date(`${to}T00:00:00`).getTime() + DAY_MS,
+    ).toISOString();
+  }
+  return bounds;
+};
+
+const EMPTY_HITS = new Map();
+
 const ChatLogs = () => {
   const [token, setToken] = useState(readToken);
   const [conversations, setConversations] = useState([]);
@@ -55,7 +85,18 @@ const ChatLogs = () => {
   const [messages, setMessages] = useState([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [search, setSearch] = useState("");
+  // Conversations whose messages match the search (from the server), each
+  // with the matching line (conversation id -> text), and which search
+  // they're for.
+  const [messageSearch, setMessageSearch] = useState({
+    query: "",
+    hits: new Map(),
+  });
   const [visitorFilter, setVisitorFilter] = useState(null);
+  // Date filter: one of RANGES' ids; "custom" uses the two dates.
+  const [range, setRange] = useState("7d");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
   const [editingLabel, setEditingLabel] = useState(null);
   const [reply, setReply] = useState("");
   const [sendingReply, setSendingReply] = useState(false);
@@ -97,17 +138,25 @@ const ChatLogs = () => {
 
   const loadList = useCallback(async () => {
     setLoadingList(true);
-    const data = await api({ action: "list" });
+    const data = await api({
+      action: "list",
+      ...rangeBounds(range, customFrom, customTo),
+    });
     setLoadingList(false);
     if (data) setConversations(data.conversations);
-  }, [api]);
+  }, [api, range, customFrom, customTo]);
 
-  // First load after login / page open. loadingList already starts true
-  // in those cases (see its initial state and the login handler).
+  // Loads the list after login / page open, and again whenever the date
+  // range changes. loadingList is already true then (see its initial
+  // state, the login handler and changeRange).
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
-    callFunction("chat-admin", { action: "list", token }).then((res) => {
+    callFunction("chat-admin", {
+      action: "list",
+      token,
+      ...rangeBounds(range, customFrom, customTo),
+    }).then((res) => {
       if (cancelled) return;
       setLoadingList(false);
       const data = handleResponse(res);
@@ -116,7 +165,14 @@ const ChatLogs = () => {
     return () => {
       cancelled = true;
     };
-  }, [token, handleResponse]);
+  }, [token, handleResponse, range, customFrom, customTo]);
+
+  const changeRange = (patch) => {
+    setLoadingList(true);
+    if ("range" in patch) setRange(patch.range);
+    if ("from" in patch) setCustomFrom(patch.from);
+    if ("to" in patch) setCustomTo(patch.to);
+  };
 
   const setTakeoverFlag = (id, takeover) =>
     setConversations((prev) =>
@@ -229,17 +285,71 @@ const ChatLogs = () => {
     return counts;
   }, [conversations]);
 
+  // Searching message text happens on the server (the list only has each
+  // chat's latest question), a moment after typing stops.
+  const searchQuery = search.trim();
+  const searchesMessages = searchQuery.length >= 2;
+  // A search result belongs to this text and date range.
+  const searchKey = [searchQuery, range, customFrom, customTo].join("|");
+  useEffect(() => {
+    if (!token || !searchesMessages) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const res = await callFunction("chat-admin", {
+        action: "search",
+        query: searchQuery,
+        token,
+        ...rangeBounds(range, customFrom, customTo),
+      });
+      if (cancelled) return;
+      const data = handleResponse(res);
+      setMessageSearch({
+        query: searchKey,
+        hits: new Map(
+          (data?.matches ?? []).map((m) => [m.conversationId, m.text]),
+        ),
+      });
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [
+    searchQuery,
+    searchesMessages,
+    searchKey,
+    range,
+    customFrom,
+    customTo,
+    token,
+    handleResponse,
+  ]);
+  // Only results for what's in the box now (not a previous search).
+  const messageHits =
+    searchesMessages && messageSearch.query === searchKey
+      ? messageSearch.hits
+      : EMPTY_HITS;
+  const searchingMessages =
+    searchesMessages && messageSearch.query !== searchKey;
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
+    // "98765 43210", "+91-9876543210" and "9876543210" all find the same
+    // number.
+    const digits = q.replace(/\D/g, "");
+    const phoneQuery = digits.length >= 4 && /^[\d\s()+-]+$/.test(q);
     return conversations.filter(
       (c) =>
         (!visitorFilter || c.visitorId === visitorFilter) &&
         (!q ||
+          messageHits.has(c.id) ||
+          (phoneQuery &&
+            (c.visitorPhone ?? "").replace(/\D/g, "").includes(digits)) ||
           [c.label, c.visitorName, c.company, c.visitorPhone, c.preview]
             .filter(Boolean)
             .some((s) => s.toLowerCase().includes(q))),
     );
-  }, [conversations, search, visitorFilter]);
+  }, [conversations, search, visitorFilter, messageHits]);
 
   const selected = conversations.find((c) => c.id === selectedId);
 
@@ -288,7 +398,7 @@ const ChatLogs = () => {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name, company, phone, or latest question"
+              placeholder="Search names, numbers or any message"
             />
             {search && (
               <button type="button" onClick={() => setSearch("")} aria-label="Clear search">
@@ -296,6 +406,43 @@ const ChatLogs = () => {
               </button>
             )}
           </div>
+
+          <div className="chats-range">
+            <CalendarDays size={14} />
+            <select
+              value={range}
+              onChange={(e) => changeRange({ range: e.target.value })}
+              aria-label="Show chats from"
+            >
+              {RANGES.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          {range === "custom" && (
+            <div className="chats-range-custom">
+              <label>
+                From
+                <input
+                  type="date"
+                  value={customFrom}
+                  max={customTo || undefined}
+                  onChange={(e) => changeRange({ from: e.target.value })}
+                />
+              </label>
+              <label>
+                To
+                <input
+                  type="date"
+                  value={customTo}
+                  min={customFrom || undefined}
+                  onChange={(e) => changeRange({ to: e.target.value })}
+                />
+              </label>
+            </div>
+          )}
 
           {visitorFilter && (
             <div className="chats-filter-chip">
@@ -313,12 +460,16 @@ const ChatLogs = () => {
           <div className="chats-count">
             {loadingList
               ? "Loading..."
-              : `${filtered.length} conversation${filtered.length === 1 ? "" : "s"}`}
+              : `${filtered.length} conversation${filtered.length === 1 ? "" : "s"}${
+                  searchingMessages ? " · searching messages…" : ""
+                }`}
           </div>
 
           {!loadingList && conversations.length === 0 && (
             <p className="chats-empty">
-              No chats yet. They'll appear here as people use Ask AI.
+              {range === "all"
+                ? "No chats yet. They'll appear here as people use Ask AI."
+                : "No chats in this period. Try a longer range, or All time."}
             </p>
           )}
 
@@ -343,7 +494,15 @@ const ChatLogs = () => {
                     .join(" · ")}
                 </div>
               ) : null}
-              <div className="chats-item-preview">{c.preview}</div>
+              {/* While searching, the line that matched (if it's in a
+                  message) instead of the latest question. */}
+              {messageHits.has(c.id) ? (
+                <div className="chats-item-preview chats-item-match">
+                  {messageHits.get(c.id)}
+                </div>
+              ) : (
+                <div className="chats-item-preview">{c.preview}</div>
+              )}
               <div className="chats-item-meta">
                 <MessageSquare size={11} />
                 {c.messageCount}

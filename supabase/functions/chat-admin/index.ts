@@ -76,6 +76,20 @@ async function tokenIsValid(token: unknown, secret: string) {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Login attempts allowed per connection (right or wrong).
+const LOGIN_ATTEMPTS_10M = 10;
+const LOGIN_ATTEMPTS_DAY = 30;
+
+// Most conversations the Chats list loads at once (newest first). With
+// the date filter, "All time" is the only view likely to reach it.
+const LIST_LIMIT = 2000;
+
+// A timestamp from the page, or null if it's missing or not a date.
+const validDate = (value: unknown) =>
+  typeof value === "string" && !isNaN(Date.parse(value))
+    ? new Date(value).toISOString()
+    : null;
+
 // Must match TAKEOVER_HOURS in ask-faq.
 const TAKEOVER_HOURS = 24;
 function takeoverActive(takeoverAt: string | null | undefined) {
@@ -101,6 +115,29 @@ Deno.serve(async (req) => {
     const body = await req.json();
 
     if (body.action === "login") {
+      // Limits password guessing per connection (rate_limit, in
+      // scripts/supabase-form-limits.sql). The delay below alone doesn't
+      // stop many guesses sent at once. Allowed if the check itself fails.
+      const ip = (
+        req.headers.get("cf-connecting-ip") ??
+          req.headers.get("x-forwarded-for")?.split(",")[0] ??
+          ""
+      ).trim().slice(0, 64);
+      const { data: allowed, error: limitError } = await createClient(
+        Deno.env.get("SUPABASE_URL") ?? "",
+        serviceKey,
+      ).rpc("rate_limit", {
+        p_key: `login:${ip || "unknown"}`,
+        p_per_10m: LOGIN_ATTEMPTS_10M,
+        p_per_day: LOGIN_ATTEMPTS_DAY,
+      });
+      if (limitError) console.error("Login rate check failed:", limitError);
+      if (allowed === false) {
+        return json(
+          { error: "Too many attempts. Please wait a few minutes and try again." },
+          429,
+        );
+      }
       const ok = safeEqual(String(body.username ?? ""), username) &&
         safeEqual(String(body.password ?? ""), password);
       if (!ok) {
@@ -117,14 +154,22 @@ Deno.serve(async (req) => {
 
     const db = createClient(Deno.env.get("SUPABASE_URL") ?? "", serviceKey);
 
+    // The Chats page's date filter: conversations active in [since, until)
+    // (either end optional, ISO timestamps).
+    const since = validDate(body.since);
+    const until = validDate(body.until);
+
     if (body.action === "list") {
-      const { data, error } = await db
+      let query = db
         .from("chat_conversations")
         // "*" rather than a column list, so this keeps working whether or
         // not last_question has been added to the table yet.
         .select("*, chat_messages(count)")
         .order("last_message_at", { ascending: false })
-        .limit(500);
+        .limit(LIST_LIMIT);
+      if (since) query = query.gte("last_message_at", since);
+      if (until) query = query.lt("last_message_at", until);
+      const { data, error } = await query;
       if (error) throw error;
 
       return json({
@@ -145,6 +190,56 @@ Deno.serve(async (req) => {
           takeover: takeoverActive(c.takeover_at),
         })),
       });
+    }
+
+    // Search every message (what visitors asked and what was replied), for
+    // the Chats page's search box. Returns the latest matching line of each
+    // conversation, trimmed to the part around the match.
+    if (body.action === "search") {
+      const query = String(body.query ?? "").trim().slice(0, 100);
+      if (query.length < 2) return json({ matches: [] });
+      // % and _ are wildcards in LIKE; search for them literally.
+      const pattern = `%${query.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      const [asked, answered] = await Promise.all(
+        ["question", "answer"].map((column) => {
+          let q = db
+            .from("chat_messages")
+            .select("conversation_id, question, answer, created_at")
+            .ilike(column, pattern)
+            .order("created_at", { ascending: false })
+            .limit(300);
+          if (since) q = q.gte("created_at", since);
+          if (until) q = q.lt("created_at", until);
+          return q;
+        }),
+      );
+      if (asked.error) throw asked.error;
+      if (answered.error) throw answered.error;
+      const rows = [...(asked.data ?? []), ...(answered.data ?? [])].sort(
+        (a, b) => b.created_at.localeCompare(a.created_at),
+      );
+      const needle = query.toLowerCase();
+      const snippet = (text: string) => {
+        const at = text.toLowerCase().indexOf(needle);
+        if (at < 0) return text.slice(0, 90);
+        const start = Math.max(0, at - 35);
+        const end = Math.min(text.length, at + needle.length + 55);
+        return `${start > 0 ? "…" : ""}${text.slice(start, end)}${
+          end < text.length ? "…" : ""
+        }`;
+      };
+      const matches: { conversationId: string; text: string }[] = [];
+      const seen = new Set<string>();
+      for (const r of rows) {
+        if (seen.has(r.conversation_id)) continue;
+        seen.add(r.conversation_id);
+        const inQuestion = (r.question ?? "").toLowerCase().includes(needle);
+        matches.push({
+          conversationId: r.conversation_id,
+          text: snippet(inQuestion ? r.question : r.answer ?? ""),
+        });
+      }
+      return json({ matches });
     }
 
     if (body.action === "messages") {

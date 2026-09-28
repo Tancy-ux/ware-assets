@@ -13,13 +13,21 @@ import {
   Maximize2,
   Minimize2,
   ArrowUpRight,
+  ArrowUp,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  MoreHorizontal,
+  Plus,
 } from "lucide-react";
 import { toast } from "react-toastify";
 import { supabase } from "./supabase";
 import { callAskFaq } from "../lib/askFaq";
+import { TEAM_HOURS } from "../lib/teamHours";
 import AiGuidelines from "./AiGuidelines";
 import RestockForm from "./RestockForm";
 import ContactCard from "./ContactCard";
+import NameCard from "./NameCard";
 
 // Improved answers get saved as real rows in this category, so they're
 // easy to find, review, and hand off — and since the ask-faq function
@@ -111,6 +119,18 @@ const SYSTEM_NOTES = {
   "team-left": "You're chatting with the Ware assistant again.",
 };
 
+// When the AI can't answer (Gemini down or out of quota, no connection),
+// the person gets the team on WhatsApp instead of an error, with their
+// question already in the message. Same number as the ask-faq function.
+const WHATSAPP_NUMBER = "919082820610";
+const FALLBACK_ANSWER =
+  "So sorry, I'm having a little trouble answering right now. Our team would love to help though! Tap below to chat with them on WhatsApp.";
+const fallbackWhatsAppUrl = (question) =>
+  `https://api.whatsapp.com/send/?${new URLSearchParams({
+    phone: WHATSAPP_NUMBER,
+    text: `Hi Ware team! I was chatting on your website and asked: "${question}"`,
+  })}`;
+
 // How long local replies (Show more, similar products) "type" for.
 const LOCAL_REPLY_MIN_MS = 1000;
 const LOCAL_REPLY_JITTER_MS = 600;
@@ -138,6 +158,28 @@ const storeContactPrefs = (value) => {
   }
 };
 
+// The "What should we call you?" box: offered under the first few replies
+// until the server says it knows their name (they typed it, used the box
+// or the details form), or they close it. Only the flags live here; the
+// name itself stays on the server, like the phone number.
+const NAME_KEY = "askAiName";
+const NAME_BOX_REPLIES = 3;
+const loadNamePrefs = () => {
+  try {
+    const v = JSON.parse(localStorage.getItem(NAME_KEY)) ?? {};
+    return { known: !!v.known, dismissed: !!v.dismissed };
+  } catch {
+    return { known: false, dismissed: false };
+  }
+};
+const storeNamePrefs = (value) => {
+  try {
+    localStorage.setItem(NAME_KEY, JSON.stringify(value));
+  } catch {
+    // Still applies for this page view.
+  }
+};
+
 // Tells the server the visitor started over ("reset" / clear chat): ends
 // any team takeover and marks the spot in the Chats transcript. Their chat
 // stays one conversation there.
@@ -148,11 +190,118 @@ const notifyReset = () =>
     visitorId: getVisitorId(),
   });
 
+// A reply's product cards, in a row that scrolls sideways. People swipe it
+// on phones; with `arrows` (the store chat) mouse users get ‹ › buttons at
+// whichever ends have more to show (hidden on touch screens by the CSS).
+const ProductRow = ({ arrows, children }) => {
+  const rowRef = useRef(null);
+  const [more, setMore] = useState({ before: false, after: false });
+
+  const measure = () => {
+    const el = rowRef.current;
+    if (!el) return;
+    setMore({
+      before: el.scrollLeft > 4,
+      after: el.scrollLeft + el.clientWidth < el.scrollWidth - 4,
+    });
+  };
+
+  useEffect(() => {
+    if (!arrows || !rowRef.current) return;
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(rowRef.current);
+    return () => observer.disconnect();
+  }, [arrows]);
+
+  const scrollBy = (direction) => {
+    const el = rowRef.current;
+    el?.scrollBy({ left: direction * el.clientWidth * 0.8, behavior: "smooth" });
+  };
+
+  return (
+    <div className="ware-row">
+      <div
+        className="faq-chat-products"
+        ref={rowRef}
+        onScroll={arrows ? measure : undefined}
+      >
+        {children}
+      </div>
+      {arrows && more.before && (
+        <button
+          type="button"
+          className="ware-row-arrow ware-row-arrow-prev"
+          onClick={() => scrollBy(-1)}
+          aria-label="Previous products"
+        >
+          <ChevronLeft size={18} />
+        </button>
+      )}
+      {arrows && more.after && (
+        <button
+          type="button"
+          className="ware-row-arrow ware-row-arrow-next"
+          onClick={() => scrollBy(1)}
+          aria-label="More products"
+        >
+          <ChevronRight size={18} />
+        </button>
+      )}
+    </div>
+  );
+};
+
+// Store card names: "(Set of 4)" / "(4 pieces)" moves to a second line and
+// a trailing "- Gift Set" goes.
+const splitTitle = (title) => {
+  let name = title.replace(/\s*-\s*Gift Set\s*$/i, "");
+  const m = name.match(/\((set of \d+|\d+\s*pieces?)\)/i);
+  if (!m) return { name, detail: "" };
+  name = name.replace(m[0], " ").replace(/\s{2,}/g, " ").trim();
+  return { name, detail: m[1].charAt(0).toUpperCase() + m[1].slice(1) };
+};
+
+// On the Shopify store itself (the customer widget), Add to cart goes
+// through the store's cart API, so the shopper stays in the chat. The
+// theme's cart count catches up on their next page.
+const storeRoot = () =>
+  typeof window !== "undefined" && window.Shopify
+    ? (window.Shopify.routes?.root ?? "/")
+    : null;
+const addToStoreCart = async (root, cartUrl) => {
+  const id = Number(new URL(cartUrl).searchParams.get("id"));
+  const res = await fetch(`${root}cart/add.js`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ items: [{ id, quantity: 1 }] }),
+  });
+  if (!res.ok) throw new Error(`Cart add failed: ${res.status}`);
+};
+
 // A product the AI recommended. Everything shown here comes from the
 // Shopify catalog via the function, not from the model's text. Single-
 // variant products add straight to the store's cart; ones with options
 // (size, colour) go to the product page to pick.
-const ProductCard = ({ product, restockState, onCheckRestock }) => {
+const ProductCard = ({ product, restockState, onCheckRestock, customer }) => {
+  const [cartState, setCartState] = useState(null); // adding | added
+  const root = customer ? storeRoot() : null;
+  // In the store the product pages open in the same tab (the chat comes
+  // along); elsewhere they open the store in a new one.
+  const linkProps = root ? {} : { target: "_blank", rel: "noopener noreferrer" };
+
+  const addToCart = async () => {
+    setCartState("adding");
+    try {
+      await addToStoreCart(root, product.cartUrl);
+      setCartState("added");
+    } catch (err) {
+      console.error(err);
+      // The plain cart link still works: it adds and opens the cart.
+      window.location.href = product.cartUrl;
+    }
+  };
+
   // Ware Atelier pieces are made to order: no cart, just a WhatsApp
   // enquiry (the function already hides their price).
   const action = product.enquireUrl
@@ -160,12 +309,91 @@ const ProductCard = ({ product, restockState, onCheckRestock }) => {
     : product.cartUrl
       ? { href: product.cartUrl, label: "Add to cart" }
       : { href: product.url, label: "Shop now" };
+  const storeCart = root && !product.enquireUrl && product.cartUrl;
+
+  // The store's card: a short name ("Lilo 90ml Espresso Cup & Saucer Set
+  // (Set of 4) - Gift Set" becomes "Lilo 90ml Espresso Cup & Saucer Set"
+  // over "Set of 4"), ₹ prices and a
+  // round + to add to cart.
+  if (customer) {
+    const { name, detail } = splitTitle(product.title);
+    let cta = null;
+    if (product.enquireUrl) {
+      cta = (
+        <a
+          href={product.enquireUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="ware-card-enquire"
+        >
+          Enquire
+        </a>
+      );
+    } else if (product.available && storeCart && cartState === "added") {
+      cta = (
+        <a
+          href={`${root}cart`}
+          className="ware-card-add ware-card-added"
+          aria-label="Added. View cart"
+          title="Added. View cart"
+        >
+          <Check size={15} />
+        </a>
+      );
+    } else if (product.available && storeCart) {
+      cta = (
+        <button
+          type="button"
+          className="ware-card-add"
+          disabled={cartState === "adding"}
+          onClick={addToCart}
+          aria-label={`Add ${name} to cart`}
+          title="Add to cart"
+        >
+          <Plus size={15} />
+        </button>
+      );
+    } else if (product.available) {
+      cta = (
+        <a
+          href={product.cartUrl ?? product.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="ware-card-add"
+          aria-label={`Add ${name} to cart`}
+          title="Add to cart"
+        >
+          <Plus size={15} />
+        </a>
+      );
+    }
+    return (
+      <div className="ware-card">
+        <a href={product.url} {...linkProps} className="ware-card-link">
+          <div className="ware-card-img">
+            {product.image && <img src={product.image} alt="" loading="lazy" />}
+            {!product.available && (
+              <span className="ware-card-tag ware-card-tag-muted">Sold out</span>
+            )}
+          </div>
+          <div className="ware-card-name">{name}</div>
+          {detail && <div className="ware-card-detail">{detail}</div>}
+        </a>
+        <div className="ware-card-foot">
+          <span className="ware-card-price">
+            {product.price.replace(/Rs\.?\s?/g, "₹")}
+          </span>
+          {cta}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="faq-chat-product">
       <a
         href={product.url}
-        target="_blank"
-        rel="noopener noreferrer"
+        {...linkProps}
         className="faq-chat-product-link"
       >
         <div className="faq-chat-product-img">
@@ -177,7 +405,25 @@ const ProductCard = ({ product, restockState, onCheckRestock }) => {
         <div className="faq-chat-product-title">{product.title}</div>
         <div className="faq-chat-product-price">{product.price}</div>
       </a>
-      {product.available ? (
+      {product.available && storeCart ? (
+        cartState === "added" ? (
+          <a
+            href={`${root}cart`}
+            className="faq-chat-product-btn ware-chat-added"
+          >
+            Added ✓ View cart
+          </a>
+        ) : (
+          <button
+            type="button"
+            className="faq-chat-product-btn"
+            disabled={cartState === "adding"}
+            onClick={addToCart}
+          >
+            {cartState === "adding" ? "Adding..." : "Add to cart"}
+          </button>
+        )
+      ) : product.available ? (
         <a
           href={action.href}
           target="_blank"
@@ -189,8 +435,7 @@ const ProductCard = ({ product, restockState, onCheckRestock }) => {
       ) : !RESTOCK_CHECK_ENABLED ? (
         <a
           href={product.url}
-          target="_blank"
-          rel="noopener noreferrer"
+          {...linkProps}
           className="faq-chat-product-btn faq-chat-product-btn-muted"
         >
           View
@@ -230,17 +475,31 @@ const loadStoredMessages = () => {
   }
 };
 
+// What a shopper can tap instead of typing, on the store's empty chat.
+const SUGGESTIONS = [
+  "Gift ideas above 2000",
+  "Bulk or corporate gifting",
+  "How long does delivery take?",
+];
+
 // A small chat popup for testing the FAQ bot turn by turn. The earlier
 // answered turns go along with each question so the model can follow the
-// conversation; clearing the chat starts it fresh.
-const AskAi = ({ open, onClose, onSaved, canEdit }) => {
+// conversation; clearing the chat starts it fresh. With `customer` it's the
+// shopper-facing chat on the Shopify store (widget/): no team tools
+// ("Improve answer", copy buttons), a welcome instead of tester notes, and
+// the page around it is left alone.
+const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
   const [messages, setMessages] = useState(loadStoredMessages);
   const [showGuidelines, setShowGuidelines] = useState(false);
   const [contactPrefs, setContactPrefs] = useState(loadContactPrefs);
   const [contactThanks, setContactThanks] = useState(null);
+  const [namePrefs, setNamePrefs] = useState(loadNamePrefs);
+  // Their name as the server knows it, to pre-fill the details form.
+  const [knownName, setKnownName] = useState("");
   const [input, setInput] = useState("");
   const [copiedKey, setCopiedKey] = useState(null);
   const [expanded, setExpanded] = useState(loadExpanded);
+  const [menuOpen, setMenuOpen] = useState(false);
   const listRef = useRef(null);
 
   // Keep nextId ahead of anything restored from storage so new messages
@@ -263,18 +522,21 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
   // Reserves room on the page for the drawer (see .faq-chat-open in
   // Faq.css) so it pushes the Q&A content and navbar aside instead of
   // covering them.
+  // (Not on the store: the chat floats over the theme's page there.)
   useEffect(() => {
+    if (customer) return;
     document.body.classList.toggle("faq-chat-open", open);
     return () => document.body.classList.remove("faq-chat-open");
-  }, [open]);
+  }, [open, customer]);
 
   // Expanded, the drawer overlays the page instead of pushing it aside
   // (squeezing the page into the leftover strip would be useless).
   const isExpanded = open && expanded;
   useEffect(() => {
+    if (customer) return;
     document.body.classList.toggle("faq-chat-expanded", isExpanded);
     return () => document.body.classList.remove("faq-chat-expanded");
-  }, [isExpanded]);
+  }, [isExpanded, customer]);
 
   const toggleExpanded = (value) => {
     setExpanded(value);
@@ -309,9 +571,13 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
     );
   };
 
-  const send = async (e) => {
+  const send = (e) => {
     e.preventDefault();
-    const question = input.trim();
+    ask(input);
+  };
+
+  const ask = async (text) => {
+    const question = text.trim();
     if (!question) return;
     setInput("");
     setContactThanks(null);
@@ -343,7 +609,9 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
     // a takeover, so the AI knows what was said once it's handed back.
     const recent = messages
       .slice(lastReset + 1)
-      .filter((m) => (m.answer || m.awaitingTeam) && m.time > cutoff)
+      .filter(
+        (m) => (m.answer || m.awaitingTeam) && !m.failed && m.time > cutoff,
+      )
       .slice(-HISTORY_MAX_TURNS);
     const history = recent.map((m) => ({
       question: m.question ?? "",
@@ -381,12 +649,23 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
     if (data && typeof data.contactSaved === "boolean") {
       syncContactSaved(data.contactSaved);
     }
+    if (data && typeof data.nameKnown === "boolean") {
+      if (data.nameKnown !== namePrefs.known) {
+        updateNamePrefs({ known: data.nameKnown });
+      }
+      setKnownName(data.visitorName ?? "");
+    }
 
     if (error || data?.error) {
       console.error(error ?? data?.error);
+      // Not a real answer: kept out of the AI's history (`failed`) and
+      // without "Improve answer" (`isLocal`).
       patchMessage(id, {
         loading: false,
-        error: "Couldn't get an answer just now. Try again in a moment.",
+        answer: FALLBACK_ANSWER,
+        whatsappUrl: fallbackWhatsAppUrl(question),
+        failed: true,
+        isLocal: true,
       });
       return;
     }
@@ -405,7 +684,13 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
       images: data.images ?? [],
       whatsappUrl: data.whatsappUrl ?? null,
       askForDetails: !!data.askForDetails,
+      detailsOpen: !!data.detailsOpen,
+      // A nudge to WhatsApp (too many / too long messages), not an answer.
+      ...(data.fallback ? { failed: true, isLocal: true } : {}),
     });
+    // The reply asks if the team can call them: offer the form even if
+    // they said "Not now" to the earlier one-line prompt.
+    if (data.detailsOpen) updateContactPrefs({ dismissed: false });
   };
 
   // The alternatives were already picked by the function alongside the
@@ -468,6 +753,61 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
     !messages.some((m) => m.loading) &&
     (messages.some((m) => m.askForDetails) ||
       customerMessages >= CONTACT_AFTER_MESSAGES);
+  // "What should we call you?": under the latest reply while it's one of
+  // their first few (since the last reset), until the name is known or
+  // they close it. Never at the same time as the details form.
+  const updateNamePrefs = (patch) =>
+    setNamePrefs((prev) => {
+      const next = { ...prev, ...patch };
+      storeNamePrefs(next);
+      return next;
+    });
+  const aiReplies = messages
+    .slice(lastResetIndex + 1)
+    .filter((m) => m.answer && !m.isLocal && !m.isAgent && !m.failed).length;
+  const lastIsAiReply = (() => {
+    const last = messages[messages.length - 1];
+    return !!last?.answer && !last.isLocal && !last.isAgent && !last.failed;
+  })();
+  const showNameCard =
+    !namePrefs.known &&
+    !namePrefs.dismissed &&
+    !showContactCard &&
+    !messages.some((m) => m.loading) &&
+    lastIsAiReply &&
+    aiReplies >= 1 &&
+    aiReplies <= NAME_BOX_REPLIES;
+
+  const saveName = async (name) => {
+    const { data, error } = await callAskFaq({
+      mode: "name",
+      name,
+      conversationId: getVisitorId(),
+      visitorId: getVisitorId(),
+    });
+    if (error || data?.error) {
+      console.error(error ?? data?.error);
+      return false;
+    }
+    updateNamePrefs({ known: true });
+    setKnownName(name);
+    // A short, local "nice to meet you" (it also tells the assistant their
+    // name through the chat history).
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: nextId++,
+        answer: `Lovely to meet you, ${name}!`,
+        isLocal: true,
+        time: Date.now(),
+      },
+    ]);
+    return true;
+  };
+
+  // The latest reply asked "can our team give you a quick call?": show
+  // the name / number form open under it rather than the one-liner.
+  const callAsked = !!messages.findLast((m) => m.answer)?.detailsOpen;
 
   const updateContactPrefs = (patch) =>
     setContactPrefs((prev) => {
@@ -575,7 +915,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
     }
     updateContactPrefs({ saved: true });
     setContactThanks(
-      `Thanks${details.name ? `, ${details.name}` : ""}! Our team can reach you on ${details.phone}.`,
+      `Thanks${details.name ? `, ${details.name}` : ""}! Our team will reach you on ${details.phone} (${TEAM_HOURS}).`,
     );
     return true;
   };
@@ -601,6 +941,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
     setMessages([]);
     setContactThanks(null);
     updateContactPrefs({ dismissed: false });
+    updateNamePrefs({ dismissed: false });
     try {
       localStorage.removeItem(STORAGE_KEY);
     } catch {
@@ -654,6 +995,70 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
     <div
       className={`faq-chat-popup ${open ? "faq-chat-popup-open" : ""} ${isExpanded ? "faq-chat-popup-expanded" : ""}`}
     >
+      {customer ? (
+        // The store's header: minimise on the left, name centred, and a
+        // small menu for starting over / full screen.
+        <div className="faq-chat-header ware-chat-header">
+          <button
+            type="button"
+            onClick={onClose}
+            className="faq-icon-btn"
+            aria-label="Minimise chat"
+          >
+            <ChevronDown size={20} />
+          </button>
+          <div className="ware-chat-heading">
+            <span className="ware-chat-name">Ware concierge</span>
+          </div>
+          <div className="ware-chat-menu-wrap">
+            <button
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              className="faq-icon-btn"
+              aria-label="More options"
+              aria-expanded={menuOpen}
+            >
+              <MoreHorizontal size={20} />
+            </button>
+            {menuOpen && (
+              // Tapping anywhere else closes the menu.
+              <div
+                className="ware-chat-menu-backdrop"
+                onClick={() => setMenuOpen(false)}
+                aria-hidden="true"
+              />
+            )}
+            {menuOpen && (
+              <div className="ware-chat-menu" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={messages.length === 0}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    clearChat();
+                  }}
+                >
+                  <Trash2 size={14} />
+                  Start a new chat
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="ware-chat-menu-expand"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    toggleExpanded(!expanded);
+                  }}
+                >
+                  {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                  {expanded ? "Smaller window" : "Full screen"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
       <div className="faq-chat-header">
         {showGuidelines ? (
           <span className="faq-chat-title">
@@ -671,7 +1076,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
         ) : (
           <span className="faq-chat-title">
             <Sparkles size={15} />
-            Ask AI
+            {customer ? "Chat with Ware" : "Ask AI"}
           </span>
         )}
         <div className="faq-chat-header-actions">
@@ -717,6 +1122,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
           </button>
         </div>
       </div>
+      )}
 
       {showGuidelines ? (
         <div className="faq-chat-messages">
@@ -725,7 +1131,28 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
       ) : (
       <>
       <div className="faq-chat-messages" ref={listRef}>
-        {messages.length === 0 && (
+        {messages.length === 0 && customer && (
+          <div className="ware-chat-welcome">
+            <div className="faq-chat-bubble faq-chat-ai">
+              Hi there! Welcome to Ware. I&apos;m here to help you find the
+              perfect piece, gift ideas, bulk orders or anything about
+              delivery. May I know your name?
+            </div>
+            <div className="ware-chat-suggestions">
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className="ware-chat-suggestion"
+                  onClick={() => ask(s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {messages.length === 0 && !customer && (
           <p className="faq-chat-empty">
             Ask it anything a customer might. If a reply isn't quite right,
             hit "Improve answer" — saved answers collect under "
@@ -746,19 +1173,21 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
               {m.awaitingTeam && (
                 <span className="faq-chat-sent-team">Sent to the Ware team ·</span>
               )}
-              <button
-                type="button"
-                className="faq-chat-copy-btn"
-                onClick={() => copyText(m.question, `${m.id}-q`)}
-                aria-label="Copy question"
-                title="Copy"
-              >
-                {copiedKey === `${m.id}-q` ? (
-                  <Check size={11} />
-                ) : (
-                  <Copy size={11} />
-                )}
-              </button>
+              {!customer && (
+                <button
+                  type="button"
+                  className="faq-chat-copy-btn"
+                  onClick={() => copyText(m.question, `${m.id}-q`)}
+                  aria-label="Copy question"
+                  title="Copy"
+                >
+                  {copiedKey === `${m.id}-q` ? (
+                    <Check size={11} />
+                  ) : (
+                    <Copy size={11} />
+                  )}
+                </button>
+              )}
               <span className="faq-chat-time">{formatTime(m.time)}</span>
             </div>
             </>
@@ -788,11 +1217,12 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
                 {m.isAgent && <span className="faq-chat-team-label">Ware team</span>}
                 {linkify(m.answer)}
                 {m.products?.length > 0 && (
-                  <div className="faq-chat-products">
+                  <ProductRow arrows={customer}>
                     {m.products.map((p) => (
                       <ProductCard
                         key={p.url}
                         product={p}
+                        customer={customer}
                         restockState={
                           m.restockDone?.[p.url]
                             ? "done"
@@ -805,7 +1235,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
                         }
                       />
                     ))}
-                  </div>
+                  </ProductRow>
                 )}
                 {m.moreProducts?.length > 0 && (
                   <button
@@ -831,7 +1261,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
                     </span>
                     <span className="faq-chat-whatsapp-text">
                       <strong>Chat with the Ware team</strong>
-                      <small>Continue on WhatsApp</small>
+                      <small>Continue on WhatsApp · {TEAM_HOURS}</small>
                     </span>
                     <ArrowUpRight size={16} className="faq-chat-whatsapp-arrow" />
                   </a>
@@ -904,24 +1334,26 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
                   ))}
                 <div className="faq-chat-bubble-actions">
                   <div className="faq-chat-meta">
-                    <button
-                      type="button"
-                      className="faq-chat-copy-btn"
-                      onClick={() => copyText(m.answer, `${m.id}-a`)}
-                      aria-label="Copy answer"
-                      title="Copy"
-                    >
-                      {copiedKey === `${m.id}-a` ? (
-                        <Check size={11} />
-                      ) : (
-                        <Copy size={11} />
-                      )}
-                    </button>
+                    {!customer && (
+                      <button
+                        type="button"
+                        className="faq-chat-copy-btn"
+                        onClick={() => copyText(m.answer, `${m.id}-a`)}
+                        aria-label="Copy answer"
+                        title="Copy"
+                      >
+                        {copiedKey === `${m.id}-a` ? (
+                          <Check size={11} />
+                        ) : (
+                          <Copy size={11} />
+                        )}
+                      </button>
+                    )}
                     <span className="faq-chat-time">
                       {formatTime(m.time)}
                     </span>
                   </div>
-                  {m.isReset || m.isLocal ? null : m.saved ? (
+                  {customer || m.isReset || m.isLocal ? null : m.saved ? (
                     <span className="faq-chat-saved">Saved ✓</span>
                   ) : (
                     <button
@@ -970,7 +1402,19 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
         ))}
 
         {showContactCard && (
-          <ContactCard onSave={saveContact} onDismiss={dismissContact} />
+          <ContactCard
+            key={callAsked ? "call" : "prompt"}
+            startOpen={callAsked}
+            initialName={knownName}
+            onSave={saveContact}
+            onDismiss={dismissContact}
+          />
+        )}
+        {showNameCard && (
+          <NameCard
+            onSave={saveName}
+            onDismiss={() => updateNamePrefs({ dismissed: true })}
+          />
         )}
         {contactThanks && (
           <div className="faq-chat-bubble faq-chat-ai">{contactThanks}</div>
@@ -982,10 +1426,14 @@ const AskAi = ({ open, onClose, onSaved, canEdit }) => {
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Type a question like a customer would…"
+          placeholder={
+            customer
+              ? "Ask about a piece"
+              : "Type a question like a customer would…"
+          }
         />
         <button type="submit" className="faq-chat-send-btn" aria-label="Send">
-          <Send size={15} />
+          {customer ? <ArrowUp size={18} /> : <Send size={15} />}
         </button>
       </form>
       </>

@@ -28,3 +28,6 @@ supabase/.temp/
 *.njsproj
 *.sln
 *.sw?
+
+# Created by the local function runner (npm run dev:ai / dev:chats)
+deno.lock

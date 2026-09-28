@@ -636,6 +636,61 @@
   color: var(--faq-text);
 }
 
+/* "What should we call you?" box under the first few replies */
+.faq-chat-name-card {
+  align-self: flex-start;
+  width: 88%;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--faq-border);
+  border-radius: 12px;
+  background: var(--faq-panel);
+  font-size: 13px;
+  color: var(--faq-text);
+}
+.faq-chat-name-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.faq-chat-name-card-close {
+  display: flex;
+  padding: 2px;
+  border: none;
+  background: none;
+  color: var(--faq-text-muted);
+  cursor: pointer;
+}
+.faq-chat-name-card-close:hover {
+  color: var(--faq-text);
+}
+.faq-chat-name-card-row {
+  display: flex;
+  gap: 8px;
+}
+.faq-chat-name-card-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--faq-border-strong);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--faq-text);
+  background: #fff;
+}
+.faq-chat-name-card-row input:focus {
+  outline: none;
+  border-color: var(--faq-accent);
+}
+.faq-chat-name-card-row .faq-btn {
+  flex-shrink: 0;
+}
+
 /* "Leave your details" card */
 .faq-chat-bubble.faq-chat-contact {
   width: 88%;

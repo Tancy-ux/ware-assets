@@ -9,6 +9,7 @@
     "prebuild": "npm run build:faqs",
     "dev": "vite",
     "build": "vite build",
+    "build:widget": "vite build --config widget/vite.config.js",
     "postbuild": "node scripts/copy-404.mjs",
     "lint": "eslint .",
     "preview": "vite preview",

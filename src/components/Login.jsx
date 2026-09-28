@@ -1,23 +1,32 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
+import { supabase } from "./supabase";
 
+// Signs in with a team account from Supabase (Authentication > Users). The
+// database only lets signed-in accounts change FAQs, guidelines and assets
+// (scripts/supabase-security.sql); the "auth" flag just drives the UI.
 export default function Login() {
   const navigate = useNavigate();
-  const username = "ware-members";
-  const PASSWORD = "work-play-hard";
 
   const [input, setInput] = useState("");
   const [pass, setPass] = useState("");
+  const [signingIn, setSigningIn] = useState(false);
 
-  function handleLogin(e) {
+  async function handleLogin(e) {
     e.preventDefault();
-    if (input === username && pass === PASSWORD) {
-      localStorage.setItem("auth", "true");
-      navigate("/");
-    } else {
-      toast.error("Wrong username or password. Try again!");
+    setSigningIn(true);
+    const { error } = await supabase.auth.signInWithPassword({
+      email: input.trim(),
+      password: pass,
+    });
+    setSigningIn(false);
+    if (error) {
+      toast.error("Wrong email or password. Try again!");
+      return;
     }
+    localStorage.setItem("auth", "true");
+    navigate("/");
   }
   return (
     <div className="pt-16 sm:pt-32 md:pt-60 px-4 flex items-center justify-center bg-[#eef2e8] relative overflow-hidden">
@@ -31,11 +40,12 @@ export default function Login() {
         </h1>
         <form className="space-y-6" onSubmit={handleLogin}>
           <div>
-            <label className="block text-gray-700 mb-1">Username</label>
+            <label className="block text-gray-700 mb-1">Email</label>
             <input
-              type="text"
-              name="username"
+              type="email"
+              name="email"
               autoComplete="username"
+              required
               className="w-full p-3 rounded-xl bg-[#eef2e8]/40 border border-white/80 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-black/10"
               placeholder="you@example.com"
               onChange={(e) => setInput(e.target.value)}
@@ -55,9 +65,10 @@ export default function Login() {
           </div>
           <button
             type="submit"
+            disabled={signingIn}
             className="w-full p-3 rounded-lg bg-green text-white font-semibold shadow-md hover:bg-green-950 transition cursor-pointer"
           >
-            Login
+            {signingIn ? "Signing in..." : "Login"}
           </button>
         </form>
       </div>

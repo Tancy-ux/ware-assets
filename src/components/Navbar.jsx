@@ -1,12 +1,14 @@
 import { LogOut } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
+import { supabase } from "./supabase";
 
 export default function Navbar() {
   const isAuth = localStorage.getItem("auth") === "true";
   const navigate = useNavigate();
 
-  function handleLogout() {
+  async function handleLogout() {
     localStorage.removeItem("auth");
+    await supabase.auth.signOut();
     navigate("/login");
   }
 
