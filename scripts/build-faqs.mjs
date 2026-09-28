@@ -3,7 +3,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
-import { supabase } from "../src/components/supabase.js";
+import { createClient } from "@supabase/supabase-js";
+import { SUPABASE_URL } from "../src/lib/supabaseConfig.js";
 import { extractFaqsFromParagraphs, mergeAcrossFiles } from "../src/lib/parseFaqs.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -54,11 +55,40 @@ async function extractParagraphs(filePath) {
   return null;
 }
 
+// Writing FAQs needs more than the public anon key since
+// scripts/supabase-security.sql, so the sync uses the service role key from
+// the (gitignored) supabase/functions/.env.local, or the environment. This
+// script only ever runs on a team member's machine, never in a browser.
+const ENV_FILE = path.join(__dirname, "..", "supabase", "functions", ".env.local");
+async function serviceRoleKey() {
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return process.env.SUPABASE_SERVICE_ROLE_KEY;
+  }
+  try {
+    const text = await readFile(ENV_FILE, "utf-8");
+    const line = text.split(/\r?\n/).find((l) =>
+      l.startsWith("SUPABASE_SERVICE_ROLE_KEY=")
+    );
+    return line?.split("=").slice(1).join("=").trim().replace(/^"|"$/g, "");
+  } catch {
+    return null;
+  }
+}
+
 // Pushes newly-seen doc questions into Supabase. Uses upsert with
 // ignoreDuplicates so a question that already exists there (possibly
 // edited on the site since) is left untouched — this only adds rows for
 // doc_keys Supabase hasn't seen before.
 async function syncToSupabase(faqs) {
+  const key = await serviceRoleKey();
+  if (!key) {
+    throw new Error(
+      "no SUPABASE_SERVICE_ROLE_KEY (in supabase/functions/.env.local or the environment)",
+    );
+  }
+  const supabase = createClient(SUPABASE_URL, key, {
+    auth: { persistSession: false },
+  });
   const rows = faqs.map((f) => ({
     question: f.question,
     answer: f.answer,
