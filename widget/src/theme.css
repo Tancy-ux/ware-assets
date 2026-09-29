@@ -1,0 +1,37 @@
+/* ============================================================
+   EASY EDITS: colours, fonts, sizes and position of the chat.
+   Change a value, save the snippet, refresh the store. Colours
+   are hex codes (#rrggbb).
+   ============================================================ */
+.ware-chat-root.faq-page {
+  /* --- Colours --- */
+  --faq-accent: #bf5e35;        /* Main colour: buttons, send, links (burnt orange) */
+  --ware-accent-hover: #a34d29; /* Main colour when hovered (a touch darker) */
+  --ware-cream: #fbf7f2;        /* Chat window background */
+  --ware-peach: #f9e3d2;        /* Customer's message bubbles */
+  --ware-brown: #9a4a28;        /* Text in customer bubbles and suggestion chips */
+  --ware-ink: #2a211c;          /* Main text colour */
+  --ware-line: #eee3d8;         /* Borders and dividing lines */
+  --faq-bg: #fdf5ee;            /* Hover tint on light buttons */
+  --faq-accent-soft: #fcece0;   /* Soft highlight (chips on hover) */
+  --faq-border: #f0dfd0;        /* Borders on cards and fields */
+  --faq-border-strong: #e6cbb4; /* Stronger borders */
+  --ware-pill-text: #565656;    /* "Ask me anything" text */
+
+  /* --- Fonts --- */
+  /* The serif is loaded at the top of this snippet (Google Fonts link);
+     change both together if you swap it. */
+  --ware-serif: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  --ware-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+
+  /* --- Text sizes --- */
+  --ware-reply-size: 15px;      /* The assistant's replies (serif) */
+  --ware-message-size: 13px;    /* The customer's messages */
+  --ware-title-size: 20px;      /* "Ware concierge" in the header */
+  --ware-pill-size: 14px;       /* "Ask me anything" */
+
+  /* --- Size and position --- */
+  --askai-w: 400px;             /* Chat window width on computers */
+  --ware-chat-bottom: 120px;    /* Distance of the button from the bottom (clears the WhatsApp button) */
+}

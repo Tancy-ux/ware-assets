@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { TEAM_HOURS } from "../lib/teamHours";
+import { TEXTS, fillText } from "../lib/chatTexts";
 
 // Loose on purpose: people type +91, spaces, dashes.
 const looksLikePhone = (s) => s.replace(/\D/g, "").length >= 7;
@@ -8,8 +8,16 @@ const looksLikePhone = (s) => s.replace(/\D/g, "").length >= 7;
 // button, so it doesn't take over the chat; the name / phone fields only
 // open when they choose to. Saving attaches them to this visitor's chat
 // for the team in the Chats page. With startOpen (the reply just asked if
-// the team can call them) the form shows straight away.
-const ContactCard = ({ onSave, onDismiss, startOpen = false, initialName = "" }) => {
+// the team can call them) the form shows straight away. `title` and
+// `children` (shown under the buttons) let other flows reuse the form.
+const ContactCard = ({
+  onSave,
+  onDismiss,
+  startOpen = false,
+  initialName = "",
+  title,
+  children,
+}) => {
   const [expanded, setExpanded] = useState(startOpen);
   // Already told us their name? Only the number is left to type.
   const [name, setName] = useState(initialName);
@@ -20,21 +28,21 @@ const ContactCard = ({ onSave, onDismiss, startOpen = false, initialName = "" })
   if (!expanded) {
     return (
       <div className="faq-chat-bubble faq-chat-ai faq-chat-contact-prompt">
-        Want our team to follow up with you?
+        {TEXTS.contactPrompt}
         <div className="faq-chat-contact-prompt-actions">
           <button
             type="button"
             className="faq-chat-similar-btn"
             onClick={() => setExpanded(true)}
           >
-            Enter your details
+            {TEXTS.contactPromptButton}
           </button>
           <button
             type="button"
             className="faq-chat-contact-skip"
             onClick={onDismiss}
           >
-            Not now
+            {TEXTS.notNow}
           </button>
         </div>
       </div>
@@ -44,14 +52,14 @@ const ContactCard = ({ onSave, onDismiss, startOpen = false, initialName = "" })
   const submit = async (e) => {
     e.preventDefault();
     if (!looksLikePhone(phone)) {
-      setError("Please enter a valid phone number.");
+      setError(TEXTS.invalidPhone);
       return;
     }
     setError("");
     setSaving(true);
     const ok = await onSave({ name: name.trim(), phone: phone.trim() });
     setSaving(false);
-    if (!ok) setError("Couldn't save that just now. Please try again.");
+    if (!ok) setError(TEXTS.saveFailed);
   };
 
   return (
@@ -60,15 +68,14 @@ const ContactCard = ({ onSave, onDismiss, startOpen = false, initialName = "" })
       onSubmit={submit}
     >
       <div className="faq-chat-contact-title">
-        {startOpen
-          ? "Share your name and number for a quick call from our team."
-          : "Leave your name and number and our team will get back to you."}
+        {title ??
+          (startOpen ? TEXTS.contactFormTitleCall : TEXTS.contactFormTitle)}
       </div>
       <input
         type="text"
         value={name}
         onChange={(e) => setName(e.target.value)}
-        placeholder="Your name"
+        placeholder={TEXTS.namePlaceholder}
         maxLength={100}
         autoComplete="name"
         // Only when they asked for the form, so it doesn't pull the phone
@@ -79,28 +86,28 @@ const ContactCard = ({ onSave, onDismiss, startOpen = false, initialName = "" })
         type="tel"
         value={phone}
         onChange={(e) => setPhone(e.target.value)}
-        placeholder="Phone number"
+        placeholder={TEXTS.phonePlaceholder}
         maxLength={30}
         autoComplete="tel"
         required
       />
       {error && <div className="faq-chat-contact-error">{error}</div>}
       <div className="faq-chat-contact-note">
-        We'll only use this to get back to you about your enquiry. Our team is
-        available {TEAM_HOURS}.
+        {fillText(TEXTS.contactFormNote)}
       </div>
       <div className="faq-edit-actions">
         <button type="button" className="faq-btn faq-btn-ghost" onClick={onDismiss}>
-          Not now
+          {TEXTS.notNow}
         </button>
         <button
           type="submit"
           className="faq-btn faq-btn-primary"
           disabled={saving || !phone.trim()}
         >
-          {saving ? "Saving..." : "Save"}
+          {saving ? TEXTS.saving : TEXTS.save}
         </button>
       </div>
+      {children}
     </form>
   );
 };

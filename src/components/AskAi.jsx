@@ -14,6 +14,7 @@ import {
   Minimize2,
   ArrowUpRight,
   ArrowUp,
+  BookOpen,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -23,7 +24,7 @@ import {
 import { toast } from "react-toastify";
 import { supabase } from "./supabase";
 import { callAskFaq } from "../lib/askFaq";
-import { TEAM_HOURS } from "../lib/teamHours";
+import { TEXTS, fillText } from "../lib/chatTexts";
 import AiGuidelines from "./AiGuidelines";
 import RestockForm from "./RestockForm";
 import ContactCard from "./ContactCard";
@@ -114,22 +115,31 @@ const POLL_TEAM_MS = 4000;
 const POLL_IDLE_MS = 20000;
 const POLL_IDLE_CUTOFF_MS = 10 * 60 * 1000;
 const TAKEOVER_WINDOW_MS = 24 * 60 * 60 * 1000;
-const SYSTEM_NOTES = {
-  "team-joined": "A member of the Ware team has joined the chat.",
-  "team-left": "You're chatting with the Ware assistant again.",
-};
+const systemNote = (kind) =>
+  kind === "team-joined" ? TEXTS.teamJoined : TEXTS.teamLeft;
 
 // When the AI can't answer (Gemini down or out of quota, no connection),
 // the person gets the team on WhatsApp instead of an error, with their
 // question already in the message. Same number as the ask-faq function.
 const WHATSAPP_NUMBER = "919082820610";
-const FALLBACK_ANSWER =
-  "So sorry, I'm having a little trouble answering right now. Our team would love to help though! Tap below to chat with them on WhatsApp.";
-const fallbackWhatsAppUrl = (question) =>
+const whatsAppUrl = (text) =>
   `https://api.whatsapp.com/send/?${new URLSearchParams({
     phone: WHATSAPP_NUMBER,
-    text: `Hi Ware team! I was chatting on your website and asked: "${question}"`,
+    text,
   })}`;
+const fallbackWhatsAppUrl = (question) =>
+  whatsAppUrl(
+    `Hi Ware team! I was chatting on your website and asked: "${question}"`,
+  );
+
+// In a sentence: "the Lilo Cup & Saucer Set Tea Green", not "... (Set of
+// 2) - Gift Set".
+// ("The Cosmic Temple" too, so it doesn't read "the The Cosmic Temple".)
+const shortName = (title) =>
+  title
+    .replace(/\s*\([^)]*\)|\s*-\s*gift set\b/gi, "")
+    .replace(/^the\s+/i, "")
+    .trim() || title;
 
 // How long local replies (Show more, similar products) "type" for.
 const LOCAL_REPLY_MIN_MS = 1000;
@@ -305,7 +315,7 @@ const ProductCard = ({ product, restockState, onCheckRestock, customer }) => {
   // Ware Atelier pieces are made to order: no cart, just a WhatsApp
   // enquiry (the function already hides their price).
   const action = product.enquireUrl
-    ? { href: product.enquireUrl, label: "Enquire" }
+    ? { href: product.enquireUrl, label: TEXTS.enquire }
     : product.cartUrl
       ? { href: product.cartUrl, label: "Add to cart" }
       : { href: product.url, label: "Shop now" };
@@ -318,7 +328,10 @@ const ProductCard = ({ product, restockState, onCheckRestock, customer }) => {
   if (customer) {
     const { name, detail } = splitTitle(product.title);
     let cta = null;
-    if (product.enquireUrl) {
+    // noAction: the reply around it has its own buttons (the bespoke offer).
+    if (product.noAction) {
+      cta = null;
+    } else if (product.enquireUrl) {
       cta = (
         <a
           href={product.enquireUrl}
@@ -326,7 +339,7 @@ const ProductCard = ({ product, restockState, onCheckRestock, customer }) => {
           rel="noopener noreferrer"
           className="ware-card-enquire"
         >
-          Enquire
+          {TEXTS.enquire}
         </a>
       );
     } else if (product.available && storeCart && cartState === "added") {
@@ -373,7 +386,7 @@ const ProductCard = ({ product, restockState, onCheckRestock, customer }) => {
           <div className="ware-card-img">
             {product.image && <img src={product.image} alt="" loading="lazy" />}
             {!product.available && (
-              <span className="ware-card-tag ware-card-tag-muted">Sold out</span>
+              <span className="ware-card-tag ware-card-tag-muted">{TEXTS.soldOut}</span>
             )}
           </div>
           <div className="ware-card-name">{name}</div>
@@ -399,7 +412,7 @@ const ProductCard = ({ product, restockState, onCheckRestock, customer }) => {
         <div className="faq-chat-product-img">
           {product.image && <img src={product.image} alt="" loading="lazy" />}
           {!product.available && (
-            <span className="faq-chat-product-badge">Sold out</span>
+            <span className="faq-chat-product-badge">{TEXTS.soldOut}</span>
           )}
         </div>
         <div className="faq-chat-product-title">{product.title}</div>
@@ -475,20 +488,22 @@ const loadStoredMessages = () => {
   }
 };
 
-// What a shopper can tap instead of typing, on the store's empty chat.
-const SUGGESTIONS = [
-  "Gift ideas above 2000",
-  "Bulk or corporate gifting",
-  "How long does delivery take?",
-];
-
 // A small chat popup for testing the FAQ bot turn by turn. The earlier
 // answered turns go along with each question so the model can follow the
 // conversation; clearing the chat starts it fresh. With `customer` it's the
 // shopper-facing chat on the Shopify store (widget/): no team tools
 // ("Improve answer", copy buttons), a welcome instead of tester notes, and
 // the page around it is left alone.
-const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
+// `actionsRef` (the store's widget) gets { productTap } for the pill on a
+// product page.
+const AskAi = ({
+  open,
+  onClose,
+  onSaved,
+  canEdit,
+  customer = false,
+  actionsRef,
+}) => {
   const [messages, setMessages] = useState(loadStoredMessages);
   const [showGuidelines, setShowGuidelines] = useState(false);
   const [contactPrefs, setContactPrefs] = useState(loadContactPrefs);
@@ -614,7 +629,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
       )
       .slice(-HISTORY_MAX_TURNS);
     const history = recent.map((m) => ({
-      question: m.question ?? "",
+      question: m.historyQuestion ?? m.question ?? "",
       answer: m.answer ?? "",
       products: (m.products ?? []).map((p) => p.title),
       fromTeam: !!m.isAgent,
@@ -662,7 +677,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
       // without "Improve answer" (`isLocal`).
       patchMessage(id, {
         loading: false,
-        answer: FALLBACK_ANSWER,
+        answer: TEXTS.fallback,
         whatsappUrl: fallbackWhatsAppUrl(question),
         failed: true,
         isLocal: true,
@@ -676,6 +691,22 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
       if (!teamActive) addSystemNote("team-joined");
       return;
     }
+    // A question about a Ware Atelier piece: the designer-call offer (see
+    // startBespoke) in place of an answer, with the piece's card.
+    if (data.bespoke) {
+      patchMessage(id, {
+        loading: false,
+        answer: fillText(
+          data.bespoke.count > 1 ? TEXTS.bespokeIntroMany : TEXTS.bespokeIntro,
+          { name: shortName(data.bespoke.title) },
+        ),
+        // Their own Enquire (WhatsApp) would be a third ask: the form
+        // behind "Yes, call me" links to WhatsApp already.
+        products: (data.products ?? []).map((p) => ({ ...p, noAction: true })),
+        bespokeOffer: data.bespoke,
+      });
+      return;
+    }
     patchMessage(id, {
       loading: false,
       answer: data.answer,
@@ -683,6 +714,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
       moreProducts: (data.products ?? []).slice(FIRST_PAGE),
       images: data.images ?? [],
       whatsappUrl: data.whatsappUrl ?? null,
+      showCatalog: !!data.catalog,
       askForDetails: !!data.askForDetails,
       detailsOpen: !!data.detailsOpen,
       // A nudge to WhatsApp (too many / too long messages), not an answer.
@@ -700,7 +732,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
       similarShown: { ...msg.similarShown, [product.url]: true },
     });
     postLocalReply("Yes, show me similar ones", {
-      answer: `Here are some pieces similar to the ${product.title} that are in stock:`,
+      answer: fillText(TEXTS.similarIntro, { name: product.title }),
       products: product.similar.slice(0, FIRST_PAGE),
       moreProducts: product.similar.slice(FIRST_PAGE),
     });
@@ -712,19 +744,167 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
   const showMore = (msg) => {
     patchMessage(msg.id, { moreProducts: [] });
     postLocalReply("Show me more", {
-      answer: "Here are a few more:",
+      answer: TEXTS.moreIntro,
       products: msg.moreProducts.slice(0, MORE_PAGE),
       moreProducts: msg.moreProducts.slice(MORE_PAGE),
     });
   };
 
+  // ---- The store pill on a product page (widget/src/main.jsx) ----
+  // A normal piece: "Show me more products like this", answered with the
+  // similar-products picks (no AI). A Ware Atelier piece: an offer of a
+  // call from a designer, with Yes, call me / Not now.
+  const productTap = (product) => {
+    // Tapped again straight after: the answer's already on screen.
+    const last = messages[messages.length - 1];
+    if (last?.tapHandle === product.handle) return;
+    setContactThanks(null);
+    if (product.bespoke) startBespoke(product);
+    else showMoreLikeThis(product);
+  };
+  useEffect(() => {
+    if (actionsRef) actionsRef.current = { productTap };
+  });
+
+  const showMoreLikeThis = async (product) => {
+    const id = nextId++;
+    const conversationId = getVisitorId();
+    const historyQuestion = `Show me more products like the ${product.title}`;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id,
+        question: TEXTS.moreLikeThisAsk,
+        historyQuestion,
+        tapHandle: product.handle,
+        conversationId,
+        loading: true,
+        isLocal: true,
+        time: Date.now(),
+      },
+    ]);
+    const started = Date.now();
+    const { data, error } = await callAskFaq({
+      mode: "similar",
+      handle: product.handle,
+      conversationId,
+      visitorId: getVisitorId(),
+    });
+    // Still "types" for a moment, like the other instant replies.
+    const wait = LOCAL_REPLY_MIN_MS - (Date.now() - started);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    if (error || data?.error) {
+      console.error(error ?? data?.error);
+      patchMessage(id, {
+        loading: false,
+        answer: TEXTS.fallback,
+        whatsappUrl: fallbackWhatsAppUrl(historyQuestion),
+        failed: true,
+      });
+      return;
+    }
+    if (typeof data.contactSaved === "boolean") {
+      syncContactSaved(data.contactSaved);
+    }
+    const products = data.products ?? [];
+    const name = shortName(data.title ?? product.title);
+    patchMessage(id, {
+      loading: false,
+      answer: fillText(
+        products.length ? TEXTS.moreLikeThisIntro : TEXTS.moreLikeThisNone,
+        { name },
+      ),
+      products: products.slice(0, FIRST_PAGE),
+      moreProducts: products.slice(FIRST_PAGE),
+      whatsappUrl: data.whatsappUrl ?? null,
+    });
+  };
+
+  // Each step is also logged for the team (the "bespoke" mode).
+  const logBespoke = (product, step, contact) =>
+    callAskFaq({
+      mode: "bespoke",
+      step,
+      handle: product.handle,
+      contact,
+      conversationId: getVisitorId(),
+      visitorId: getVisitorId(),
+    });
+
+  const startBespoke = (product) => {
+    const name = shortName(product.title);
+    logBespoke(product, "start").then(({ error, data }) => {
+      if (error || data?.error) console.error(error ?? data?.error);
+    });
+    postLocalReply(
+      fillText(TEXTS.bespokeAsk, { name }),
+      {
+        answer: fillText(TEXTS.bespokeIntro, { name }),
+        bespokeOffer: product,
+        conversationId: getVisitorId(),
+      },
+      { tapHandle: product.handle },
+    );
+  };
+
+  // "Yes, call me": their choice as a message, with the name / number form
+  // (and WhatsApp as the alternative) under it.
+  const acceptBespoke = (msg) => {
+    const product = msg.bespokeOffer;
+    patchMessage(msg.id, { bespokeOffer: null });
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: nextId++,
+        question: TEXTS.bespokeYes,
+        bespokeForm: product,
+        isLocal: true,
+        time: Date.now(),
+      },
+    ]);
+  };
+
+  // "Not now", from the offer or from the form.
+  const declineBespoke = (msg, product) => {
+    if (msg.bespokeForm) {
+      setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+    } else {
+      patchMessage(msg.id, { bespokeOffer: null });
+    }
+    logBespoke(product, "later");
+    postLocalReply(TEXTS.notNow, { answer: TEXTS.bespokeLater });
+  };
+
+  const saveBespoke = async (msg, details) => {
+    const product = msg.bespokeForm;
+    const { data, error } = await logBespoke(product, "call", details);
+    if (error || data?.error) {
+      console.error(error ?? data?.error);
+      return false;
+    }
+    updateContactPrefs({ saved: true });
+    if (details.name) {
+      updateNamePrefs({ known: true });
+      setKnownName(details.name);
+    }
+    patchMessage(msg.id, {
+      bespokeForm: null,
+      conversationId: getVisitorId(),
+      answer: fillText(
+        details.name ? TEXTS.bespokeThanks : TEXTS.bespokeThanksNoName,
+        { name: details.name },
+      ),
+    });
+    return true;
+  };
+
   // Replies the chat already has the answer to still "type" for a moment
   // (the three dots), so they don't pop in unnaturally fast.
-  const postLocalReply = (question, reply) => {
+  const postLocalReply = (question, reply, extra = {}) => {
     const id = nextId++;
     setMessages((prev) => [
       ...prev,
-      { id, question, loading: true, isLocal: true, time: Date.now() },
+      { id, question, loading: true, isLocal: true, time: Date.now(), ...extra },
     ]);
     const delay = LOCAL_REPLY_MIN_MS + Math.random() * LOCAL_REPLY_JITTER_MS;
     setTimeout(() => patchMessage(id, { loading: false, ...reply }), delay);
@@ -747,6 +927,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
     ?.whatsappUrl;
   const showContactCard =
     !contactPrefs.dismissed &&
+    !messages.some((m) => m.bespokeForm) &&
     !contactPrefs.saved &&
     !!currentConversationId &&
     !lastReplyHasWhatsApp &&
@@ -773,7 +954,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
     !namePrefs.known &&
     !namePrefs.dismissed &&
     !showContactCard &&
-    !messages.some((m) => m.loading) &&
+    !messages.some((m) => m.loading || m.bespokeOffer || m.bespokeForm) &&
     lastIsAiReply &&
     aiReplies >= 1 &&
     aiReplies <= NAME_BOX_REPLIES;
@@ -797,7 +978,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
       ...prev,
       {
         id: nextId++,
-        answer: `Lovely to meet you, ${name}!`,
+        answer: fillText(TEXTS.nameBoxThanks, { name }),
         isLocal: true,
         time: Date.now(),
       },
@@ -832,7 +1013,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
     const id = nextId++;
     setMessages((prev) => [
       ...prev,
-      { id, isSystem: true, kind, text: SYSTEM_NOTES[kind], time: Date.now() },
+      { id, isSystem: true, kind, text: systemNote(kind), time: Date.now() },
     ]);
   };
 
@@ -881,7 +1062,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
                 id: nextId++,
                 isSystem: true,
                 kind,
-                text: SYSTEM_NOTES[kind],
+                text: systemNote(kind),
                 time: Date.now(),
               })),
             ...fresh,
@@ -891,7 +1072,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
                 id: nextId++,
                 isSystem: true,
                 kind,
-                text: SYSTEM_NOTES[kind],
+                text: systemNote(kind),
                 time: Date.now(),
               })),
           ];
@@ -915,7 +1096,10 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
     }
     updateContactPrefs({ saved: true });
     setContactThanks(
-      `Thanks${details.name ? `, ${details.name}` : ""}! Our team will reach you on ${details.phone} (${TEAM_HOURS}).`,
+      fillText(details.name ? TEXTS.contactThanks : TEXTS.contactThanksNoName, {
+        name: details.name,
+        phone: details.phone,
+      }),
     );
     return true;
   };
@@ -1008,7 +1192,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
             <ChevronDown size={20} />
           </button>
           <div className="ware-chat-heading">
-            <span className="ware-chat-name">Ware concierge</span>
+            <span className="ware-chat-name">{TEXTS.title}</span>
           </div>
           <div className="ware-chat-menu-wrap">
             <button
@@ -1040,7 +1224,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
                   }}
                 >
                   <Trash2 size={14} />
-                  Start a new chat
+                  {TEXTS.menuNewChat}
                 </button>
                 <button
                   type="button"
@@ -1052,7 +1236,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
                   }}
                 >
                   {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-                  {expanded ? "Smaller window" : "Full screen"}
+                  {expanded ? TEXTS.menuSmaller : TEXTS.menuFullScreen}
                 </button>
               </div>
             )}
@@ -1134,12 +1318,10 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
         {messages.length === 0 && customer && (
           <div className="ware-chat-welcome">
             <div className="faq-chat-bubble faq-chat-ai">
-              Hi there! Welcome to Ware. I&apos;m here to help you find the
-              perfect piece, gift ideas, bulk orders or anything about
-              delivery. May I know your name?
+              {TEXTS.welcome}
             </div>
             <div className="ware-chat-suggestions">
-              {SUGGESTIONS.map((s) => (
+              {TEXTS.suggestions.map((s) => (
                 <button
                   key={s}
                   type="button"
@@ -1171,7 +1353,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
             <div className="faq-chat-bubble faq-chat-user">{m.question}</div>
             <div className="faq-chat-meta faq-chat-meta-user">
               {m.awaitingTeam && (
-                <span className="faq-chat-sent-team">Sent to the Ware team ·</span>
+                <span className="faq-chat-sent-team">{TEXTS.sentToTeam}</span>
               )}
               {!customer && (
                 <button
@@ -1243,7 +1425,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
                     className="faq-chat-similar-btn faq-chat-more-btn"
                     onClick={() => showMore(m)}
                   >
-                    Show more
+                    {TEXTS.showMore}
                   </button>
                 )}
                 {/* "Talk to a human" — the function only sends this link
@@ -1260,8 +1442,8 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
                       <MessageCircle size={17} />
                     </span>
                     <span className="faq-chat-whatsapp-text">
-                      <strong>Chat with the Ware team</strong>
-                      <small>Continue on WhatsApp · {TEAM_HOURS}</small>
+                      <strong>{TEXTS.whatsappTitle}</strong>
+                      <small>{fillText(TEXTS.whatsappSubtitle)}</small>
                     </span>
                     <ArrowUpRight size={16} className="faq-chat-whatsapp-arrow" />
                   </a>
@@ -1321,17 +1503,46 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
                       {m.products.length > 1
                         ? `${p.title} is sold out right now. `
                         : ""}
-                      Would you like to see similar products that are in
-                      stock?
+                      {TEXTS.similarOffer}
                       <button
                         type="button"
                         className="faq-chat-similar-btn"
                         onClick={() => showSimilar(m, p)}
                       >
-                        Yes, show me
+                        {TEXTS.similarButton}
                       </button>
                     </div>
                   ))}
+                {(m.bespokeOffer || m.showCatalog) && TEXTS.atelierCatalogUrl && (
+                  <a
+                    href={TEXTS.atelierCatalogUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="faq-chat-catalog-link"
+                  >
+                    <BookOpen size={14} />
+                    {TEXTS.bespokeCatalog}
+                    <ArrowUpRight size={13} />
+                  </a>
+                )}
+                {m.bespokeOffer && (
+                  <div className="faq-chat-contact-prompt-actions">
+                    <button
+                      type="button"
+                      className="faq-chat-similar-btn"
+                      onClick={() => acceptBespoke(m)}
+                    >
+                      {TEXTS.bespokeYes}
+                    </button>
+                    <button
+                      type="button"
+                      className="faq-chat-contact-skip"
+                      onClick={() => declineBespoke(m, m.bespokeOffer)}
+                    >
+                      {TEXTS.notNow}
+                    </button>
+                  </div>
+                )}
                 <div className="faq-chat-bubble-actions">
                   <div className="faq-chat-meta">
                     {!customer && (
@@ -1367,6 +1578,28 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
                   )}
                 </div>
               </div>
+            )}
+
+            {m.bespokeForm && (
+              <ContactCard
+                startOpen
+                initialName={knownName}
+                title={TEXTS.bespokeFormTitle}
+                onSave={(details) => saveBespoke(m, details)}
+                onDismiss={() => declineBespoke(m, m.bespokeForm)}
+              >
+                <a
+                  href={whatsAppUrl(
+                    `Hi! I'm interested in the ${m.bespokeForm.title} from Ware Atelier. Could we talk about it?`,
+                  )}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="faq-chat-contact-whatsapp"
+                >
+                  <MessageCircle size={14} />
+                  {TEXTS.bespokeWhatsApp}
+                </a>
+              </ContactCard>
             )}
 
             {m.correcting && (
@@ -1428,7 +1661,7 @@ const AskAi = ({ open, onClose, onSaved, canEdit, customer = false }) => {
           onChange={(e) => setInput(e.target.value)}
           placeholder={
             customer
-              ? "Ask about a piece"
+              ? TEXTS.inputPlaceholder
               : "Type a question like a customer would…"
           }
         />

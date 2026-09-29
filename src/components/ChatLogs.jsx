@@ -41,7 +41,10 @@ const formatDate = (iso) =>
   });
 
 const titleOf = (c) =>
-  c.label || c.visitorName || c.company || "Anonymous visitor";
+  c.label ||
+  c.visitorName ||
+  c.company ||
+  (c.visitorNumber ? `Visitor ${c.visitorNumber}` : "Anonymous visitor");
 
 // Short, stable tag for grouping anonymous visitors by eye.
 const visitorTag = (id) => `#${id.slice(0, 6)}`;
@@ -345,7 +348,14 @@ const ChatLogs = () => {
           messageHits.has(c.id) ||
           (phoneQuery &&
             (c.visitorPhone ?? "").replace(/\D/g, "").includes(digits)) ||
-          [c.label, c.visitorName, c.company, c.visitorPhone, c.preview]
+          [
+            c.label,
+            c.visitorName,
+            c.company,
+            c.visitorPhone,
+            c.preview,
+            c.visitorNumber && `visitor ${c.visitorNumber}`,
+          ]
             .filter(Boolean)
             .some((s) => s.toLowerCase().includes(q))),
     );

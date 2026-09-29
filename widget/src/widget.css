@@ -2,31 +2,12 @@
    lives in the widget's shadow root, so none of this reaches the theme. */
 
 /* The shared styles hang off .faq-page (colours, box-sizing); undo its
-   page layout so it's just a wrapper here. Fonts are set here rather than
-   inherited from the theme: a serif for the concierge's voice (loaded by
-   main.jsx) and a clean sans for everything around it. */
+   page layout so it's just a wrapper here. Colours, fonts and sizes are
+   variables set in theme.css (the "easy edits" at the top of the
+   snippet). Fonts are set rather than inherited from the store's theme: a
+   serif for the concierge's voice and a clean sans for everything else. */
 .ware-chat-root.faq-page {
-  --askai-w: 400px;
-  --ware-serif: "Source Serif 4", "Iowan Old Style", Georgia, serif;
-  --ware-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
-  --ware-cream: #fbf7f2;
-  --ware-peach: #f9e3d2;
-  --ware-ink: #2a211c;
-  --ware-brown: #9a4a28;
-  --ware-line: #eee3d8;
   font-family: var(--ware-sans);
-  /* How high the chat button sits: clear of the store's own WhatsApp
-     button in the bottom corner. The chat window opens above it. */
-  --ware-chat-bottom: 120px;
-  /* Store palette: Ware's burnt orange for the strong colour (the site's
-     chat is green), and tints of #fae3ce for the soft surfaces. */
-  --faq-accent: #bf5e35;
-  --ware-accent-hover: #a34d29;
-  --faq-accent-soft: #fcece0;
-  --faq-bg: #fdf5ee;
-  --faq-border: #f0dfd0;
-  --faq-border-strong: #e6cbb4;
   width: auto;
   min-width: 0;
   max-width: none;
@@ -87,8 +68,8 @@
   align-items: center;
   gap: 9px;
   padding: 11px 20px 11px 16px;
-  color: #565656;
-  font-size: 14px;
+  color: var(--ware-pill-text);
+  font-size: var(--ware-pill-size);
   font-weight: 500;
   line-height: 1;
   /* Frosted glass: translucent white that blurs the page behind it, with
@@ -126,42 +107,23 @@
   outline: 2px solid var(--faq-accent);
   outline-offset: 3px;
 }
-/* Small burnt-orange "we're here" dot that blinks, with a soft ripple. */
-.ware-chat-pill-dot {
-  position: relative;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--faq-accent);
+/* Sparkle in the main colour that gently twinkles (fades, shrinks and
+   tilts a little, then back). */
+.ware-chat-pill-icon {
+  display: inline-flex;
   flex-shrink: 0;
-  animation: ware-chat-blink 2s ease-in-out infinite;
+  color: var(--faq-accent);
+  animation: ware-chat-twinkle 2.2s ease-in-out infinite;
 }
-.ware-chat-pill-dot::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: var(--faq-accent);
-  animation: ware-chat-ripple 2s ease-out infinite;
-}
-@keyframes ware-chat-blink {
+@keyframes ware-chat-twinkle {
   0%,
   100% {
     opacity: 1;
+    transform: scale(1) rotate(0deg);
   }
   50% {
     opacity: 0.35;
-  }
-}
-@keyframes ware-chat-ripple {
-  0% {
-    transform: scale(1);
-    opacity: 0.55;
-  }
-  80%,
-  100% {
-    transform: scale(2.6);
-    opacity: 0;
+    transform: scale(0.8) rotate(-12deg);
   }
 }
 @keyframes ware-chat-pill-in {
@@ -176,8 +138,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .ware-chat-pill,
-  .ware-chat-pill-dot,
-  .ware-chat-pill-dot::after {
+  .ware-chat-pill-icon {
     animation: none;
   }
 }
@@ -274,7 +235,7 @@
 }
 .ware-chat-name {
   font-family: var(--ware-serif);
-  font-size: 20px;
+  font-size: var(--ware-title-size);
   font-weight: 500;
   line-height: 1.15;
   color: var(--ware-ink);
@@ -355,7 +316,7 @@
   border: none;
   background: none;
   font-family: var(--ware-serif);
-  font-size: 15px;
+  font-size: var(--ware-reply-size);
   line-height: 1.5;
   color: var(--ware-ink);
 }
@@ -367,7 +328,7 @@
   border-radius: 16px;
   background: var(--ware-peach);
   color: var(--ware-brown);
-  font-size: 13px;
+  font-size: var(--ware-message-size);
   font-weight: 500;
 }
 .ware-chat-root .faq-chat-time,
@@ -618,7 +579,7 @@
   .ware-chat-pill {
     gap: 8px;
     padding: 10px 16px 10px 14px;
-    font-size: 13.5px;
+    font-size: calc(var(--ware-pill-size) - 0.5px);
   }
   /* The header's close button does the job while it's open. */
   .ware-chat-launcher-open {

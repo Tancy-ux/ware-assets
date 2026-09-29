@@ -179,6 +179,9 @@ Deno.serve(async (req) => {
           visitorName: c.visitor_name,
           company: c.company,
           visitorPhone: c.visitor_phone ?? null,
+          // "Visitor 12" (scripts/supabase-visitor-numbers.sql); null until
+          // that's been run.
+          visitorNumber: c.visitor_number ?? null,
           label: c.label,
           startedAt: c.started_at,
           lastMessageAt: c.last_message_at,

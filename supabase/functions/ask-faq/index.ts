@@ -17,6 +17,7 @@
 // site's Ask AI talks to it.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { deliveryNote, loadZones, lookupPincode } from "./delivery.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -95,13 +96,17 @@ async function rateCheck(req: Request, visitorId: unknown) {
 // (scripts/supabase-form-limits.sql). Allowed if the check itself fails.
 const FORM_LIMIT_10M = 10;
 const FORM_LIMIT_DAY = 40;
-async function formAllowed(req: Request) {
+// The pill on product pages (more like this / bespoke) gets its own, roomier
+// count: a shopper browsing can tap it on piece after piece.
+const TAP_LIMIT_10M = 30;
+const TAP_LIMIT_DAY = 150;
+async function formAllowed(req: Request, kind: "form" | "tap" = "form") {
   const admin = adminClient();
   if (!admin) return true;
   const { data, error } = await admin.rpc("rate_limit", {
-    p_key: `form:${clientIp(req) || "unknown"}`,
-    p_per_10m: FORM_LIMIT_10M,
-    p_per_day: FORM_LIMIT_DAY,
+    p_key: `${kind}:${clientIp(req) || "unknown"}`,
+    p_per_10m: kind === "tap" ? TAP_LIMIT_10M : FORM_LIMIT_10M,
+    p_per_day: kind === "tap" ? TAP_LIMIT_DAY : FORM_LIMIT_DAY,
   });
   if (error) {
     console.error("Form rate check failed:", error);
@@ -202,6 +207,9 @@ type ProductCard = {
 };
 
 const MAX_CARDS = 6;
+// Recommendations: the model's picks plus more from the shortlist, for the
+// chat's "Show more" (4 + 6 + 6).
+const MAX_RECOMMEND_CARDS = 16;
 // The chat shows 4, then 6 per "Show more" (4 + 6 + 6).
 const MAX_SIMILAR = 16;
 
@@ -218,9 +226,18 @@ const COLOR_FAMILIES: Record<string, string> = {
   red: "red", maroon: "red", melon: "orange", orange: "orange",
   yellow: "yellow", lemon: "yellow", mustard: "yellow", ochre: "yellow",
   gold: "metal", silver: "metal", grey: "grey", gray: "grey",
+  tea: "green", steel: "blue", moon: "grey", pepper: "grey",
+  // Marble stones: the "colour" of a marble piece. The team doesn't
+  // distinguish between them, so they're all one family.
+  statuario: "marble", michelangelo: "marble", marquina: "marble",
+  alicante: "marble", zanzibar: "marble",
 };
-// Words that describe a colour or finish without naming the product.
-const SHADE_WORDS = new Set(["deep", "matt", "gloss"]);
+// Words that describe a colour or finish without naming the product
+// ("Sage Green Rim", "German Rose", "Nero Picasso", "Onice Verde").
+const SHADE_WORDS = new Set([
+  "deep", "matt", "gloss", "dark", "rim", "german", "jurassic", "onice",
+  "landscape", "picasso", "fusion",
+]);
 const NAME_FILLER = new Set(
   "set of the and with without pieces piece in for a".split(" "),
 );
@@ -680,6 +697,41 @@ function aroundBudget(text: string) {
   return n && n >= 100 ? n : null;
 }
 
+// The biggest quantity over 20 the chat mentions, if any: "3000 moryas",
+// "125-150 pieces", "100 gift boxes", "qty 200". A number only counts when
+// a quantity word or a product line's name follows it (so "above 2000",
+// "20th October" and pincodes don't).
+const LARGE_QUANTITY = 20;
+
+// The assistant uses a visitor's name at most once in this many replies.
+const NAME_EVERY_REPLIES = 6;
+const QUANTITY_WORDS =
+  /^(pcs|pieces?|units?|sets?|box(es)?|gifts?|hampers?|nos|people|employees|guests|qty|kits?|cups?|mugs?|plates?|bowls?|trays?|diyas?|coasters?)$/;
+function largeQuantity(text: string, products: Product[]) {
+  const collections = new Set(products.map((p) => p.collection).filter(Boolean));
+  let biggest = 0;
+  const consider = (n: number) => {
+    if (n > LARGE_QUANTITY && n <= 1_000_000) biggest = Math.max(biggest, n);
+  };
+  for (const m of text.matchAll(/\b(qty|quantity)\s*(?:of\s*)?(\d[\d,]*)/gi)) {
+    consider(Number(m[2].replace(/,/g, "")));
+  }
+  const counted =
+    /\b(\d[\d,]*)(?:\s*(?:-|–|to)\s*(\d[\d,]*))?\s+([a-z]+)/gi;
+  for (const m of text.matchAll(counted)) {
+    const word = m[3].toLowerCase();
+    const singular = word.replace(/(es|s)$/, "");
+    if (
+      QUANTITY_WORDS.test(word) || collections.has(word) ||
+      collections.has(singular) || collections.has(word.replace(/s$/, ""))
+    ) {
+      consider(Number(m[1].replace(/,/g, "")));
+      if (m[2]) consider(Number(m[2].replace(/,/g, "")));
+    }
+  }
+  return biggest || null;
+}
+
 // "Does it come gift wrapped?", "is this boxed?", "packaging?"
 const GIFT_PACKING_QUESTION =
   /\b(gift[\s-]?(wrap|wrapped|wrapping|box|boxed|packed|packaging|set)|wrap(ped|ping)?|box(ed)?|packag(e|ed|ing))\b/i;
@@ -973,6 +1025,11 @@ const whatsAppLink = (text: string) =>
     app_absent: "0",
   })}`;
 
+// Questions (or replies) about Ware Atelier's bespoke side, which get the
+// catalogue's link.
+const BESPOKE_WORDS =
+  /\b(atelier|bespoke|catalog(ue)?|custom(ised|ized)? (furniture|pieces?|tables?|lamps?|lighting))\b/i;
+
 // The "Enquire" button on a Ware Atelier card.
 const atelierEnquiryUrl = (title: string) =>
   whatsAppLink(
@@ -1022,17 +1079,31 @@ function cleanField(value: unknown) {
 // script hasn't been re-run yet, save without them rather than failing.
 const NEWER_COLUMNS = ["last_question", "visitor_phone"];
 
+// Update first, insert only for a new visitor: an upsert would use up a
+// visitor number (the identity column, "Visitor 12" in the Chats page) on
+// every save, even when the chat already exists.
+// deno-lint-ignore no-explicit-any
+async function saveConversation(admin: any, row: Record<string, string>) {
+  const { id, ...fields } = row;
+  const table = () => admin.from("chat_conversations");
+  const { data, error } = await table().update(fields).eq("id", id).select("id");
+  if (error) return error;
+  if (data?.length) return null;
+  const { error: insertError } = await table().insert(row);
+  // Two saves at once for a new visitor: the other one inserted it.
+  if (insertError?.code === "23505") {
+    return (await table().update(fields).eq("id", id)).error;
+  }
+  return insertError;
+}
+
 // deno-lint-ignore no-explicit-any
 async function upsertConversation(admin: any, row: Record<string, string>) {
-  let { error } = await admin
-    .from("chat_conversations")
-    .upsert(row, { onConflict: "id" });
+  let error = await saveConversation(admin, row);
   if (error?.code === "PGRST204") {
     const trimmed = { ...row };
     for (const c of NEWER_COLUMNS) delete trimmed[c];
-    ({ error } = await admin
-      .from("chat_conversations")
-      .upsert(trimmed, { onConflict: "id" }));
+    error = await saveConversation(admin, trimmed);
   }
   if (error) throw error;
 }
@@ -1213,8 +1284,11 @@ Deno.serve(async (req) => {
     // conversation in the Chats page, so: end any takeover, and leave a
     // marker in the transcript showing where they started over.
     if (
-      ["reset", "contact", "name"].includes(payload.mode) &&
-      !(await formAllowed(req))
+      ["reset", "contact", "name", "similar", "bespoke"].includes(payload.mode) &&
+      !(await formAllowed(
+        req,
+        ["similar", "bespoke"].includes(payload.mode) ? "tap" : "form",
+      ))
     ) {
       return json(
         { error: "Too many requests. Please try again in a few minutes." },
@@ -1271,6 +1345,38 @@ Deno.serve(async (req) => {
 
     // The chat's "What should we call you?" box: just a name, attached to
     // their conversation (no AI involved).
+    // For the developer: what the shipping lookup sees (the store's zones,
+    // and optionally one pincode). Needs the service role key, so only
+    // someone with full access to the project can call it.
+    if (payload.mode === "shipping-debug") {
+      // Supabase has already checked the key's signature (verify_jwt), so
+      // its role claim can be trusted.
+      const auth = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+      let role = "";
+      try {
+        role = JSON.parse(
+          atob(auth.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")),
+        ).role;
+      } catch {
+        // Not a JWT: not allowed.
+      }
+      if (role !== "service_role") {
+        return json({ error: "Not allowed" }, 403);
+      }
+      try {
+        const zones = await loadZones();
+        const pincode = typeof payload.pincode === "string" ? payload.pincode : "";
+        return json({
+          zoneCount: zones.length,
+          zones: zones.slice(0, Number(payload.limit) || 3),
+          place: pincode ? await lookupPincode(pincode) : null,
+          note: pincode ? await deliveryNote(pincode) : null,
+        });
+      } catch (err) {
+        return json({ error: String(err) }, 500);
+      }
+    }
+
     if (payload.mode === "name") {
       const name = typeof payload.name === "string"
         ? payload.name.replace(/\s+/g, " ").trim().slice(0, 60)
@@ -1290,6 +1396,122 @@ Deno.serve(async (req) => {
         { id: conversationId, visitor_id: visitorId, visitor_name: name },
       );
       return json({ ok: true });
+    }
+
+    // The chat's pill on a product page ("Show me more products like
+    // this"): the same in-stock alternatives as a sold-out card's "see
+    // similar", so no AI. Logged to the Chats page like any reply.
+    if (payload.mode === "similar") {
+      const handle = typeof payload.handle === "string" ? payload.handle : "";
+      const target = (await loadProducts()).find((p) => p.handle === handle);
+      if (!target) return json({ error: "Unknown product" }, 404);
+      // At most one other colour of the same design (they can see those on
+      // the page already), and at most two more from the same range (Lilo,
+      // Flare...) before other ranges get a turn, so the first cards show a
+      // variety of pieces.
+      const picks = limitPerDesign([
+        target,
+        ...similarProducts(target, await loadProducts()),
+      ]).slice(1);
+      const range = (p: Product) => p.title.split(/\s+/)[0].toLowerCase();
+      const seen = new Map<string, number>([[range(target), 1]]);
+      const first: Product[] = [];
+      const later: Product[] = [];
+      for (const p of picks) {
+        const n = seen.get(range(p)) ?? 0;
+        seen.set(range(p), n + 1);
+        (n < 3 ? first : later).push(p);
+      }
+      const cards = [...first, ...later].map(toCard);
+      const conversation = await ownConversation(
+        payload.conversationId,
+        payload.visitorId,
+      );
+      try {
+        await logTurn({
+          conversationId: payload.conversationId,
+          visitorId: payload.visitorId,
+          question: `Show me more products like the ${target.title}`,
+          answer: cards.length
+            ? `Pieces similar to the ${target.title}:`
+            : `No similar pieces in stock for the ${target.title}.`,
+          cards,
+          visitorName: "",
+          company: "",
+          isFirst: !conversation,
+        });
+      } catch (err) {
+        console.error("Chat log failed:", err);
+      }
+      return json({
+        title: target.title,
+        products: cards,
+        whatsappUrl: cards.length ? null : whatsAppLink(
+          `Hi Ware team! I'm looking for pieces similar to the ${target.title}.`,
+        ),
+        contactSaved: !!conversation?.visitor_phone,
+      });
+    }
+
+    // The pill on a Ware Atelier (bespoke) piece: "we'd love to call you".
+    // Each step lands in the Chats page so the team sees the interest, and
+    // "call" saves their name and number like the details form does.
+    if (payload.mode === "bespoke") {
+      const handle = typeof payload.handle === "string" ? payload.handle : "";
+      const target = (await loadProducts()).find((p) => p.handle === handle);
+      const { conversationId, visitorId } = payload;
+      if (!target) return json({ error: "Unknown product" }, 404);
+      if (!validIds(conversationId, visitorId)) {
+        return json({ error: "Can't save that right now" }, 400);
+      }
+      const step = ["start", "call", "later"].includes(payload.step)
+        ? payload.step
+        : "start";
+      const contact = readContact(payload.contact);
+      if (step === "call" && !contact.phone) {
+        return json({ error: "Invalid phone number" }, 400);
+      }
+      const conversation = await ownConversation(conversationId, visitorId);
+      const turn = {
+        start: {
+          question: `Interested in the ${target.title} (Ware Atelier)`,
+          answer: "Offered a call from one of our designers.",
+        },
+        call: {
+          question: "Yes, call me",
+          answer: `Call requested about the ${target.title}` +
+            (contact.name ? ` by ${contact.name}` : "") +
+            ` on ${contact.phone}.`,
+        },
+        later: {
+          question: "Not now",
+          answer: "Declined the call for now.",
+        },
+      }[step as "start" | "call" | "later"];
+      try {
+        if (step === "call") {
+          const row: Record<string, string> = {
+            id: conversationId,
+            visitor_id: visitorId,
+            visitor_phone: contact.phone,
+          };
+          if (contact.name) row.visitor_name = contact.name;
+          await upsertConversation(adminClient(), row);
+        }
+        await logTurn({
+          conversationId,
+          visitorId,
+          ...turn,
+          cards: step === "start" ? [toCard(target)] : [],
+          visitorName: "",
+          company: "",
+          isFirst: !conversation,
+        });
+      } catch (err) {
+        console.error("Chat log failed:", err);
+        if (step === "call") return json({ error: "Couldn't save" }, 500);
+      }
+      return json({ ok: true, title: target.title });
     }
 
     const geminiKey = Deno.env.get("GEMINI_API_KEY");
@@ -1464,6 +1686,36 @@ Deno.serve(async (req) => {
       )
       .join("\n");
 
+    // Did one of the assistant's last few replies already use their name?
+    // Then this one mustn't (the model otherwise says it every time).
+    const knownFirstName = (conversation?.visitor_name ?? "").split(/\s+/)[0];
+    const nameUsedRecently = knownFirstName.length > 1 &&
+      history
+        .slice(-NAME_EVERY_REPLIES)
+        .some((t) =>
+          !t.fromTeam &&
+          new RegExp(`\\b${knownFirstName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i")
+            .test(t.answer)
+        );
+
+    // A pincode in the chat (latest message or the last few): its delivery
+    // price and days from the store's Shopify shipping settings.
+    let deliveryInfo: string | null = null;
+    try {
+      deliveryInfo = await deliveryNote(
+        [...history.slice(-4).map((t) => t.question), question].join(" "),
+      );
+    } catch (err) {
+      console.error("Delivery lookup failed:", err);
+    }
+
+    // Over 20 pieces anywhere in the chat: remind the model the team has to
+    // confirm stock and timelines (it would otherwise happily say yes).
+    const bigOrder = largeQuantity(
+      [...history.map((t) => t.question), question].join(" "),
+      products,
+    );
+
     // Asked whether things come gift-wrapped / boxed: spell it out per piece
     // (the ones shown in this chat, plus the best matches), straight from
     // the Shopify tag. Left to read it off the catalog lines, the model
@@ -1504,7 +1756,7 @@ Deno.serve(async (req) => {
 
     const systemPrompt = `You are a helpful assistant answering questions about Ware Innovations, a ceramic tableware brand, using ONLY the FAQ content and product catalog below.
 
-The chat opens with a welcome message (not shown in the history) that greets them and asks for their name. If their first message is just their name (like "Priya" or "I'm Rahul"), greet them warmly by name, say it's lovely to meet them, and ask what they're looking for today, in one or two short lines. If they skip it and ask something straight away, just help; don't ask for their name again. Once you know their name, use it now and then where it feels natural (a greeting, a thank you), not in every reply.
+The chat opens with a welcome message (not shown in the history) that greets them; a small box under your first replies offers to take their name. If their first message is just their name (like "Priya" or "I'm Rahul"), greet them warmly by name, say it's lovely to meet them, and ask what they're looking for today, in one or two short lines. Otherwise just help; don't ask for their name yourself. Once you know their name, use it sparingly: when greeting them, thanking them, or roughly once every 6 to 8 messages. Most replies shouldn't include it.
 
 This is an ongoing conversation. Read the whole chat before replying and carry everything the person has already told you forward: who they are (for example a company doing corporate gifting, a restaurant or hotel, or someone shopping for their home), the occasion, budget, quantity, colours, and product types. Never ask for something they've already said. Build each reply on what came before, so a short follow-up like "under 2000?" or "in blue?" refines the earlier request instead of starting over.
 
@@ -1514,20 +1766,24 @@ Answer what they actually asked, directly and confidently. When the answer is ye
 
 Quotes only the team can work out (shipping to a particular address or country, bulk or custom pricing) need details first, so gather them the way a good salesperson would before handing off. Ask for what's still missing, mainly which products they're interested in and, for shipping, the delivery pincode and country, and briefly say why (shipping depends on the items and their weight). Once you have those, or if they'd rather just talk to the team, use the "human" intent so they can send it all to the team on WhatsApp. Don't hand off while the key details are still missing, and never say you'll check or get back to them yourself.
 
-Orders outside India: prices on the website are for India only. International orders are priced differently, and the team shares the pricing along with the shipping quote. Never say or imply that prices stay the same overseas, and never quote a website price as the price for an international order. If they ask about international pricing, warmly say it's different for orders outside India and the team will share it, and use the "human" intent once you know the products and country.
+Delivery within India: when they ask how long delivery takes or what shipping costs and you don't have their pincode yet, ask for their pincode in one friendly line (both depend on where it's going). Don't quote a general delivery time or charge from the FAQ instead; the pincode gives them the exact answer. When a "Delivery to …" note appears below, answer from it exactly: the place, how many days, and the charge, and mention free shipping on orders of Rs 5,000 and above when the note lists it. Keep it short, one or two sentences. Don't promise a delivery date for bulk orders over 20 pieces (see "Large quantities").
+
+Orders outside India: prices on the website are for India only. International orders are priced differently, and the team shares the pricing along with the shipping quote. Never say or imply that prices stay the same overseas, and never quote a website price as the price for an international order. If they ask about international pricing, warmly say it's different for orders outside India and the team will share it, and use the "human" intent once you know the products and country. International delivery times, after dispatch: Dubai (UAE) 12–15 business days, United Kingdom 15–20 business days, USA 20–45 business days; for other countries the team confirms. You can share these times when asked, but the team quotes the price and shipping charge.
 
 Use what you know about them. For corporate or bulk gifting, favour gift sets and giftable items, and bring in the one or two FAQ details (bulk orders, custom branding, gift wrapping, volume pricing) that matter most for what they just asked.
 
+Large quantities: for anything over 20 pieces (of one product, or gifts in total), never say or imply we can do it, that it's in stock, or that it'll be ready by their date. Stock and timelines for large orders can only be confirmed by the team. Say it warmly and plainly, for example "For 3,000 pieces, the team will need to confirm stock and timelines, but let's get the details together.", then carry on gathering what the team needs (products, date, city) and get them to the team (the quick call ask, or WhatsApp). You can still say what's generally true from the FAQ (for example how long standard bulk orders usually take), as long as it's clear the team confirms it for their order.
+
 Bulk and corporate gifting (for example "gifting options around 1500, 125-150 pieces") is handled the way our best salesperson does it:
-1. Qualify first. If you don't yet know by when they need it and the delivery city, ask for both in one short line before suggesting anything, responding to what they told you (for example "Diwali gifts for 100, we can definitely do that. When do you need them by, and which city are they going to?"); it decides ready stock vs custom branding. Don't recommend products or explain services in this reply.
+1. Qualify first. If you don't yet know by when they need it and the delivery city, ask for both in one short line before suggesting anything, responding to what they told you (for example "Diwali gifts for 100, let's find you the right ones. When do you need them by, and which city are they going to?"); it decides ready stock vs custom branding. Don't recommend products or explain services in this reply.
 2. Then suggest. Recommend 3 or 4 giftable pieces, all different products (not the same set in several colours), priced close to their per-piece budget: "around 1500" means roughly Rs 1200 to 1900, so favour pieces near it over much cheaper ones. The cards show each piece, so introduce them in one short line (at most one phrase about the standout, like "the starter and dip set is a crowd-pleaser") rather than describing each. If their date is too tight for custom branding, say so in a few words.
 3. Answer their questions about the pieces (material, weight, care, packaging) briefly and honestly from the catalog and FAQ, answering the point they're worried about (for "is this all heavy stoneware?": "It's stoneware, but not heavy, and very durable.").
 4. Ask for a call. In the same reply where you first suggest options for a bulk enquiry (by then they've shared quantity or budget, plus timeline or city), end by asking if our team could give them a quick call to take it forward, and set "askForCall". If you didn't ask then, ask in your next reply. The app shows a short name and number form right under your reply, so don't ask them to type their number in the chat. Ask this only once in a chat; if they skip it, carry on helping without asking again.
 
 How you sound. You're someone from the Ware studio who knows the pieces well and genuinely cares that each person finds the right thing. Your warmth comes from paying attention, not from pleasantries:
-- Respond to their actual situation, the way a thoughtful person would. Warm: "Diwali gifts for 100, we can definitely do that. When do you need them by, and which city are they going to?" or "The Lilo set is a favourite for gifting, it's small enough to use every day." Not warm, just filler: "Happy to help!", "Great question!", "Absolutely!", "I'd love to help", "Thanks for reaching out", or praising their question or choice. You're here to help; you don't need to announce it.
+- Respond to their actual situation, the way a thoughtful person would. Warm: "Diwali gifts for 100, let's find you the right ones. When do you need them by, and which city are they going to?" or "The Lilo set is a favourite for gifting, it's small enough to use every day." Not warm, just filler: "Happy to help!", "Great question!", "Absolutely!", "I'd love to help", "Thanks for reaching out", or praising their question or choice. You're here to help; you don't need to announce it.
 - Be natural and confident: plain everyday words, contractions, the rhythm of a real message. Add a small human touch when it genuinely helps them (why a piece suits their occasion, a practical tip), never gushing, never over-apologising, never salesy.
-- Use their name now and then once you know it, where it feels natural.
+- Use their name rarely (a greeting, a thank you, or about once every 6 to 8 messages); using it in reply after reply feels forced.
 
 Length: usually 1 to 3 sentences. Say what's useful, then stop. No padding, but don't strip a reply so bare it sounds like a form.
 - Greetings or small talk ("hi", "thanks", "ok") get one friendly line. Don't summarize the FAQ or introduce yourself.
@@ -1565,7 +1821,7 @@ Team hours: the Ware team replies on WhatsApp and returns calls Monday to Saturd
 
 Reaching the team: for "human" replies, say warmly in a sentence or two that they can reach the team directly on WhatsApp using the button below your reply. A WhatsApp button with the team's number is added automatically, so never write a phone number or link yourself, and don't claim you're transferring them or that someone will contact them.
 
-Ware Atelier: products marked "Ware Atelier, made to order, price on request" are bespoke marble furniture and lighting, made with multiple marble components and usually customised for each client. Never state or guess a price for them, and never call them sold out or out of stock. Describe the piece, mention it's made to order and can be customised, and say the team will share pricing and options; each Atelier card has an Enquire button that opens WhatsApp with the team, and the app offers them a way to leave their details. Ware Atelier's other range is the Collectibles: one-of-a-kind marble vases and tissue boxes (Arc, Claude, Horizon and so on), which are priced and can be bought directly like any other product. The bespoke Atelier pieces, the Collectibles, the marble tableware (trays, trivets, coasters) and the ceramic tableware are different ranges: when recommending alternatives, stay within the range they're looking at.
+Ware Atelier: products marked "Ware Atelier, made to order, price on request" are bespoke marble furniture and lighting, made with multiple marble components and usually customised for each client. Never state or guess a price for them, and never call them sold out or out of stock. Very little is known about each piece beyond its name, so don't describe them or answer questions about their details (size, materials, finish, lead time, customisation): say they're bespoke and made to order, that one of our designers can talk them through it, and mention they can browse the Ware Atelier catalogue (the chat shows a link to it under your reply, so never write a link yourself). Ware Atelier's other range is the Collectibles: one-of-a-kind marble vases and tissue boxes (Arc, Claude, Horizon and so on), which are priced and can be bought directly like any other product. The bespoke Atelier pieces, the Collectibles, the marble tableware (trays, trivets, coasters) and the ceramic tableware are different ranges: when recommending alternatives, stay within the range they're looking at.
 
 Gift packaging: don't bring it up yourself; only talk about it when they ask (whether something comes gift-boxed or wrapped, or how a gift arrives). Then a product only comes gift-packed (in a gift box, sleeve or as a gift set) if the catalog marks it "gift-packed", so say yes for those. When they ask about particular pieces (or "these", the ones just shown), answer for those pieces first, straight from the catalog: which ones come gift-boxed and, plainly, which don't. Never say or imply a product is a gift set or comes gift-packed otherwise, even if it's giftable or tagged for gifting; just describe it as the product it is. If the FAQ describes packaging for gifting orders (ribbons, notes, boxes), that's about gifting orders placed with the team, so present it that way rather than as something a particular product comes with. For "gift_packaging" questions, photos of the packaging are shown automatically when they exist, so don't describe photos or promise to show any.
 
@@ -1597,9 +1853,17 @@ ${details || "(none)"}${
       minBudget
         ? `\n\nThey want pieces priced at Rs ${minBudget} or more. Only suggest products priced at Rs ${minBudget} and above; anything cheaper doesn't qualify.`
         : ""
-    }${giftPackingNote}${
+    }${giftPackingNote}${deliveryInfo ? `\n\n${deliveryInfo}` : ""}${
+      bigOrder
+        ? `\n\nThey've mentioned a quantity of ${bigOrder.toLocaleString("en-IN")}, which is over 20: follow "Large quantities" above. Don't confirm stock, availability or their date; the team confirms those.`
+        : ""
+    }${
       conversation?.visitor_name
-        ? `\n\nTheir name is ${conversation.visitor_name}; use it now and then where it feels natural, and don't ask for it.`
+        ? `\n\nTheir name is ${conversation.visitor_name}; don't ask for it. ${
+          nameUsedRecently
+            ? "You've used their name in a recent reply, so don't use it in this one."
+            : "Use it only if this reply greets or thanks them."
+        }`
         : ""
     }${
       contactSaved
@@ -1750,9 +2014,62 @@ ${details || "(none)"}${
       : pickedProducts;
     const toShow = fresh.length ? fresh : pickedProducts;
 
-    const cards = (showCards ? toShow : [])
+    // Recommendations get a "Show more": after the model's picks come more
+    // pieces from the same shortlist (keyword matches, or for a vague ask
+    // the varied selection), in stock, in budget, not already shown, and
+    // from the same range(s) as the picks (Atelier / Collectibles / marble /
+    // ceramic never mix). The chat shows 4, then 6 at a time.
+    let extras: Product[] = [];
+    if (intent === "recommend" && toShow.length) {
+      const lines = new Set(toShow.map((p) => p.line));
+      const taken = new Set(toShow.map((p) => p.handle));
+      const pool = shortlist.matchedCount
+        ? shortlist.list.slice(0, shortlist.matchedCount)
+        : shortlist.list;
+      extras = limitPerDesign(
+        pool.filter((p) =>
+          !taken.has(p.handle) && !alreadyShown.has(p.title) &&
+          p.available && inBudget(p) && lines.has(p.line)
+        ),
+      );
+    }
+
+    // A question about particular Ware Atelier pieces: too little is known
+    // about them to answer it well, so whatever the model made of it, it
+    // goes straight to the offer of a designer's call (the chat shows its
+    // own words, the pieces, the catalogue and Yes / Not now). Not when
+    // they've asked for a call: the call form opens as usual.
+    const bespokePieces = intent === "call_request"
+      ? []
+      : toShow.slice(0, MAX_CARDS);
+    const bespoke = bespokePieces.length > 0 &&
+        bespokePieces.every((p) => p.line === "atelier")
+      ? {
+        handle: bespokePieces[0].handle,
+        title: bespokePieces[0].title,
+        count: bespokePieces.length,
+      }
+      : null;
+    if (bespoke) {
+      // What the chat shows (it uses its own editable copy of these words;
+      // this one is for the Chats page and older copies of the chat).
+      const piece = bespoke.count > 1
+        ? "These are some of our bespoke pieces, and we're so glad they caught your eye!"
+        : `The ${
+          bespoke.title.replace(/^the\s+/i, "")
+        } is one of our bespoke pieces, and we're so glad it caught your eye!`;
+      answer = `${piece} Each one is made to order, so one of our designers ` +
+        "would love to hear what you have in mind and create something just " +
+        "for you. Would you like one of them to give you a call?";
+      intent = "bespoke";
+    }
+
+    // Two colours per design across the picks and the extras together.
+    const cards = bespoke ? bespokePieces.map(toCard) : (
+      showCards ? limitPerDesign([...toShow, ...extras]) : []
+    )
       .filter(inBudget)
-      .slice(0, MAX_CARDS)
+      .slice(0, intent === "recommend" ? MAX_RECOMMEND_CARDS : MAX_CARDS)
       .map((p) => {
         const card = toCard(p);
         if (!p.available) {
@@ -1765,6 +2082,7 @@ ${details || "(none)"}${
 
     // What they typed in the details card beats what the model inferred.
     const name = conversation?.visitor_name || visitorName;
+
 
     // Logging must never cost the visitor their answer.
     try {
@@ -1812,11 +2130,11 @@ ${details || "(none)"}${
     // The model sometimes flags it without actually asking, so the reply
     // must mention a call too.
     // "Please call me" without a number on file opens it too.
-    const detailsOpen = !contactSaved && (
+    const detailsOpen = !bespoke && !contactSaved && (
       intent === "call_request" ||
       (intent !== "human" && askForCall && /\bcall\b/i.test(answer))
     );
-    const askForDetails = detailsOpen || (intent !== "human" &&
+    const askForDetails = detailsOpen || (!bespoke && intent !== "human" &&
       (followUp || aboutAtelier || FOLLOW_UP_WORDS.test(question)));
 
     return json({
@@ -1827,6 +2145,11 @@ ${details || "(none)"}${
       contactSaved,
       askForDetails,
       detailsOpen,
+      bespoke,
+      // About Ware Atelier / bespoke pieces: the chat adds the catalogue's
+      // link (atelierCatalogUrl in chatTexts).
+      catalog: !bespoke &&
+        (aboutAtelier || BESPOKE_WORDS.test(`${question} ${answer}`)),
       // Whether we know what to call them (typed in the chat, the name box
       // or the details form): the chat stops offering the name box.
       nameKnown: !!name,

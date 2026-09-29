@@ -1,0 +1,1630 @@
+{% comment %}
+  WARE CHAT (the "Ware concierge" on the store)
+
+  Everything you might want to change is in this file:
+  1. WORDS - every text the chat window shows, as a labelled list.
+  2. STYLING  - colours, fonts, sizes and position ("EASY EDITS" first).
+  Edit, save, and refresh the store. No rebuild needed.
+
+  Tips:
+  - Keep the quotes around each text. {name}, {phone} and {hours} are
+  filled in automatically; leave them as they are.
+  - The assistant's own replies come from its FAQs and AI guidelines (on
+  the ware-assets site), not from here.
+  - assets/ware-chat.js is the engine; it only needs replacing when the
+  developer changes how the chat works.
+
+  Added to the theme (layout/theme.liquid) with a render tag for
+  'ware-chat'; see widget/README.md in the ware-assets project.
+{% endcomment %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link
+  rel="preconnect"
+  href="https://fonts.gstatic.com"
+  crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&display=swap">
+
+<script>
+  /* ================= 1. WORDS ================= */
+  window.WareChatConfig = {
+    texts: {
+      // Closed chat and header
+      pill: "Need help choosing?",
+      title: "Ware concierge",
+      inputPlaceholder: "Ask about a piece",
+      menuNewChat: "Start a new chat",
+      menuFullScreen: "Full screen",
+      menuSmaller: "Smaller window",
+
+      // Empty chat
+      welcome:
+        "Hi there! Welcome to Ware Innovations. I'm here to help you find the perfect piece, gift ideas, bulk orders or anything delivery related.",
+      suggestions: [
+        "Gift ideas below ₹2,500",
+        "Gifts below ₹5,000",
+        "Bulk or corporate gifting",
+        "How long does delivery take?",
+      ],
+
+      // When the team can be reached (WhatsApp card, details form, thanks)
+      teamHours: "Mon–Sat, 10 am – 7 pm",
+
+      // WhatsApp card
+      whatsappTitle: "Chat with the Ware team",
+      whatsappSubtitle: "Continue on WhatsApp · {hours}",
+
+      // When the assistant can't answer (AI down or out of quota)
+      fallback:
+        "So sorry, I'm having a little trouble answering right now. Our team would love to help though! Tap below to chat with them on WhatsApp.",
+
+      // "What should we call you?" box
+      nameBoxTitle: "What should we call you?",
+      nameBoxThanks: "Lovely to meet you, {name}!",
+
+      // "Leave your details" prompt and form
+      contactPrompt: "Want our team to follow up with you?",
+      contactPromptButton: "Enter your details",
+      contactFormTitle: "Leave your name and number and our team will get back to you.",
+      contactFormTitleCall: "Share your name and number for a quick call from our team.",
+      contactFormNote:
+        "We'll only use this to get back to you about your enquiry. Our team is available {hours}.",
+      contactThanks: "Thanks, {name}! Our team will reach you on {phone} ({hours}).",
+      contactThanksNoName: "Thanks! Our team will reach you on {phone} ({hours}).",
+
+      // Shared form bits
+      namePlaceholder: "Your name",
+      phonePlaceholder: "Phone number",
+      save: "Save",
+      saving: "Saving...",
+      notNow: "Not now",
+      saveFailed: "Couldn't save that just now. Please try again.",
+      invalidPhone: "Please enter a valid phone number.",
+
+      // Product cards and follow-ups
+      soldOut: "Sold out",
+      enquire: "Enquire",
+      showMore: "Show more",
+      moreIntro: "Here are a few more:",
+      similarOffer: "Would you like to see similar products that are in stock?",
+      similarButton: "Yes, show me",
+      similarIntro: "Here are some pieces similar to the {name} that are in stock:",
+
+      // On a product page: the pill, the message it sends, and the reply
+      pillProduct: "Show me more products like this",
+      moreLikeThisAsk: "Show me more products like this",
+      moreLikeThisIntro:
+        "If the {name} caught your eye, you might love these too:",
+      moreLikeThisNone:
+        "I couldn't find anything close to the {name} in stock right now. Our team would be glad to suggest something, just tap below.",
+
+      // On a Ware Atelier (bespoke) piece
+      pillBespoke: "Love this piece? Let's talk",
+      bespokeAsk: "I'd love to know more about the {name}",
+      bespokeIntro:
+        "The {name} is one of our bespoke pieces, and we're so glad it caught your eye! Each one is made to order, so one of our designers would love to hear what you have in mind and create something just for you. Shall we give you a call?",
+      bespokeIntroMany:
+        "These are some of our bespoke pieces, and we're so glad they caught your eye! Each one is made to order, so one of our designers would love to hear what you have in mind and create something just for you. Shall we give you a call?",
+      bespokeCatalog: "Browse our bespoke catalogue",
+      atelierCatalogUrl:
+        "https://cdn.shopify.com/s/files/1/0039/8498/2051/files/Ware_Atelier_Bespoke_Furniture_Catalog.pdf?v=1790597905",
+      bespokeYes: "Yes, call me",
+      bespokeFormTitle:
+        "Share your name and number, and one of our designers will call you.",
+      bespokeWhatsApp: "Prefer WhatsApp? Chat with us instead",
+      bespokeThanks:
+        "Wonderful, thank you {name}! One of our designers will call you shortly from +91 96196 20099 ({hours}). Do save the number so you know it's us.",
+      bespokeThanksNoName:
+        "Wonderful, thank you! One of our designers will call you shortly from +91 96196 20099 ({hours}). Do save the number so you know it's us.",
+      bespokeLater:
+        "Of course, no rush at all. Take your time with it, and whenever you'd like to talk it through, I'm right here.",
+
+      // Team takeover
+      teamJoined: "A member of the Ware team has joined the chat.",
+      teamLeft: "You're chatting with the Ware assistant again.",
+      sentToTeam: "Sent to the Ware team ·",
+    }
+  };
+</script>
+
+<template id="ware-chat-styles">
+  <style>
+    /* ================= 2. STYLING ================= */
+
+
+    /*
+   ============================================================
+   EASY EDITS: colours, fonts, sizes and position of the chat.
+   Change a value, save the snippet, refresh the store. Colours
+   are hex codes (#rrggbb).
+   ============================================================
+*/.ware-chat-root.faq-page {
+      /* --- Colours --- */
+      --faq-accent: #bf5e35;
+      /* Main colour: buttons, send, links (burnt orange) */
+      --ware-accent-hover: #a34d29;
+      /* Main colour when hovered (a touch darker) */
+      --ware-cream: #fbf7f2;
+      /* Chat window background */
+      --ware-peach: #f9e3d2;
+      /* Customer's message bubbles */
+      --ware-brown: #9a4a28;
+      /* Text in customer bubbles and suggestion chips */
+      --ware-ink: #2a211c;
+      /* Main text colour */
+      --ware-line: #eee3d8;
+      /* Borders and dividing lines */
+      --faq-bg: #fdf5ee;
+      /* Hover tint on light buttons */
+      --faq-accent-soft: #fcece0;
+      /* Soft highlight (chips on hover) */
+      --faq-border: #f0dfd0;
+      /* Borders on cards and fields */
+      --faq-border-strong: #e6cbb4;
+      /* Stronger borders */
+      --ware-pill-text: #bf5e35;
+      /* "Ask me anything" text */
+
+      /* --- Fonts --- */
+
+      /*
+   The serif is loaded at the top of this snippet (Google Fonts link);
+   change both together if you swap it.
+*/
+      --ware-serif: "Source Serif 4"
+      , "Iowan Old Style"
+      , Georgia
+      , serif;
+      --ware-sans: -apple-system
+      , BlinkMacSystemFont
+      , "Segoe UI"
+      , Roboto
+      , "Helvetica Neue"
+      , Arial
+      , sans-serif;
+
+      /* --- Text sizes --- */
+      --ware-reply-size: 15px;
+      /* The assistant's replies (serif) */
+      --ware-message-size: 14.5px;
+      /* The customer's messages */
+      --ware-title-size: 20px;
+      /* "Ware concierge" in the header */
+      --ware-pill-size: 14px;
+      /* "Ask me anything" */
+
+      /* --- Size and position --- */
+      --askai-w: 480px;
+      /* Chat window width on computers */
+      --ware-chat-bottom: 120px;
+      /* Distance of the button from the bottom (clears the WhatsApp button) */
+    }
+
+
+    /*
+   ------------------------------------------------------------
+   Everything below is the chat's detailed styling. Fine to tweak,
+   but the EASY EDITS above cover colours, fonts and sizes.
+   ------------------------------------------------------------
+*/
+
+    @media (min-width: 701px) {
+      body.faq-chat-open:not(.faq-chat-expanded) #page-content {
+        padding-right: var(--askai-w);
+      }
+    }
+
+    .faq-page {
+      --faq-bg: #eef2e8;
+      --faq-panel: #ffffff;
+      --faq-border: #dedcd3;
+      --faq-border-strong: #c8c5b8;
+      --faq-text: #1e2320;
+      --faq-text-secondary: #63665f;
+      --faq-text-muted: #97998f;
+      --faq-accent: #2e4034;
+      --faq-accent-soft: #eaf0ea;
+      --faq-danger: #a34133;
+      --faq-radius: 6px;
+
+      width: 80%;
+      max-width: 1560px;
+      min-width: 960px;
+      margin: 0 auto;
+      padding: 40px 0 60px;
+      background: var(--faq-bg);
+      color: var(--faq-text);
+      font-size: 14px;
+    }
+
+    .faq-page * {
+      box-sizing: border-box;
+    }
+
+    .faq-btn {
+      height: 40px;
+      padding: 0 16px;
+      border-radius: var(--faq-radius);
+      border: 1px solid var(--faq-border-strong);
+      background: var(--faq-panel);
+      color: var(--faq-text);
+      font-size: 13px;
+      font-weight: 500;
+      font-family: inherit;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background-color 0.15s ease
+      , border-color 0.15s ease
+      , color 0.15s ease
+      , opacity 0.15s ease;
+    }
+    .faq-btn:hover {
+      background: #fafaf8;
+      border-color: var(--faq-text-muted);
+    }
+    .faq-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .faq-btn-primary {
+      background: var(--faq-accent);
+      border-color: var(--faq-accent);
+      color: #fff;
+    }
+    .faq-btn-primary:hover {
+      background: #253429;
+    }
+    .faq-btn-ghost {
+      border-color: transparent;
+      background: transparent;
+    }
+    .faq-btn-ghost:hover {
+      background: #f0efea;
+    }
+    .faq-icon-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 5px;
+      border: none;
+      background: transparent;
+      color: var(--faq-text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background-color 0.15s ease
+      , color 0.15s ease;
+    }
+    .faq-icon-btn:hover {
+      background: #f0efea;
+      color: var(--faq-text);
+    }
+    .faq-icon-btn.faq-danger:hover {
+      color: var(--faq-danger);
+    }
+    .faq-icon-btn:disabled {
+      opacity: 0.35;
+      cursor: default;
+      pointer-events: none;
+    }
+
+    .faq-chat-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+    .faq-edit-form {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .faq-edit-form label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--faq-text-muted);
+    }
+    .faq-edit-form input,
+    .faq-edit-form textarea {
+      border: 1px solid var(--faq-border-strong);
+      border-radius: var(--faq-radius);
+      padding: 8px 10px;
+      font-size: 14px;
+      font-family: inherit;
+      background: #fff;
+      color: var(--faq-text);
+      width: 100%;
+      resize: vertical;
+    }
+    .faq-edit-form input:focus,
+    .faq-edit-form textarea:focus {
+      outline: none;
+      border-color: var(--faq-accent);
+    }
+    .faq-edit-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .faq-chat-popup {
+      position: fixed;
+      top: 56px;
+      right: 0;
+      bottom: 0;
+      z-index: 40;
+      width: var(--askai-w);
+      display: flex;
+      flex-direction: column;
+      background: var(--faq-panel);
+      border-left: 1px solid var(--faq-border);
+      box-shadow: -8px 0 28px rgba(0, 0, 0, 0.14);
+      transform: translateX(100%);
+      transition: transform 0.28s ease
+      , width 0.28s ease;
+    }
+    .faq-chat-popup-open {
+      transform: translateX(0);
+    }
+    .faq-chat-popup-expanded {
+      --askai-col: 860px;
+      width: calc(100vw - 96px);
+    }
+    .faq-chat-popup-expanded .faq-chat-messages,
+    .faq-chat-popup-expanded .faq-chat-input-row {
+      padding-left: max(24px, calc((100% - var(--askai-col)) / 2));
+      padding-right: max(24px, calc((100% - var(--askai-col)) / 2));
+    }
+    .faq-chat-backdrop {
+      position: fixed;
+      top: 56px;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 39;
+      background: rgba(20, 24, 21, 0.35);
+    }
+    .faq-chat-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--faq-border);
+      flex-shrink: 0;
+    }
+    .faq-chat-title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .faq-chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .faq-chat-empty {
+      font-size: 12.5px;
+      color: var(--faq-text-muted);
+      line-height: 1.6;
+      margin: 0;
+    }
+    .faq-chat-turn {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .faq-chat-bubble {
+      max-width: 88%;
+      padding: 9px 12px;
+      border-radius: 12px;
+      font-size: 13.5px;
+      line-height: 1.55;
+      white-space: pre-line;
+      overflow-wrap: anywhere;
+    }
+    .faq-chat-bubble a {
+      color: inherit;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .faq-chat-user {
+      align-self: flex-end;
+      background: var(--faq-accent);
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .faq-chat-ai {
+      align-self: flex-start;
+      background: var(--faq-bg);
+      border: 1px solid var(--faq-border);
+      color: var(--faq-text);
+      border-bottom-left-radius: 4px;
+    }
+    .faq-chat-bubble.faq-chat-team {
+      background: #eef4fb;
+      border-color: #cfdcec;
+    }
+    .faq-chat-team-label {
+      display: block;
+      margin-bottom: 2px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #3d5a80;
+    }
+    .faq-chat-system {
+      align-self: center;
+      max-width: 90%;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: var(--faq-accent-soft);
+      color: var(--faq-text-secondary);
+      font-size: 11.5px;
+      text-align: center;
+    }
+    .faq-chat-sent-team {
+      color: var(--faq-text-muted);
+    }
+    .faq-chat-typing {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 12px 14px;
+    }
+    .faq-chat-typing span {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--faq-text-muted);
+      animation: faq-chat-typing 1.2s ease-in-out infinite;
+    }
+    .faq-chat-typing span:nth-child(2) {
+      animation-delay: 0.15s;
+    }
+    .faq-chat-typing span:nth-child(3) {
+      animation-delay: 0.3s;
+    }
+    @keyframes faq-chat-typing {
+      0%,
+      60%,
+      100% {
+        transform: translateY(0);
+        opacity: 0.45;
+      }
+      30% {
+        transform: translateY(-4px);
+        opacity: 1;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .faq-chat-typing span {
+        animation: none;
+      }
+    }
+    .faq-chat-bubble.faq-chat-contact-prompt {
+      white-space: normal;
+    }
+    .faq-chat-contact-prompt-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 6px;
+    }
+    .faq-chat-contact-prompt-actions .faq-chat-similar-btn {
+      margin-top: 0;
+    }
+    .faq-chat-contact-skip {
+      border: none;
+      background: none;
+      padding: 0;
+      font: inherit;
+      font-size: 12px;
+      color: var(--faq-text-muted);
+      cursor: pointer;
+      transition: color 0.15s ease;
+    }
+    .faq-chat-contact-skip:hover {
+      color: var(--faq-text);
+    }
+    .faq-chat-name-card {
+      align-self: flex-start;
+      width: 88%;
+      max-width: 340px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 10px 12px;
+      border: 1px solid var(--faq-border);
+      border-radius: 12px;
+      background: var(--faq-panel);
+      font-size: 13px;
+      color: var(--faq-text);
+    }
+    .faq-chat-name-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .faq-chat-name-card-close {
+      display: flex;
+      padding: 2px;
+      border: none;
+      background: none;
+      color: var(--faq-text-muted);
+      cursor: pointer;
+    }
+    .faq-chat-name-card-close:hover {
+      color: var(--faq-text);
+    }
+    .faq-chat-name-card-row {
+      display: flex;
+      gap: 8px;
+    }
+    .faq-chat-name-card-row input {
+      flex: 1;
+      min-width: 0;
+      padding: 7px 10px;
+      border: 1px solid var(--faq-border-strong);
+      border-radius: 8px;
+      font: inherit;
+      font-size: 13px;
+      color: var(--faq-text);
+      background: #fff;
+    }
+    .faq-chat-name-card-row input:focus {
+      outline: none;
+      border-color: var(--faq-accent);
+    }
+    .faq-chat-name-card-row .faq-btn {
+      flex-shrink: 0;
+    }
+    .faq-chat-bubble.faq-chat-contact {
+      width: 88%;
+      white-space: normal;
+      gap: 8px;
+    }
+    .faq-chat-contact-title {
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .faq-chat-contact input {
+      font-size: 13px;
+    }
+    .faq-chat-contact-note {
+      font-size: 11.5px;
+      color: var(--faq-text-muted);
+    }
+    /* "Browse our bespoke catalogue" on the designer-call offer */
+    .faq-chat-catalog-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--faq-accent);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    .faq-chat-catalog-link:hover {
+      color: var(--faq-text);
+    }
+    /* "Prefer WhatsApp?" under the bespoke call form */
+    .faq-chat-contact-whatsapp {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      align-self: center;
+      font-size: 12px;
+      color: var(--faq-text-muted);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .faq-chat-contact-whatsapp:hover {
+      color: var(--faq-accent);
+    }
+    .faq-chat-contact-error {
+      font-size: 12px;
+      color: var(--faq-danger);
+    }
+    .faq-chat-error {
+      color: #b3441f;
+    }
+    .faq-guideline.faq-edit-form {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .faq-chat-similar-offer {
+      margin-top: 10px;
+      white-space: normal;
+    }
+    .faq-chat-similar-btn {
+      display: block;
+      margin-top: 6px;
+      padding: 6px 12px;
+      border: 1px solid var(--faq-accent);
+      border-radius: var(--faq-radius);
+      background: var(--faq-panel);
+      color: var(--faq-accent);
+      font-size: 12.5px;
+      cursor: pointer;
+      transition: background-color 0.15s ease
+      , color 0.15s ease;
+    }
+    .faq-chat-similar-btn:hover {
+      background: var(--faq-accent);
+      color: #fff;
+    }
+    .faq-chat-products {
+      display: flex;
+      gap: 8px;
+      margin: 10px -12px 0;
+      padding: 0 12px 6px;
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      scroll-padding: 0 12px;
+      overscroll-behavior-x: contain;
+      scrollbar-width: thin;
+      scrollbar-color: var(--faq-border-strong) transparent;
+      white-space: normal;
+    }
+    .faq-chat-products::-webkit-scrollbar {
+      height: 5px;
+    }
+    .faq-chat-products::-webkit-scrollbar-thumb {
+      background: var(--faq-border-strong);
+      border-radius: 999px;
+    }
+    .faq-chat-bubble:has(.faq-chat-products) {
+      width: 88%;
+    }
+    .faq-chat-product {
+      flex: 0 0 148px;
+      scroll-snap-align: start;
+      display: flex;
+      flex-direction: column;
+      background: var(--faq-panel);
+      border: 1px solid var(--faq-border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .faq-chat-bubble a.faq-chat-product-link {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      color: inherit;
+      text-decoration: none;
+    }
+    .faq-chat-product-img {
+      position: relative;
+      aspect-ratio: 4 / 5;
+      background: var(--faq-bg);
+    }
+    .faq-chat-product-img img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .faq-chat-product-badge {
+      position: absolute;
+      top: 6px;
+      left: 6px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(30, 35, 32, 0.8);
+      color: #fff;
+      font-size: 10.5px;
+    }
+    .faq-chat-product-title {
+      padding: 7px 8px 2px;
+      font-size: 12.5px;
+      line-height: 1.35;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .faq-chat-product-price {
+      padding: 0 8px 8px;
+      margin-top: auto;
+      font-size: 12.5px;
+      font-weight: 600;
+    }
+    .faq-chat-bubble .faq-chat-product-btn {
+      margin: 0 8px 8px;
+      padding: 6px 8px;
+      border: 1px solid var(--faq-accent);
+      border-radius: var(--faq-radius);
+      background: var(--faq-accent);
+      color: #fff;
+      font-family: inherit;
+      font-size: 12px;
+      line-height: 1.3;
+      text-align: center;
+      text-decoration: none;
+      cursor: pointer;
+      transition: opacity 0.15s ease
+      , background-color 0.15s ease
+      , border-color 0.15s ease
+      , color 0.15s ease;
+    }
+    .faq-chat-bubble .faq-chat-product-btn:hover {
+      opacity: 0.88;
+    }
+    .faq-chat-bubble .faq-chat-product-btn-muted {
+      background: var(--faq-panel);
+      border-color: var(--faq-border-strong);
+      color: var(--faq-text-secondary);
+    }
+    .faq-chat-bubble .faq-chat-product-btn-muted:hover {
+      opacity: 1;
+      border-color: var(--faq-accent);
+      color: var(--faq-accent);
+    }
+    .faq-chat-bubble .faq-chat-product-btn:disabled {
+      cursor: default;
+      border-color: var(--faq-border);
+      color: var(--faq-text-muted);
+    }
+    .faq-chat-bubble a.faq-chat-whatsapp-btn {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      max-width: 320px;
+      box-sizing: border-box;
+      margin-top: 12px;
+      padding: 10px 14px 10px 10px;
+      border: 1px solid var(--faq-border);
+      border-radius: 12px;
+      background: var(--faq-panel);
+      color: var(--faq-text);
+      text-decoration: none;
+      white-space: normal;
+      box-shadow: 0 1px 2px rgba(30, 35, 32, 0.06);
+      transition: border-color 0.15s ease
+      , box-shadow 0.15s ease
+      , transform 0.15s ease;
+    }
+    .faq-chat-bubble a.faq-chat-whatsapp-btn:hover {
+      border-color: var(--faq-border-strong);
+      box-shadow: 0 4px 14px rgba(30, 35, 32, 0.1);
+      transform: translateY(-1px);
+    }
+    .faq-chat-whatsapp-icon {
+      flex-shrink: 0;
+      display: grid;
+      place-items: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: #1f8f4e;
+      color: #fff;
+    }
+    .faq-chat-whatsapp-text {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.3;
+    }
+    .faq-chat-whatsapp-text strong {
+      font-size: 13.5px;
+      font-weight: 600;
+    }
+    .faq-chat-whatsapp-text small {
+      font-size: 11.5px;
+      color: var(--faq-text-muted);
+    }
+    .faq-chat-whatsapp-arrow {
+      flex-shrink: 0;
+      color: var(--faq-text-muted);
+      transition: color 0.15s ease
+      , transform 0.15s ease;
+    }
+    .faq-chat-bubble a.faq-chat-whatsapp-btn:hover .faq-chat-whatsapp-arrow {
+      color: var(--faq-text);
+      transform: translate(1px, -1px);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .faq-chat-bubble a.faq-chat-whatsapp-btn,
+      .faq-chat-whatsapp-arrow {
+        transition: none;
+        transform: none !important;
+      }
+    }
+    .faq-chat-bubble a.faq-chat-gift-image {
+      flex: 0 0 200px;
+      scroll-snap-align: start;
+      display: flex;
+      flex-direction: column;
+      background: var(--faq-panel);
+      border: 1px solid var(--faq-border);
+      border-radius: 8px;
+      overflow: hidden;
+      color: inherit;
+      text-decoration: none;
+      transition: border-color 0.15s ease;
+    }
+    .faq-chat-bubble a.faq-chat-gift-image:hover {
+      border-color: var(--faq-border-strong);
+    }
+    .faq-chat-gift-image img {
+      width: 100%;
+      aspect-ratio: 1;
+      object-fit: cover;
+      display: block;
+      background: var(--faq-bg);
+    }
+    .faq-chat-gift-image span {
+      padding: 6px 8px;
+      font-size: 11.5px;
+      line-height: 1.35;
+      color: var(--faq-text-secondary);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .faq-chat-restock {
+      margin-top: 10px;
+      padding: 10px;
+      border: 1px solid var(--faq-border);
+      border-radius: 8px;
+      background: var(--faq-panel);
+      white-space: normal;
+      gap: 8px;
+    }
+    .faq-chat-restock-title {
+      font-size: 12.5px;
+      line-height: 1.45;
+    }
+    .faq-chat-restock input {
+      font-size: 13px;
+    }
+    .faq-chat-restock-done {
+      margin-top: 10px;
+      font-size: 12.5px;
+      color: var(--faq-accent);
+      white-space: normal;
+    }
+    .faq-chat-bubble-actions {
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .faq-chat-meta {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: var(--faq-text-muted);
+    }
+    .faq-chat-meta-user {
+      align-self: flex-end;
+    }
+    .faq-chat-time {
+      white-space: nowrap;
+    }
+    .faq-chat-copy-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: none;
+      border: none;
+      padding: 1px;
+      cursor: pointer;
+      color: var(--faq-text-muted);
+      transition: color 0.15s ease;
+    }
+    .faq-chat-copy-btn:hover {
+      color: var(--faq-accent);
+    }
+    .faq-chat-saved {
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #2f6a3f;
+    }
+    .faq-chat-editing {
+      width: 88%;
+      gap: 8px;
+    }
+    .faq-chat-editing textarea {
+      font-size: 13px;
+    }
+    .faq-chat-input-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-top: 1px solid var(--faq-border);
+      flex-shrink: 0;
+    }
+    .faq-chat-input-row input {
+      flex: 1;
+      min-width: 0;
+      border: 1px solid var(--faq-border-strong);
+      border-radius: 999px;
+      padding: 9px 14px;
+      font-size: 13.5px;
+      font-family: inherit;
+      background: #fff;
+      color: var(--faq-text);
+      transition: border-color 0.15s ease;
+    }
+    .faq-chat-input-row input:focus {
+      outline: none;
+      border-color: var(--faq-accent);
+    }
+    .faq-chat-send-btn {
+      flex-shrink: 0;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--faq-accent);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      cursor: pointer;
+      transition: background-color 0.15s ease;
+    }
+    .faq-chat-send-btn:hover {
+      background: #253429;
+    }
+
+    @media (max-width: 700px) {
+      .faq-chat-popup {
+        left: 0;
+        width: auto;
+      }
+      .faq-chat-expand-btn,
+      .faq-chat-backdrop {
+        display: none;
+      }
+    }
+    @media (max-width: 860px) {
+      .faq-page {
+        width: 100%;
+        min-width: 0;
+        padding: 20px 16px 40px;
+      }
+    }
+
+
+    /*
+   Store-only layout for the chat, on top of the shared Faq.css. Everything
+   lives in the widget's shadow root, so none of this reaches the theme.
+*/
+
+
+    /*
+   The shared styles hang off .faq-page (colours, box-sizing); undo its
+   page layout so it's just a wrapper here. Colours, fonts and sizes are
+   variables set in theme.css (the "easy edits" at the top of the
+   snippet). Fonts are set rather than inherited from the store's theme: a
+   serif for the concierge's voice and a clean sans for everything else.
+*/.ware-chat-root.faq-page {
+      font-family: var(--ware-sans);
+      width: auto;
+      min-width: 0;
+      max-width: none;
+      margin: 0;
+      padding: 0;
+      background: none;
+      font-size: 14px;
+      line-height: 1.4;
+      letter-spacing: normal;
+      text-transform: none;
+      text-align: left;
+    }
+    .ware-chat-root button,
+    .ware-chat-root input,
+    .ware-chat-root textarea {
+      font-family: inherit;
+      letter-spacing: normal;
+      text-transform: none;
+    }
+
+    /* ---------- Floating button ---------- */
+    .ware-chat-launcher {
+      position: fixed;
+      right: 27px;
+      bottom: var(--ware-chat-bottom);
+      z-index: 2147483001;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--faq-accent);
+      color: #fff;
+      cursor: pointer;
+      box-shadow: 0 6px 20px rgba(20, 24, 21, 0.28);
+      transition: transform 0.18s ease
+      , background-color 0.15s ease;
+    }
+    .ware-chat-launcher:hover {
+      background: var(--ware-accent-hover);
+      transform: scale(1.05);
+    }
+    /* The shared styles hard-code the site's dark green for these hovers. */
+    .ware-chat-root .faq-btn-primary:hover,
+    .ware-chat-root .faq-chat-send-btn:hover {
+      background: var(--ware-accent-hover);
+      border-color: var(--ware-accent-hover);
+    }
+
+    /* ---------- "Ask me anything" pill (chat closed) ---------- */
+    .ware-chat-pill {
+      position: fixed;
+      right: 20px;
+      bottom: var(--ware-chat-bottom);
+      z-index: 2147483001;
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      padding: 11px 20px 11px 16px;
+      color: var(--ware-pill-text);
+      font-size: var(--ware-pill-size);
+      font-weight: 500;
+      line-height: 1;
+
+      /*
+   Frosted glass: translucent white that blurs the page behind it, with
+   a bright hairline edge. Solid white where blur isn't supported.
+*/
+      border: 1px solid rgba(255, 255, 255, 0.7);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.62);
+      -webkit-backdrop-filter: blur(16px) saturate(170%);
+      backdrop-filter: blur(16px) saturate(170%);
+      text-align: left;
+      white-space: nowrap;
+      cursor: pointer;
+      box-shadow: 0 8px 28px rgba(60, 35, 20, 0.14)
+      , 0 1px 3px rgba(60, 35, 20, 0.08)
+      , inset 0 1px 0 rgba(255, 255, 255, 0.8);
+      /* "backwards", not "both": a held end state would override the hover lift. */
+      animation: ware-chat-pill-in 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.2) backwards;
+      transition: transform 0.2s ease
+      , box-shadow 0.2s ease
+      , background-color 0.2s ease;
+    }
+    @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+      .ware-chat-pill {
+        background: #fff;
+        border-color: var(--faq-border);
+      }
+    }
+    .ware-chat-pill:hover {
+      transform: translateY(-2px);
+      background: rgba(253, 245, 238, 0.8);
+      box-shadow: 0 12px 32px rgba(60, 35, 20, 0.18)
+      , 0 2px 4px rgba(60, 35, 20, 0.08)
+      , inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    }
+    .ware-chat-pill:focus-visible {
+      outline: 2px solid var(--faq-accent);
+      outline-offset: 3px;
+    }
+    /* Sparkle in the main colour that gently twinkles (fades, shrinks and
+       tilts a little, then back). */
+    .ware-chat-pill-icon {
+      display: inline-flex;
+      flex-shrink: 0;
+      color: var(--faq-accent);
+      animation: ware-chat-twinkle 2.2s ease-in-out infinite;
+    }
+    @keyframes ware-chat-twinkle {
+      0%,
+      100% {
+        opacity: 1;
+        transform: scale(1) rotate(0deg);
+      }
+      50% {
+        opacity: 0.35;
+        transform: scale(0.8) rotate(-12deg);
+      }
+    }
+    @keyframes ware-chat-pill-in {
+      from {
+        opacity: 0;
+        transform: translateY(12px) scale(0.96);
+      }
+      to {
+        opacity: 1;
+        transform: none;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .ware-chat-pill,
+      .ware-chat-pill-icon {
+        animation: none;
+      }
+    }
+
+
+    /*
+   ---------- The chat window ----------
+   A floating panel above the button, instead of the site's full-height
+   side drawer under a navbar.
+*/
+    .ware-chat-root .faq-chat-popup {
+      top: auto;
+      right: 20px;
+      bottom: calc(var(--ware-chat-bottom) + 60px);
+      z-index: 2147483000;
+      width: var(--askai-w);
+      height: min(720px, calc(100vh - var(--ware-chat-bottom) - 90px));
+      border: 1px solid var(--faq-border);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 12px 40px rgba(20, 24, 21, 0.22);
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(16px) scale(0.98);
+      transform-origin: bottom right;
+      transition: opacity 0.2s ease
+      , transform 0.2s ease
+      , width 0.28s ease
+      , height 0.28s ease;
+    }
+    .ware-chat-root .faq-chat-popup-open {
+      opacity: 1;
+      pointer-events: auto;
+      transform: none;
+    }
+    .ware-chat-root .faq-chat-popup-expanded {
+      width: min(1100px, calc(100vw - 96px));
+      height: calc(100vh - var(--ware-chat-bottom) - 90px);
+    }
+    .ware-chat-root .faq-chat-backdrop {
+      top: 0;
+      z-index: 2147482999;
+    }
+
+    /* ---------- Store-only bits of the chat ---------- */
+    .ware-chat-welcome {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .ware-chat-suggestions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .ware-chat-suggestion {
+      padding: 7px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--faq-border-strong);
+      background: var(--faq-panel);
+      color: var(--faq-text);
+      font-size: 12.5px;
+      cursor: pointer;
+      transition: background-color 0.15s ease
+      , border-color 0.15s ease;
+    }
+    .ware-chat-suggestion:hover {
+      background: var(--faq-accent-soft);
+      border-color: var(--faq-accent);
+    }
+    .faq-chat-bubble .faq-chat-product-btn.ware-chat-added {
+      background: var(--faq-accent-soft);
+      border-color: var(--faq-border-strong);
+      color: var(--ware-accent-hover);
+    }
+
+    /* ---------- Concierge look (the chat window) ---------- */
+    .ware-chat-root .faq-chat-popup {
+      background: var(--ware-cream);
+      border-color: var(--ware-line);
+    }
+
+    /* Header: minimise, centred name, menu */
+    .ware-chat-root .ware-chat-header {
+      display: grid;
+      grid-template-columns: 36px 1fr 36px;
+      align-items: center;
+      gap: 8px;
+      padding: 12px;
+      background: var(--ware-cream);
+      border-bottom: 1px solid var(--ware-line);
+    }
+    .ware-chat-heading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      text-align: center;
+      min-width: 0;
+    }
+    .ware-chat-name {
+      font-family: var(--ware-serif);
+      font-size: var(--ware-title-size);
+      font-weight: 500;
+      line-height: 1.15;
+      color: var(--ware-ink);
+    }
+    .ware-chat-root .ware-chat-header .faq-icon-btn {
+      width: 36px;
+      height: 36px;
+      border: none;
+      border-radius: 50%;
+      background: transparent;
+      color: var(--ware-ink);
+    }
+    .ware-chat-root .ware-chat-header .faq-icon-btn:hover {
+      background: rgba(191, 94, 53, 0.08);
+    }
+    .ware-chat-menu-wrap {
+      position: relative;
+    }
+    .ware-chat-menu-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 4;
+    }
+    .ware-chat-menu {
+      position: absolute;
+      top: 42px;
+      right: 0;
+      z-index: 5;
+      min-width: 190px;
+      padding: 6px;
+      background: #fff;
+      border: 1px solid var(--ware-line);
+      border-radius: 12px;
+      box-shadow: 0 12px 32px rgba(60, 35, 20, 0.14);
+    }
+    .ware-chat-menu button {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      width: 100%;
+      padding: 9px 11px;
+      border: none;
+      border-radius: 8px;
+      background: none;
+      color: var(--ware-ink);
+      font-size: 13.5px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .ware-chat-menu button:hover:not(:disabled) {
+      background: var(--faq-bg);
+    }
+    .ware-chat-menu button:disabled {
+      opacity: 0.45;
+      cursor: default;
+    }
+
+
+    /*
+   Full screen / smaller window only means something on a computer: phones
+   already get the whole screen. (Selector as specific as the one above,
+   or that one's display: flex would win.) */
+    @media (max-width: 700px),
+    (hover: none) {
+      .ware-chat-menu button.ware-chat-menu-expand {
+        display: none;
+      }
+    }
+
+
+    /*
+   Messages: the concierge writes in serif straight on the cream; the
+   shopper's messages are peach pills. No timestamps.
+*/
+    .ware-chat-root .faq-chat-messages {
+      padding: 20px 16px;
+      gap: 20px;
+    }
+    .ware-chat-root .faq-chat-bubble.faq-chat-ai:not(.faq-chat-team):not(.faq-chat-contact):not(.faq-chat-contact-prompt) {
+      max-width: 100%;
+      padding: 0;
+      border: none;
+      background: none;
+      font-family: var(--ware-serif);
+      font-size: var(--ware-reply-size);
+      line-height: 1.5;
+      color: var(--ware-ink);
+    }
+    .ware-chat-root .faq-chat-bubble.faq-chat-typing {
+      padding: 6px 0;
+    }
+    .ware-chat-root .faq-chat-user {
+      padding: 7px 13px;
+      border-radius: 16px;
+      background: var(--ware-peach);
+      color: var(--ware-brown);
+      font-size: var(--ware-message-size);
+      font-weight: 500;
+    }
+    .ware-chat-root .faq-chat-time,
+    .ware-chat-root .faq-chat-bubble-actions,
+    .ware-chat-root .faq-chat-meta-user:not(:has(.faq-chat-sent-team)) {
+      display: none;
+    }
+
+    /*
+   Everything inside a reply other than the words themselves goes back to
+   the sans at a normal size.
+*/
+    .ware-chat-root .faq-chat-products,
+    .ware-chat-root .faq-chat-similar-offer,
+    .ware-chat-root .faq-chat-more-btn,
+    .ware-chat-root .faq-chat-whatsapp-btn,
+    .ware-chat-root .faq-chat-gift-image,
+    .ware-chat-root .faq-chat-restock-done {
+      font-family: var(--ware-sans);
+      font-size: 13.5px;
+      line-height: 1.45;
+    }
+
+    /* Suggestion chips and small pill buttons */
+    .ware-chat-welcome {
+      gap: 16px;
+    }
+    .ware-chat-suggestion,
+    .ware-chat-root .faq-chat-similar-btn {
+      padding: 7px 13px;
+      border: 1px solid #e9c4aa;
+      border-radius: 999px;
+      background: transparent;
+      color: var(--ware-brown);
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .ware-chat-suggestion:hover,
+    .ware-chat-root .faq-chat-similar-btn:hover {
+      background: var(--ware-peach);
+      border-color: var(--faq-accent);
+      color: var(--ware-brown);
+    }
+
+    /* Product cards: a swipeable row */
+    .ware-chat-root .faq-chat-products {
+      gap: 10px;
+      margin: 14px -16px 0;
+      padding: 0 16px 6px;
+      scroll-padding: 0 16px;
+      scrollbar-width: none;
+    }
+    .ware-chat-root .faq-chat-products::-webkit-scrollbar {
+      display: none;
+    }
+    /* ‹ › buttons for mouse users; phones just swipe. */
+    .ware-row {
+      position: relative;
+    }
+    .ware-row-arrow {
+      position: absolute;
+      top: 82px;
+      /* level with the middle of the card photos */
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border: 1px solid var(--ware-line);
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.95);
+      color: var(--ware-ink);
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(60, 35, 20, 0.16);
+      transition: background-color 0.15s ease
+      , color 0.15s ease;
+    }
+    .ware-row-arrow:hover {
+      background: var(--faq-accent);
+      border-color: var(--faq-accent);
+      color: #fff;
+    }
+    .ware-row-arrow-prev {
+      left: -6px;
+    }
+    .ware-row-arrow-next {
+      right: -6px;
+    }
+    @media (hover: none) {
+      .ware-row-arrow {
+        display: none;
+      }
+    }
+
+    .ware-card {
+      flex: 0 0 150px;
+      scroll-snap-align: start;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: #fff;
+      border: 1px solid var(--ware-line);
+      border-radius: 16px;
+      white-space: normal;
+    }
+    .ware-card-link {
+      display: block;
+      color: inherit;
+      text-decoration: none;
+    }
+    .ware-card-img {
+      position: relative;
+      aspect-ratio: 1 / 0.9;
+      background: #efe4d8;
+    }
+    .ware-card-img img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .ware-card-tag {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.92);
+      color: var(--ware-brown);
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .ware-card-tag-muted {
+      color: #6b625b;
+    }
+    .ware-card-name {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      padding: 10px 12px 0;
+      font-family: var(--ware-serif);
+      font-size: 15px;
+      line-height: 1.25;
+      color: var(--ware-ink);
+    }
+    .ware-card-detail {
+      padding: 2px 12px 0;
+      font-size: 12px;
+      color: #8a7f76;
+    }
+    .ware-card-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: auto;
+      padding: 10px 12px 12px;
+    }
+    .ware-card-price {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--ware-ink);
+    }
+    .ware-card-add {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      width: 30px;
+      height: 30px;
+      border: 1.5px solid var(--faq-accent);
+      border-radius: 50%;
+      background: transparent;
+      color: var(--faq-accent);
+      cursor: pointer;
+      transition: background-color 0.15s ease
+      , color 0.15s ease;
+    }
+    .ware-card-add:hover,
+    .ware-card-added {
+      background: var(--faq-accent);
+      color: #fff;
+    }
+    .ware-card-add:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+    .ware-card-enquire {
+      padding: 5px 11px;
+      border: 1px solid var(--faq-accent);
+      border-radius: 999px;
+      color: var(--faq-accent);
+      font-size: 12.5px;
+      font-weight: 500;
+      text-decoration: none;
+    }
+
+    /* "Leave your details" prompt and form, and the name box: white cards */
+    .ware-chat-root .faq-chat-name-card {
+      border-color: var(--ware-line);
+      border-radius: 16px;
+      padding: 12px 14px;
+    }
+    .ware-chat-root .faq-chat-name-card-row input {
+      border-color: #e8d8ca;
+      border-radius: 999px;
+      padding: 8px 14px;
+    }
+    .ware-chat-root .faq-chat-contact-prompt,
+    .ware-chat-root .faq-chat-contact {
+      background: #fff;
+      border: 1px solid var(--ware-line);
+      border-radius: 16px;
+      font-size: 13.5px;
+    }
+
+    /* Input */
+    .ware-chat-root .faq-chat-input-row {
+      gap: 10px;
+      padding: 12px 14px 14px;
+      background: var(--ware-cream);
+      border-top: 1px solid var(--ware-line);
+    }
+    .ware-chat-root .faq-chat-input-row input {
+      padding: 12px 18px;
+      border-color: #e8d8ca;
+      background: #fff;
+      font-size: 14.5px;
+    }
+    .ware-chat-root .faq-chat-input-row input::placeholder {
+      color: #a2968c;
+    }
+    .ware-chat-root .faq-chat-send-btn {
+      width: 40px;
+      height: 40px;
+    }
+
+    /* ---------- Phones: the chat takes the whole screen ---------- */
+    @media (max-width: 700px) {
+      .ware-chat-root .faq-chat-popup {
+        inset: 0;
+        width: auto;
+        height: auto;
+        border: none;
+        border-radius: 0;
+      }
+      .ware-chat-launcher,
+      .ware-chat-pill {
+        right: 16px;
+      }
+      /* Compact on phones, so it doesn't sit on top of much of the page. */
+      .ware-chat-pill {
+        gap: 8px;
+        padding: 10px 16px 10px 14px;
+        font-size: calc(var(--ware-pill-size) - 0.5px);
+      }
+      /* The header's close button does the job while it's open. */
+      .ware-chat-launcher-open {
+        display: none;
+      }
+      /* Under 16px, iPhones zoom the page in when the field is tapped. */
+      .ware-chat-root .faq-chat-input-row input {
+        font-size: 16px;
+      }
+    }
+  </style>
+</template>
+
+<script src="{{ 'ware-chat.js' | asset_url }}" defer></script>
