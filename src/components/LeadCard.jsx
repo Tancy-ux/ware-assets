@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, ExternalLink, Sparkles } from "lucide-react";
 import { toast } from "react-toastify";
 
@@ -20,8 +20,10 @@ const missingFor = (lead) => {
 // Zoho's "Type of client" choices, loaded once for the page.
 let optionsPromise = null;
 
-const LeadCard = ({ conversation: c, api, onUpdated }) => {
-  const [open, setOpen] = useState(false);
+// The side panel's contact details too: Save keeps them in the admin
+// only; Send to Zoho is the separate push. `open` / `onOpenChange` are the
+// panel's (open when a chat opens).
+const LeadCard = ({ conversation: c, api, onUpdated, open, onOpenChange }) => {
   const [lead, setLead] = useState(() => ({
     name: c.visitorName ?? "",
     phone: c.visitorPhone ?? "",
@@ -31,23 +33,49 @@ const LeadCard = ({ conversation: c, api, onUpdated }) => {
     clientType: c.clientType ?? "",
   }));
   const [dirty, setDirty] = useState(false);
+
+  // Details that arrive while the chat is open (the live list picks up a
+  // name or number they've just given) fill the fields still empty; what
+  // the team has typed is never replaced.
+  const fromChat = {
+    name: c.visitorName ?? "",
+    phone: c.visitorPhone ?? "",
+    email: c.visitorEmail ?? "",
+  };
+  const [seen, setSeen] = useState(fromChat);
+  if (
+    seen.name !== fromChat.name ||
+    seen.phone !== fromChat.phone ||
+    seen.email !== fromChat.email
+  ) {
+    setSeen(fromChat);
+    setLead((prev) => ({
+      ...prev,
+      name: prev.name.trim() ? prev.name : fromChat.name,
+      phone: prev.phone.trim() ? prev.phone : fromChat.phone,
+      email: prev.email.trim() ? prev.email : fromChat.email,
+    }));
+  }
   const [busy, setBusy] = useState(null); // draft | save | push
   const [options, setOptions] = useState(null);
 
   const missing = missingFor(lead);
   const inZoho = !!c.zohoLeadId;
 
-  const toggle = () => {
-    const next = !open;
-    setOpen(next);
-    if (next && !options) {
-      optionsPromise ??= api({ action: "lead-options" });
-      optionsPromise.then((data) => {
-        if (!data?.connected) optionsPromise = null; // try again next time
-        setOptions(data ?? { connected: false, clientTypes: [] });
-      });
-    }
-  };
+  const toggle = () => onOpenChange(!open);
+
+  useEffect(() => {
+    if (!open || options) return;
+    let cancelled = false;
+    optionsPromise ??= api({ action: "lead-options" });
+    optionsPromise.then((data) => {
+      if (!data?.connected) optionsPromise = null; // try again next time
+      if (!cancelled) setOptions(data ?? { connected: false, clientTypes: [] });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, options, api]);
 
   const change = (key) => (e) => {
     setLead((prev) => ({ ...prev, [key]: e.target.value }));
@@ -119,9 +147,9 @@ const LeadCard = ({ conversation: c, api, onUpdated }) => {
   );
 
   return (
-    <div className="chats-lead">
+    <div className="chats-info-section chats-lead">
       <button type="button" className="chats-lead-bar" onClick={toggle}>
-        <strong>Lead</strong>
+        <span className="chats-info-title">Contact &amp; Zoho lead</span>
         {status}
         {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
       </button>

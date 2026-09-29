@@ -114,8 +114,6 @@ const VIA_PROPERTY = "_via";
 // Nothing is tagged before the chat started tagging carts.
 const TRACKING_FROM = "2026-09-29T00:00:00Z";
 const MAX_ORDER_PAGES = 25; // x 80 orders
-// Most messages read for the per-page counts.
-const PAGE_MESSAGES_LIMIT = 20000;
 // Shopify's orders are cached briefly (reading them takes a few calls);
 // the chat counts are always fresh.
 const ORDERS_CACHE_MS = 5 * 60 * 1000;
@@ -123,6 +121,99 @@ const ordersCache = new Map<
   string,
   { at: number; value: Awaited<ReturnType<typeof chatOrders>> }
 >();
+
+// The store's product and collection names and photos (handle -> title
+// and first image, from the public products.json / collections.json
+// feeds), kept for an hour: photos for chats logged before photos were
+// saved with them, and real names for the Stats tab's pages. No AI, no
+// admin token.
+const STORE_URL = "https://www.wareinnovations.com";
+const CATALOG_CACHE_MS = 60 * 60 * 1000;
+type CatalogItem = { title: string; image: string | null };
+type StoreCatalog = {
+  products: Map<string, CatalogItem>;
+  collections: Map<string, CatalogItem>;
+};
+let catalogCache: { at: number; value: StoreCatalog } | null = null;
+
+async function readFeed(kind: "products" | "collections") {
+  const items = new Map<string, CatalogItem>();
+  for (let page = 1; page <= 10; page++) {
+    const res = await fetch(`${STORE_URL}/${kind}.json?limit=250&page=${page}`);
+    if (!res.ok) break;
+    const list = (await res.json())[kind] ?? [];
+    for (const x of list) {
+      items.set(x.handle, {
+        title: x.title,
+        image: x.images?.[0]?.src ?? x.image?.src ?? null,
+      });
+    }
+    if (list.length < 250) break;
+  }
+  return items;
+}
+
+async function storeCatalog(): Promise<StoreCatalog> {
+  if (catalogCache && Date.now() - catalogCache.at < CATALOG_CACHE_MS) {
+    return catalogCache.value;
+  }
+  const [products, collections] = await Promise.all([
+    readFeed("products"),
+    readFeed("collections"),
+  ]);
+  catalogCache = { at: Date.now(), value: { products, collections } };
+  return catalogCache.value;
+}
+
+const EMPTY_CATALOG: StoreCatalog = {
+  products: new Map(),
+  collections: new Map(),
+};
+
+// A store path's product or collection, if it's one of those.
+function catalogItem(catalog: StoreCatalog, path: string) {
+  const parts = path.split("/").filter(Boolean);
+  const at = parts.lastIndexOf("products");
+  if (at >= 0) return catalog.products.get(parts[at + 1] ?? "") ?? null;
+  const c = parts.indexOf("collections");
+  if (c >= 0 && parts.length === c + 2) {
+    return catalog.collections.get(parts[c + 1]) ?? null;
+  }
+  return null;
+}
+
+// Stats: what a chat was about, by simple keyword rules over its topic
+// and questions (no AI). First match wins, so the order matters.
+const ASK_ABOUT: [string, RegExp][] = [
+  ["Bulk or restaurant orders", /\b(bulk|restaurants?|hotels?|cafes?|horeca|wholesale|corporate|quantit(y|ies)|resell)/i],
+  ["Ware Atelier (bespoke)", /\b(atelier|bespoke|furniture)/i],
+  ["Gifting", /\b(gift|gifting|diwali|wedding|hamper|return gifts?)/i],
+  ["Similar products", /\b(similar|more (products|pieces) like|pieces like)/i],
+  ["Delivery and shipping", /\b(deliver|delivery|shipping|ship|pincode|dispatch|courier|international)/i],
+  ["Returns, care and quality", /\b(return|exchange|refund|damaged?|broken|care|dishwasher|microwave|oven)/i],
+  ["How to order", /\b(how (do i|to|can i) (order|buy)|place (an )?order|payment|cod|checkout|order)/i],
+  ["Just saying hi", /^(hi|hii+|hello|hey|yo|hola|namaste|just saying hi|greeting)\b/i],
+];
+
+function askedAbout(c: { topic?: string | null; first_question?: string | null; last_question?: string | null }) {
+  const text = [c.topic, c.first_question, c.last_question].filter(Boolean).join(" \n ");
+  if (!text.trim()) return "Other questions";
+  for (const [label, re] of ASK_ABOUT) {
+    if (label === "Just saying hi") {
+      if ((c.topic && re.test(c.topic)) || (!c.topic && re.test((c.first_question ?? "").trim()) && (c.first_question ?? "").length < 25)) {
+        return label;
+      }
+    } else if (re.test(text)) return label;
+  }
+  return c.topic ? "Product questions" : "Other questions";
+}
+
+// "Hide test and junk chats": ones the team named or labelled test / junk.
+const TEST_RE = /\b(test(ing)?|junk)\b/i;
+const isTestChat = (c: { label?: string | null; visitor_name?: string | null; company?: string | null }) =>
+  [c.label, c.visitor_name, c.company].some((s) => s && TEST_RE.test(s));
+
+const handleOf = (url: string) => url.match(/\/products\/([^/?#]+)/)?.[1] ?? "";
 
 const ORDERS_QUERY = `
 query Orders($q: String!, $after: String) {
@@ -251,6 +342,62 @@ async function dailyNumbers(db: any, conversations: { started_at: string }[]) {
   return numbers;
 }
 
+// ---- Needs reply / visits (the Chats list) ----
+// A taken-over chat needs a reply when its latest message is the
+// customer's (the AI isn't answering it). Returns those chats' ids.
+// deno-lint-ignore no-explicit-any
+async function awaitingTeam(db: any, ids: string[]) {
+  const waiting = new Set<string>();
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    const { data, error } = await db
+      .from("chat_messages")
+      .select("conversation_id, sender, created_at")
+      .in("conversation_id", chunk)
+      .neq("sender", "system")
+      .order("created_at", { ascending: false })
+      .limit(chunk.length * 20);
+    if (error) throw error;
+    const seen = new Set<string>();
+    for (const m of data ?? []) {
+      if (seen.has(m.conversation_id)) continue;
+      seen.add(m.conversation_id);
+      if (m.sender === "customer") waiting.add(m.conversation_id);
+    }
+  }
+  return waiting;
+}
+
+// "2nd visit": each chat's place among all chats from the same browser
+// (all time, not just the dates shown), and how many there are.
+async function visitCounts(
+  // deno-lint-ignore no-explicit-any
+  db: any,
+  conversations: { visitor_id: string }[],
+) {
+  const visits = new Map<string, { visit: number; of: number }>();
+  const visitors = [...new Set(conversations.map((c) => c.visitor_id))];
+  const byVisitor = new Map<string, string[]>();
+  for (let i = 0; i < visitors.length; i += 100) {
+    const { data, error } = await db
+      .from("chat_conversations")
+      .select("id, visitor_id, started_at")
+      .in("visitor_id", visitors.slice(i, i + 100))
+      .order("started_at", { ascending: true })
+      .limit(5000);
+    if (error) throw error;
+    for (const c of data ?? []) {
+      const list = byVisitor.get(c.visitor_id) ?? [];
+      list.push(c.id);
+      byVisitor.set(c.visitor_id, list);
+    }
+  }
+  for (const list of byVisitor.values()) {
+    list.forEach((id, i) => visits.set(id, { visit: i + 1, of: list.length }));
+  }
+  return visits;
+}
+
 // ---- Zoho CRM leads (the Chats page's "Lead" card) ----
 // Nothing goes to Zoho on its own: a team member reviews the card and
 // clicks "Create lead". Needs ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET /
@@ -354,6 +501,11 @@ async function zohoLeadFields(): Promise<LeadFields> {
 
 // "Devika" -> First "Devika", Last "." (Zoho needs a last name);
 // "Devika Shah" -> First "Devika", Last "Shah".
+// "pinky sharma" -> "Pinky Sharma": each word's first letter capitalised,
+// the rest left as typed (so "McDonald" and "D'Souza" stay as they are).
+const nameCase = (name: string) =>
+  name.replace(/(^|[\s-])(\p{Ll})/gu, (_, sep, ch) => sep + ch.toUpperCase());
+
 function splitName(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length <= 1) return { First_Name: parts[0] ?? "", Last_Name: "." };
@@ -550,13 +702,20 @@ Deno.serve(async (req) => {
       if (until) query = query.lt("last_message_at", until);
       const { data, error } = await query;
       if (error) throw error;
-      const numbers = await dailyNumbers(db, data ?? []);
+      const [numbers, waiting, visits] = await Promise.all([
+        dailyNumbers(db, data ?? []),
+        awaitingTeam(
+          db,
+          (data ?? []).filter((c) => takeoverActive(c.takeover_at)).map((c) => c.id),
+        ),
+        visitCounts(db, data ?? []),
+      ]);
 
       return json({
         conversations: (data ?? []).map((c) => ({
           id: c.id,
           visitorId: c.visitor_id,
-          visitorName: c.visitor_name,
+          visitorName: c.visitor_name ? nameCase(c.visitor_name) : null,
           company: c.company,
           visitorPhone: c.visitor_phone ?? null,
           // The "Lead" card (scripts/supabase-zoho-leads.sql).
@@ -584,6 +743,14 @@ Deno.serve(async (req) => {
           // fall back to their first one.
           preview: c.last_question ?? c.first_question ?? "",
           takeover: takeoverActive(c.takeover_at),
+          needsReply: waiting.has(c.id),
+          // scripts/supabase-chat-insights.sql; null before that's run.
+          topic: c.topic ?? null,
+          interest: c.interest ?? null,
+          device: c.device ?? null,
+          cart: c.cart ?? null,
+          visit: visits.get(c.id)?.visit ?? 1,
+          visits: visits.get(c.id)?.of ?? 1,
         })),
       });
     }
@@ -654,12 +821,27 @@ Deno.serve(async (req) => {
         .select("*")
         .eq("id", body.conversationId)
         .maybeSingle();
+      // Older messages' products have no photo saved: look them up.
+      // deno-lint-ignore no-explicit-any
+      const needPhotos = (data ?? []).some((m) =>
+        (m.products ?? []).some((p: any) => p?.url && !p.image)
+      );
+      const images = needPhotos
+        ? (await storeCatalog().catch(() => EMPTY_CATALOG)).products
+        : null;
       return json({
         messages: (data ?? []).map((m) => ({
           id: m.id,
           question: m.question,
           answer: m.answer,
-          products: m.products,
+          products: images
+            // deno-lint-ignore no-explicit-any
+            ? (m.products ?? []).map((p: any) =>
+              p?.image || !p?.url
+                ? p
+                : { ...p, image: images.get(handleOf(p.url))?.image ?? null }
+            )
+            : m.products,
           created_at: m.created_at,
           sender: m.sender ?? "ai",
           page: m.page ?? null,
@@ -744,88 +926,110 @@ Deno.serve(async (req) => {
       };
       let chatsQuery = db
         .from("chat_conversations")
-        // "*": works before and after first_page exists.
-        .select("*");
+        // "*": works before and after first_page / topic exist. The count
+        // is each chat's turns, for "had a real conversation".
+        .select("*, chat_messages(count)");
       if (since) chatsQuery = chatsQuery.gte("last_message_at", since);
       if (until) chatsQuery = chatsQuery.lt("last_message_at", until);
-      // Messages sent in the range, for "messages sent from each page",
-      // read 1000 at a time (the most the API returns at once).
-      const loadPageMessages = async () => {
-        const rows: { page: string }[] = [];
-        for (let from = 0; from < PAGE_MESSAGES_LIMIT; from += 1000) {
-          let q = db
-            .from("chat_messages")
-            .select("page")
-            .not("page", "is", null)
-            .order("created_at", { ascending: false })
-            .range(from, from + 999);
-          if (since) q = q.gte("created_at", since);
-          if (until) q = q.lt("created_at", until);
-          const { data, error } = await q;
-          if (error) throw error;
-          rows.push(...(data ?? []));
-          if ((data ?? []).length < 1000) break;
-        }
-        return { data: rows };
-      };
-      const [{ data: chats, error }, shop, { data: pageMessages }] =
-        await Promise.all([
-          chatsQuery.limit(LIST_LIMIT),
-          loadOrders().catch((err) => ({ error: String(err) })),
-          // Before scripts/supabase-chat-pages.sql this fails: no pages.
-          loadPageMessages().catch(() => ({ data: [] })),
-        ]);
+      const [{ data: allChats, error }, shop, catalog] = await Promise.all([
+        chatsQuery.limit(LIST_LIMIT),
+        loadOrders().catch((err) => ({ error: String(err) })),
+        storeCatalog().catch(() => EMPTY_CATALOG),
+      ]);
       if (error) throw error;
+      // "Hide test and junk chats" (on unless turned off).
+      const hideTest = body.hideTest !== false;
+      const chats = (allChats ?? []).filter((c) => !hideTest || !isTestChat(c));
+      // Without orders (Shopify down, or no token, as in a local run) the
+      // chat and page numbers still show, with a note about the orders.
+      let ordersError: string | null = null;
       if ("error" in shop) {
         console.error(shop.error);
-        const noAccess = /access|scope|denied|401|403/i.test(shop.error);
-        return json({
-          error: noAccess
-            ? "The Shopify token can't read orders yet (needs read_orders)."
-            : "Couldn't load orders from Shopify just now.",
-        }, 502);
+        ordersError = /access|scope|denied|401|403/i.test(shop.error)
+          ? "The Shopify token can't read orders yet (needs read_orders)."
+          : /isn't set/.test(shop.error)
+          ? "Orders need the Shopify token, which isn't set here."
+          : "Couldn't load orders from Shopify just now.";
       }
+      const shopOrders = "error" in shop
+        ? { orders: [] as Awaited<ReturnType<typeof chatOrders>>["orders"], scanned: 0 }
+        : shop;
       // Which chat each order came from ("Visitor 12" / their name). The
       // chat may be outside the date range, so look those up by ID.
-      const ids = [...new Set(shop.orders.map((o) => o.visitorId).filter(Boolean))];
+      const ids = [...new Set(shopOrders.orders.map((o) => o.visitorId).filter(Boolean))];
       const { data: linked } = ids.length
         ? await db
           .from("chat_conversations")
-          .select("id, visitor_id, visitor_name, label, started_at")
+          .select("id, visitor_id, visitor_name, company, label, started_at")
           .in("visitor_id", ids)
         : { data: [] };
       const linkedNumbers = await dailyNumbers(db, linked ?? []);
-      const byVisitor = new Map((linked ?? []).map((c) => [c.visitor_id, c]));
-      const counted = shop.orders.filter((o) => !o.cancelled);
+      // An order counts unless every chat from its browser is a test one.
+      const realVisitors = new Set(
+        (linked ?? []).filter((c) => !isTestChat(c)).map((c) => c.visitor_id),
+      );
+      const orders = shopOrders.orders.filter((o) =>
+        !hideTest || !o.visitorId || realVisitors.has(o.visitorId) ||
+        !(linked ?? []).some((c) => c.visitor_id === o.visitorId)
+      );
+      // Each order's chat: a real one over a test one from the same browser.
+      const byVisitor = new Map<string, NonNullable<typeof linked>[number]>();
+      for (const c of linked ?? []) {
+        if (!byVisitor.has(c.visitor_id) || !isTestChat(c)) {
+          byVisitor.set(c.visitor_id, c);
+        }
+      }
+      const counted = orders.filter((o) => !o.cancelled);
+      // deno-lint-ignore no-explicit-any
+      const turns = (c: any) => c.chat_messages?.[0]?.count ?? 0;
+
+      // Where chats start: chats per first page, with the product's or
+      // collection's real name and photo when it is one.
+      const startCounts = new Map<string, number>();
+      for (const c of chats) {
+        if (c.first_page) {
+          startCounts.set(c.first_page, (startCounts.get(c.first_page) ?? 0) + 1);
+        }
+      }
+      const askCounts = new Map<string, number>();
+      for (const c of chats) {
+        const label = askedAbout(c);
+        askCounts.set(label, (askCounts.get(label) ?? 0) + 1);
+      }
+
       const value = {
-        chats: chats?.length ?? 0,
-        leads: (chats ?? []).filter((c) => c.visitor_phone).length,
+        chats: chats.length,
+        realChats: chats.filter((c) => turns(c) >= 2).length,
+        leads: chats.filter((c) => c.visitor_phone).length,
+        // People (browsers) who ordered, and their orders.
+        ordered: new Set(counted.map((o) => o.visitorId).filter(Boolean)).size,
         orders: counted.length,
         revenue: counted.reduce((s, o) => s + o.total, 0),
         fromChatOrders: counted.filter((o) => o.fromChatTotal > 0).length,
         fromChatRevenue: counted.reduce((s, o) => s + o.fromChatTotal, 0),
-        // Where chats start: the pages with the most chats, top 10.
-        // Every page chats started on or messages were sent from, with
-        // both counts (the Stats tab picks which to show and sorts).
-        pages: (() => {
-          const byPage = new Map<string, { chats: number; messages: number }>();
-          const row = (page: string) => {
-            if (!byPage.has(page)) byPage.set(page, { chats: 0, messages: 0 });
-            return byPage.get(page)!;
+        hiddenTest: (allChats ?? []).length - chats.length,
+        pages: [...startCounts].map(([page, n]) => {
+          const item = catalogItem(catalog, page);
+          return {
+            page,
+            chats: n,
+            title: item?.title ?? null,
+            image: item?.image ?? null,
           };
-          for (const c of chats ?? []) if (c.first_page) row(c.first_page).chats++;
-          for (const m of pageMessages ?? []) row(m.page).messages++;
-          return [...byPage].map(([page, n]) => ({ page, ...n }));
-        })(),
-        ordersScanned: shop.scanned,
+        }),
+        askedAbout: [...askCounts]
+          .map(([label, n]) => ({ label, chats: n }))
+          .sort((a, b) => b.chats - a.chats),
+        ordersScanned: shopOrders.scanned,
         trackingFrom: TRACKING_FROM,
-        list: shop.orders.map((o) => {
+        ordersError,
+        list: orders.map((o) => {
           const c = o.visitorId ? byVisitor.get(o.visitorId) : null;
           return {
             ...o,
             conversationId: c?.id ?? null,
             chatTitle: c
-              ? c.label || c.visitor_name ||
+              ? c.label || (c.visitor_name && nameCase(c.visitor_name)) ||
                 `Visitor ${linkedNumbers.get(c.id) ?? ""} · ${
                   new Date(c.started_at).toLocaleDateString("en-IN", {
                     day: "numeric",
@@ -922,7 +1126,9 @@ Deno.serve(async (req) => {
       ];
       for (const [key, column, max] of fields) {
         const v = clean(body.lead?.[key], max);
-        if (v !== undefined) edits[column] = v || null;
+        if (v !== undefined) {
+          edits[column] = (column === "visitor_name" ? nameCase(v) : v) || null;
+        }
       }
       if (edits.visitor_email && !EMAIL_RE.test(edits.visitor_email)) {
         return json({ error: "That email doesn't look right." }, 400);
@@ -948,7 +1154,7 @@ Deno.serve(async (req) => {
       try {
         const f = await zohoLeadFields();
         const record: Record<string, unknown> = {
-          ...splitName(lead.visitor_name),
+          ...splitName(nameCase(lead.visitor_name)),
           Lead_Source: f.leadSource,
           Tag: [{ name: LEAD_TAG }],
         };

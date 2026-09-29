@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { TEXTS, fillText } from "../lib/chatTexts";
 
+// "Pinky Sharma" -> "Pinky", capitalised, for "Thanks, Pinky!".
+const firstName = (name) => {
+  const first = name.trim().split(/\s+/)[0] ?? "";
+  return first.charAt(0).toUpperCase() + first.slice(1);
+};
+
 // Loose on purpose: people type +91, spaces, dashes.
 const looksLikePhone = (s) => s.replace(/\D/g, "").length >= 7;
 
@@ -16,11 +22,21 @@ const ContactCard = ({
   startOpen = false,
   initialName = "",
   title,
+  // The title when the name's known ({name} is filled in).
+  titleNamed,
   children,
 }) => {
   const [expanded, setExpanded] = useState(startOpen);
-  // Already told us their name? Only the number is left to type.
+  // Already told us their name? Then only the number is asked for (the
+  // name box is left out). A name that arrives while the card is open
+  // (a reply just picked it up) counts too.
   const [name, setName] = useState(initialName);
+  const [knownName, setKnownName] = useState(initialName);
+  if (initialName !== knownName) {
+    setKnownName(initialName);
+    if (initialName && !name.trim()) setName(initialName);
+  }
+  const askName = !knownName.trim();
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -68,22 +84,34 @@ const ContactCard = ({
       onSubmit={submit}
     >
       <div className="faq-chat-contact-title">
-        {title ??
-          (startOpen ? TEXTS.contactFormTitleCall : TEXTS.contactFormTitle)}
+        {askName
+          ? (title ??
+            (startOpen ? TEXTS.contactFormTitleCall : TEXTS.contactFormTitle))
+          : fillText(
+              titleNamed ??
+                (startOpen
+                  ? TEXTS.contactFormTitleCallNamed
+                  : TEXTS.contactFormTitleNamed),
+              { name: firstName(knownName) },
+            )}
       </div>
-      <input
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder={TEXTS.namePlaceholder}
-        maxLength={100}
-        autoComplete="name"
-        // Only when they asked for the form, so it doesn't pull the phone
-        // keyboard up on its own.
-        autoFocus={!startOpen}
-      />
+      {askName && (
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder={TEXTS.namePlaceholder}
+          maxLength={100}
+          autoComplete="name"
+          // Only when they asked for the form, so it doesn't pull the
+          // phone keyboard up on its own.
+          autoFocus={!startOpen}
+        />
+      )}
       <input
         type="tel"
+        // With the name known, the number is the only field.
+        autoFocus={!askName && !startOpen}
         value={phone}
         onChange={(e) => setPhone(e.target.value)}
         placeholder={TEXTS.phonePlaceholder}

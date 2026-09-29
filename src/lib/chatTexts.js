@@ -44,6 +44,9 @@ export const TEXTS = {
   contactPromptButton: "Enter your details",
   contactFormTitle: "Leave your name and number and our team will get back to you.",
   contactFormTitleCall: "Share your name and number for a quick call from our team.",
+  // The same, when we already have their name (only the number is asked).
+  contactFormTitleNamed: "Thanks, {name}! Leave your number and our team will get back to you.",
+  contactFormTitleCallNamed: "Thanks, {name}! Share your number for a quick call from our team.",
   contactFormNote:
     "We'll only use this to get back to you about your enquiry. Our team is available {hours}.",
   contactThanks: "Thanks, {name}! Our team will reach you on {phone} ({hours}).",
@@ -88,6 +91,8 @@ export const TEXTS = {
   bespokeYes: "Yes, call me",
   bespokeFormTitle:
     "Share your name and number, and one of our designers will call you.",
+  bespokeFormTitleNamed:
+    "Thanks, {name}! Share your number, and one of our designers will call you.",
   bespokeWhatsApp: "Prefer WhatsApp? Chat with us instead",
   bespokeThanks:
     "Wonderful, thank you {name}! One of our designers will call you shortly from +91 96196 20099 ({hours}). Do save the number so you know it's us.",

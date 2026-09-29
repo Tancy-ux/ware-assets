@@ -176,48 +176,93 @@ session lasts 12 hours (signed token checked by `chat-admin`); closing the
 browser logs out (sessionStorage). Login attempts are limited to 10 per 10
 minutes and 30 per day per connection.
 
-The page fits the screen: header, tabs, search and the open chat's header
-stay put; the list, the transcript and the stats scroll inside their own
-boxes. **Refresh** reloads the list and the stats.
+The page fits the screen: header, summary, search and the open chat's
+header stay put; the list, the transcript and the side panel scroll inside
+their own boxes. **Live**: the list re-checks every 30 s while the page is
+in view (an open AI chat reloads when a new message arrives). **Refresh**
+reloads the list and the stats.
 
-**Conversations tab**
+**Summary cards** (top, click one to filter the list): *need reply*, *new
+leads today*, *chats · <date range>*, *in Zoho*. **Conversations | Stats**
+switch on the right.
 
-- **List**: newest activity first, with the date filter (Last 7 days
-  default / 30 / 90 / All time / Custom dates). Each item shows the title,
-  the latest question (or the matched line while searching), message count,
-  a short browser tag (`#04174e`), and the page the chat started on.
+**Conversations tab**: three columns (list · chat · visitor panel). Below
+1180 px wide the panel opens from the chat header's panel button; on
+phones it's list *or* chat.
+
+- **List**: newest activity first. Quick filters **Needs reply · Leads ·
+  Taken over · In Zoho · All** (with counts) and the date filter (Last 7
+  days default / 30 / 90 / All time / Custom dates). Each row: a dot if it
+  needs a reply, the title, time (today) or date, the **topic** in bold
+  ("Asking how to order"), the latest question (or the matched line while
+  searching), and tags: **Needs reply**, **Lead** (left a phone or email),
+  **Zoho ✓**, **Team** (taken over) or **AI handled**, and the message
+  count.
+- **Needs reply** = the chat is taken over by the team *and* its latest
+  message is the customer's (the AI isn't answering it). AI-handled chats
+  never need a reply.
 - **Titles**: the team's label → the visitor's name → their company →
-  **"Visitor N"** with its day underneath. Visitor numbers **restart every
-  day** (India time): Visitor 3 = the 3rd chat started that day, counting
-  the chats still there (deleting one renumbers the later ones that day).
+  **"Visitor N"** (with its day underneath if not today). Visitor numbers
+  **restart every day** (India time): Visitor 3 = the 3rd chat started that
+  day, counting the chats still there (deleting one renumbers the later
+  ones that day).
 - **Search** covers names, phone numbers (any formatting: "98765 43210",
-  "+91-9876543210" and "9876543210" all match), labels, companies, pages,
-  "visitor 3", and **every message** (searched on the server, 350 ms after
-  typing stops).
-- **Open a chat**: the transcript (jumps to the newest message), product
-  chips the bot showed, "on Product · …" notes whenever the visitor moved to
-  another page, and the header with name, company, phone (links to
-  WhatsApp), "Started … on <page>", and the browser tag (click it to see
-  every chat from that browser).
-- **Rename** (✎) sets a label, e.g. "Converted – call".
+  "+91-9876543210" and "9876543210" all match), emails, labels, companies,
+  topics, pages, "visitor 3", "in zoho", and **every message** (searched on
+  the server, 350 ms after typing stops).
+- **Open a chat**: header with the title (✎ rename), Needs reply / Zoho
+  tags, "Started … · On: <page> · #browser-tag" (click the tag for every
+  chat from that browser), **Take over** / **Hand back to AI**, and the
+  **⋯** menu (Rename, All chats from this visitor, Delete chat). The
+  transcript has a date marker for each day, "AI" / "Ware team" labels,
+  the product tiles the bot showed (with photos; older chats get theirs
+  from the store's products.json), and "on <page>" notes when the visitor
+  moved page. Under it: "Ask AI is replying…" with a Take over button, or
+  the reply box during a takeover.
 - **Take over**: the AI stops answering this chat; the team replies from the
   box at the bottom and the shopper sees "A member of the Ware team has
   joined the chat". The transcript refreshes every 5 s. **Hand back to AI**
   ends it (it also ends after 24 hours, or if the shopper starts a new chat).
 - **Delete** removes the chat, its messages and its saved name/phone for
   good.
-- **Lead card** (Zoho): see §8.
+- **Visitor panel** (right):
+  - **Lead**: Hot / Warm / Cold bar. The AI rates each reply's chat
+    ("interest"), and leaving a phone or email bumps it up a step. Under it
+    the topic and whether contact details were shared.
+  - **Contact & Zoho lead**: the lead form (open by default): name,
+    phone, email, type of client, requirement, products. **Save** keeps
+    them in the admin only; **Send to Zoho** is the separate push, see §8.
+  - **Right now**: last page, **cart** (items and total when they last
+    wrote, read by the store widget from `/cart.js`), **device** (e.g.
+    "Mobile · Chrome · Android", from the browser), **visits** ("2nd of 3"
+    chats from this browser, all time), last active.
+  - **Products seen**: the first two products of each reply (the bot's
+    top picks), with photo and price. In the transcript, each reply's
+    products are one scrollable row of small tiles.
+- **Topic and interest** come from the same Gemini reply the shopper gets
+  (two extra fields, no extra AI call). Pill taps (similar / bespoke) set
+  them without AI. Chats from before 29 Sep 2026 have neither.
 
 **Stats tab** (same date filter)
 
-- **Chats**, **Left their number**, **Orders after chatting** (and % of
-  chats), **Their order value**, **Added from chat** (value and orders).
-- **See orders**: order number (opens it in Shopify admin), date, total,
-  amount added from the chat, and a link to the chat.
-- **Pages**: messages sent from each store page ("Collection ·
-  /collections/bulk-gifting … 12"), top 20 with **Show more**, filter by
-  page kind (Homepage, Collections, Products, Pages, Search…), sort by most
-  or A–Z. Market prefixes like `/en-us/` are ignored when grouping kinds.
+- **Hide test and junk chats** (on by default, remembered per browser):
+  leaves out chats named or labelled "test", "testing" or "junk" (rename
+  a chat to mark it), and orders from only such chats.
+- **From chat to order**: Chatted → Had a real conversation (2+ messages)
+  → Left their number → Ordered (browsers that ordered), each as a % of
+  chats. When nobody has left a number, a hint links to the FAQ page.
+- **Orders from people who chatted** (value, count, **See orders**: order
+  number opening Shopify admin, date, total, amount added from the chat,
+  link to the chat) and **Orders from items added in chat**.
+- **Where chats start**: chats per store page they started on, with the
+  product's or collection's real name and photo (from the store's public
+  products.json / collections.json, cached 1 h), a bar, filters (All,
+  Products, Collections, Pages, Home), top 6 then **Show all**.
+- **What people ask about**: chats grouped by keyword rules over each
+  chat's topic and questions (Bulk or restaurant orders, Ware Atelier,
+  Gifting, Similar products, Delivery and shipping, Returns and care, How
+  to order, Just saying hi, Product / Other questions). No AI.
+- If Shopify's orders can't load, everything else still shows, with a note.
 - How orders are linked: see §7.
 
 ---
@@ -592,8 +637,9 @@ Storage bucket `assets` (folder `uploads/`) for the Downloads page.
 `supabase-download-assets-table.sql`, `supabase-chat-logs-tables.sql`,
 `supabase-security.sql`, `supabase-form-limits.sql` (after security),
 `supabase-visitor-numbers.sql`, `supabase-chat-pages.sql`,
-`supabase-zoho-leads.sql`. (`supabase-restock-requests-table.sql` exists but
-was never run.)
+`supabase-zoho-leads.sql`, `supabase-chat-insights.sql` (topic, interest,
+device, cart). (`supabase-restock-requests-table.sql` exists but was never
+run.)
 
 ### Other scripts
 

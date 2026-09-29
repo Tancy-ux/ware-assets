@@ -181,9 +181,15 @@ const NAME_BOX_REPLIES = 4;
 const loadNamePrefs = () => {
   try {
     const v = JSON.parse(localStorage.getItem(NAME_KEY)) ?? {};
-    return { known: !!v.known, dismissed: !!v.dismissed };
+    return {
+      known: !!v.known,
+      dismissed: !!v.dismissed,
+      // Their name, so every store page's chat can skip asking it again
+      // (the details form then only asks for the number).
+      name: typeof v.name === "string" ? v.name : "",
+    };
   } catch {
-    return { known: false, dismissed: false };
+    return { known: false, dismissed: false, name: "" };
   }
 };
 const storeNamePrefs = (value) => {
@@ -544,8 +550,6 @@ const AskAi = ({
   const [contactPrefs, setContactPrefs] = useState(loadContactPrefs);
   const [contactThanks, setContactThanks] = useState(null);
   const [namePrefs, setNamePrefs] = useState(loadNamePrefs);
-  // Their name as the server knows it, to pre-fill the details form.
-  const [knownName, setKnownName] = useState("");
   const [input, setInput] = useState("");
   const [copiedKey, setCopiedKey] = useState(null);
   const [expanded, setExpanded] = useState(loadExpanded);
@@ -721,10 +725,10 @@ const AskAi = ({
       syncContactSaved(data.contactSaved);
     }
     if (data && typeof data.nameKnown === "boolean") {
-      if (data.nameKnown !== namePrefs.known) {
-        updateNamePrefs({ known: data.nameKnown });
+      const name = data.visitorName ?? "";
+      if (data.nameKnown !== namePrefs.known || name !== namePrefs.name) {
+        updateNamePrefs({ known: data.nameKnown, name });
       }
-      setKnownName(data.visitorName ?? "");
     }
 
     if (error || data?.error) {
@@ -941,10 +945,7 @@ const AskAi = ({
       return false;
     }
     updateContactPrefs({ saved: true });
-    if (details.name) {
-      updateNamePrefs({ known: true });
-      setKnownName(details.name);
-    }
+    if (details.name) updateNamePrefs({ known: true, name: details.name });
     patchMessage(msg.id, {
       bespokeForm: null,
       conversationId: getVisitorId(),
@@ -995,6 +996,8 @@ const AskAi = ({
   // "What should we call you?": under the latest reply while it's one of
   // their first few (since the last reset), until the name is known or
   // they close it. Never at the same time as the details form.
+  // Their name as the server knows it, to pre-fill the details form.
+  const knownName = namePrefs.name;
   const updateNamePrefs = (patch) =>
     setNamePrefs((prev) => {
       const next = { ...prev, ...patch };
@@ -1028,8 +1031,7 @@ const AskAi = ({
       console.error(error ?? data?.error);
       return false;
     }
-    updateNamePrefs({ known: true });
-    setKnownName(name);
+    updateNamePrefs({ known: true, name });
     // A short, local "nice to meet you" (it also tells the assistant their
     // name through the chat history).
     setMessages((prev) => [
@@ -1656,6 +1658,7 @@ const AskAi = ({
                 startOpen
                 initialName={knownName}
                 title={TEXTS.bespokeFormTitle}
+                titleNamed={TEXTS.bespokeFormTitleNamed}
                 onSave={(details) => saveBespoke(m, details)}
                 onDismiss={() => declineBespoke(m, m.bespokeForm)}
               >

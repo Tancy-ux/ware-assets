@@ -1112,6 +1112,11 @@ const NEWER_COLUMNS = [
   "first_page",
   "last_page",
   "visitor_email",
+  // scripts/supabase-chat-insights.sql
+  "topic",
+  "interest",
+  "device",
+  "cart",
 ];
 
 // An email or an Indian mobile number typed into the chat (not a 6-digit
@@ -1158,14 +1163,20 @@ async function upsertConversation(
   onInsert: Record<string, string> = {},
 ) {
   let error = await saveConversation(admin, row, onInsert);
-  if (error?.code === "PGRST204") {
-    const trimmed = { ...row };
-    const trimmedInsert = { ...onInsert };
-    for (const c of NEWER_COLUMNS) {
+  // A missing column: drop just that one ("Could not find the 'topic'
+  // column…") and try again, so the columns that do exist still save.
+  // If the message can't be read, drop every newer column at once.
+  const trimmed = { ...row };
+  const trimmedInsert = { ...onInsert };
+  for (let tries = 0; error?.code === "PGRST204" && tries < NEWER_COLUMNS.length; tries++) {
+    const missing = String(error.message ?? "").match(/'(\w+)' column/)?.[1];
+    const drop = missing && NEWER_COLUMNS.includes(missing) ? [missing] : NEWER_COLUMNS;
+    for (const c of drop) {
       delete trimmed[c];
       delete trimmedInsert[c];
     }
     error = await saveConversation(admin, trimmed, trimmedInsert);
+    if (drop === NEWER_COLUMNS) break;
   }
   if (error) throw error;
 }
@@ -1217,6 +1228,7 @@ async function logCustomerMessage(
   visitorId: string,
   question: string,
   page: string,
+  info: Record<string, string> = {},
 ) {
   const admin = adminClient();
   if (!admin) return;
@@ -1228,6 +1240,7 @@ async function logCustomerMessage(
       last_message_at: new Date().toISOString(),
       last_question: question.slice(0, 300),
       ...(page ? { last_page: page } : {}),
+      ...info,
     },
     page ? { first_page: page } : {},
   );
@@ -1238,6 +1251,62 @@ async function logCustomerMessage(
     sender: "customer",
     page,
   });
+}
+
+// What the Chats page shows about the visitor "right now": their device
+// (from the browser's user agent) and, from the store widget, their cart.
+// Only what's known is included, so a missing value never blanks one.
+function visitorInfo(req: Request, payload: Record<string, unknown>) {
+  const info: Record<string, string> = {};
+  const ua = req.headers.get("user-agent") ?? "";
+  if (ua) {
+    const type = /iPad|Tablet/i.test(ua)
+      ? "Tablet"
+      : /Mobi|Android|iPhone/i.test(ua)
+      ? "Mobile"
+      : "Desktop";
+    const browser = /Instagram/.test(ua)
+      ? "Instagram"
+      : /FBAN|FBAV/.test(ua)
+      ? "Facebook"
+      : /Edg\//.test(ua)
+      ? "Edge"
+      : /OPR\//.test(ua)
+      ? "Opera"
+      : /SamsungBrowser/.test(ua)
+      ? "Samsung Internet"
+      : /CriOS|Chrome\//.test(ua)
+      ? "Chrome"
+      : /FxiOS|Firefox\//.test(ua)
+      ? "Firefox"
+      : /Safari\//.test(ua)
+      ? "Safari"
+      : "";
+    const os = /iPhone|iPad|iPod/.test(ua)
+      ? "iOS"
+      : /Android/.test(ua)
+      ? "Android"
+      : /Windows/.test(ua)
+      ? "Windows"
+      : /Mac OS X/.test(ua)
+      ? "Mac"
+      : /Linux/.test(ua)
+      ? "Linux"
+      : "";
+    info.device = [type, browser, os].filter(Boolean).join(" · ");
+  }
+  // deno-lint-ignore no-explicit-any
+  const cart = payload.cart as any;
+  const count = Number(cart?.count);
+  const total = Number(cart?.total); // paise, as Shopify's /cart.js gives it
+  if (cart && Number.isInteger(count) && count >= 0 && count < 10000) {
+    info.cart = count === 0 ? "Empty" : `${count} item${count === 1 ? "" : "s"}${
+      Number.isFinite(total) && total > 0
+        ? ` · ₹${Math.round(total / 100).toLocaleString("en-IN")}`
+        : ""
+    }`;
+  }
+  return info;
 }
 
 // The store page a message was sent from (from the chat widget), as a
@@ -1266,10 +1335,17 @@ async function insertMessage(admin: any, row: Record<string, unknown>) {
 // The name/phone a visitor types into the chat's "leave your details"
 // card. Stored only on their conversation row (never kept in the
 // browser), so deleting the chat in the Chats page forgets them for good.
+// "pinky sharma" -> "Pinky Sharma": each word's first letter capitalised,
+// the rest left as typed (so "McDonald" and "D'Souza" stay as they are).
+const nameCase = (name: string) =>
+  name.replace(/(^|[\s-])(\p{Ll})/gu, (_, sep, ch) => sep + ch.toUpperCase());
+
 function readContact(raw: unknown) {
   // deno-lint-ignore no-explicit-any
   const c = (raw ?? {}) as any;
-  const name = typeof c.name === "string" ? c.name.trim().slice(0, 100) : "";
+  const name = typeof c.name === "string"
+    ? nameCase(c.name.trim().slice(0, 100))
+    : "";
   const phone = typeof c.phone === "string" ? c.phone.trim().slice(0, 30) : "";
   return {
     name,
@@ -1292,6 +1368,11 @@ async function logTurn(turn: {
   company: string;
   isFirst: boolean;
   page: string;
+  // Saved on the conversation as they are: device / cart (visitorInfo),
+  // and the topic and interest the AI gave.
+  extra?: Record<string, string>;
+  // Saved only if the chat has none yet, e.g. a topic for a no-AI tap.
+  ifEmpty?: Record<string, string>;
 }) {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const { conversationId, visitorId } = turn;
@@ -1313,16 +1394,17 @@ async function logTurn(turn: {
     visitor_id: visitorId,
     last_message_at: now,
   };
-  if (turn.visitorName) conversation.visitor_name = turn.visitorName;
+  if (turn.visitorName) conversation.visitor_name = nameCase(turn.visitorName);
   if (turn.company) conversation.company = turn.company;
   if (turn.isFirst) conversation.first_question = turn.question.slice(0, 300);
   conversation.last_question = turn.question.slice(0, 300);
   if (turn.page) conversation.last_page = turn.page;
+  Object.assign(conversation, turn.extra ?? {});
 
   // Saved only if the chat has none yet (the details form's number wins):
   // the page it started on, and an email / mobile number typed in the
   // chat, for the Chats page's Zoho lead.
-  const fillIfEmpty: Record<string, string> = {};
+  const fillIfEmpty: Record<string, string> = { ...turn.ifEmpty };
   if (turn.page) fillIfEmpty.first_page = turn.page;
   const email = turn.question.match(EMAIL_RE)?.[0];
   if (email) fillIfEmpty.visitor_email = email.toLowerCase();
@@ -1339,6 +1421,9 @@ async function logTurn(turn: {
       title: c.title,
       url: c.url,
       available: c.available,
+      // For the Chats page's product tiles.
+      image: c.image,
+      price: c.price,
     })),
     page: turn.page,
   });
@@ -1496,7 +1581,7 @@ Deno.serve(async (req) => {
       }
       await upsertConversation(
         createClient(Deno.env.get("SUPABASE_URL") ?? "", serviceKey),
-        { id: conversationId, visitor_id: visitorId, visitor_name: name },
+        { id: conversationId, visitor_id: visitorId, visitor_name: nameCase(name) },
       );
       return json({ ok: true });
     }
@@ -1543,6 +1628,11 @@ Deno.serve(async (req) => {
           company: "",
           isFirst: !conversation,
           page: readPage(payload.page),
+          extra: visitorInfo(req, payload),
+          ifEmpty: {
+            topic: `Browsing pieces like the ${target.title}`.slice(0, 80),
+            interest: "warm",
+          },
         });
       } catch (err) {
         console.error("Chat log failed:", err);
@@ -1611,6 +1701,15 @@ Deno.serve(async (req) => {
           company: "",
           isFirst: !conversation,
           page: readPage(payload.page),
+          extra: {
+            ...visitorInfo(req, payload),
+            topic: `Ware Atelier: ${target.title}`.slice(0, 80),
+            // Asking for a designer's call is as keen as it gets; "not now"
+            // leaves it as it was.
+            ...(step === "later"
+              ? {}
+              : { interest: step === "call" ? "hot" : "warm" }),
+          },
         });
       } catch (err) {
         console.error("Chat log failed:", err);
@@ -1678,6 +1777,7 @@ Deno.serve(async (req) => {
           payload.visitorId,
           question,
           readPage(payload.page),
+          visitorInfo(req, payload),
         );
       } catch (err) {
         console.error("Chat log failed:", err);
@@ -1917,6 +2017,8 @@ Respond as JSON with these fields:
 - "visitorName" and "company": the person's own name and their company or business name, if they've stated them anywhere in this chat; otherwise empty strings. A first message that's just a name is their answer to the welcome asking for it, so it counts. Only use what they actually said about themselves, never guess. This is recorded quietly for the team; don't mention it or ask for it.
 - "request": for "human" replies, one short sentence in their voice summarising what they need from the team, with the details they gave, for example "I'd like a shipping quote to Singapore (239432) for the Lunar Dinner Spread Nude." It pre-fills their WhatsApp message to the team. Empty string otherwise.
 - "followUp": true when this is the kind of enquiry the team should personally follow up on: bulk or corporate gifting, custom or personalised requirements (branding, logos, bespoke sets), large quantities, asking for a quote, or a business order (hotel, restaurant, cafe). Otherwise false. The app then offers them a way to leave their name and number.
+- "topic": 2 to 6 words on what this whole chat is about so far, for the team's inbox, e.g. "Asking how to order", "Bulk crockery for a restaurant", "Browsing espresso cups", "Delivery to Pune", "Just saying hi". Sentence case, no names, numbers or full stop.
+- "interest": how keen they seem to buy, judging the whole chat: "hot" (ready to order, asked for a quote or a call, or a bulk, corporate or custom order), "warm" (interested in particular pieces, prices, delivery or how to order), "cold" (greetings, general questions or just looking).
 - "askForCall": true only when this reply ends by asking if the team can give them a quick call (see bulk and corporate gifting above), so the app opens the name and number form under it. Otherwise false. Never ask for their number any other way.
 
 Only products that are directly relevant get shown, so don't attach products to replies that aren't about them. For "recommend" and "product", each product you list is shown under your reply as a card with its photo, name, live price, stock status, and an add to cart button, so don't write links or prices in the reply and don't list the products out again. Just talk about them naturally, for example why they suit this person, referring to them by name where it helps. Recommend 3 or 4 products unless they ask for more. Prices are in Indian Rupees. Treat budgets strictly: "under 2000" means below Rs 2000, so a Rs 2000 item doesn't qualify, and for sets use the set price as listed. Prefer products that are in stock. Only recommend products that appear in the catalog.
@@ -2041,6 +2143,8 @@ ${details || "(none)"}${
             followUp: { type: "BOOLEAN" },
             askForCall: { type: "BOOLEAN" },
             request: { type: "STRING" },
+            topic: { type: "STRING" },
+            interest: { type: "STRING", enum: ["hot", "warm", "cold"] },
           },
           required: [
             "reply",
@@ -2049,6 +2153,8 @@ ${details || "(none)"}${
             "visitorName",
             "company",
             "followUp",
+            "topic",
+            "interest",
           ],
         },
       },
@@ -2067,6 +2173,8 @@ ${details || "(none)"}${
     let followUp = false;
     let askForCall = false;
     let request = "";
+    let topic = "";
+    let interest = "";
     try {
       const parsed = JSON.parse(text);
       answer = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
@@ -2079,6 +2187,10 @@ ${details || "(none)"}${
       request = typeof parsed.request === "string"
         ? parsed.request.trim().slice(0, 300)
         : "";
+      topic = cleanField(parsed.topic).replace(/[.!]+$/, "").slice(0, 80);
+      if (["hot", "warm", "cold"].includes(parsed.interest)) {
+        interest = parsed.interest;
+      }
     } catch {
       // Not JSON after all (or cut off mid-way): never show raw JSON to
       // the visitor; salvage the reply if it's there, just without cards.
@@ -2203,6 +2315,15 @@ ${details || "(none)"}${
         company,
         isFirst: !conversation?.first_question,
         page: readPage(payload.page),
+        extra: {
+          ...visitorInfo(req, payload),
+          ...(bespoke
+            ? { topic: `Ware Atelier: ${bespoke.title}`.slice(0, 80) }
+            : topic
+            ? { topic }
+            : {}),
+          ...(interest ? { interest } : {}),
+        },
       });
     } catch (err) {
       console.error("Chat log failed:", err);

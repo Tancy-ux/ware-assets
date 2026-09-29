@@ -1,21 +1,17 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import { callFunction } from "../lib/askFaq";
-import {
-  PAGE_KINDS,
-  pageKind,
-  pageKindLabel,
-  pageUrl,
-} from "../lib/storePages";
+import { pageKind, pageKindLabel, pageLabel, pageUrl } from "../lib/storePages";
 
-// The Chats page's Results strip: how the store chat did in the chosen date
+// The Chats page's Stats tab: how the store chat did in the chosen date
 // range. Orders come from Shopify via chat-admin ("results"): the chat tags
 // the shopper's cart, so an order either
-//   - came from someone who chatted first ("orders after chatting"), or
-//   - has items added with the chat's own + button ("added from chat").
+//   - came from someone who chatted first ("orders from people who
+//     chatted"), or
+//   - has items added with the chat's own + button ("added in chat").
 
-const rupees = (n) =>
-  `₹${Math.round(n).toLocaleString("en-IN")}`;
+const rupees = (n) => `₹${Math.round(n).toLocaleString("en-IN")}`;
+const percent = (n, of) => (of ? `${Math.round((n / of) * 100)}%` : "0%");
 
 const formatDate = (iso) =>
   new Date(iso).toLocaleString([], {
@@ -25,6 +21,23 @@ const formatDate = (iso) =>
     minute: "2-digit",
   });
 
+// How often the open Stats tab reloads by itself.
+const STATS_REFRESH_MS = 2 * 60 * 1000;
+
+// "Hide test and junk chats" is remembered in this browser only.
+const HIDE_TEST_KEY = "chatsHideTest";
+const readHideTest = () => {
+  try {
+    return localStorage.getItem(HIDE_TEST_KEY) !== "0";
+  } catch {
+    return true;
+  }
+};
+
+// Shopify's image CDN resizes on request.
+const thumb = (url) =>
+  url ? `${url}${url.includes("?") ? "&" : "?"}width=120` : url;
+
 // refreshKey: bumped by the page's Refresh button, which also skips the
 // server's short cache of Shopify orders.
 const ChatResults = ({
@@ -33,24 +46,26 @@ const ChatResults = ({
   refreshKey = 0,
   handleResponse,
   onOpenChat,
+  toolbar,
 }) => {
-  // Keyed by the range it's for, so a new range shows "…" until it loads.
+  const [hideTest, setHideTest] = useState(readHideTest);
+  // Keyed by what it's for, so a new choice shows "…" until it loads.
   const [result, setResult] = useState({ key: null, data: null });
   const [showOrders, setShowOrders] = useState(false);
-  const key = JSON.stringify({ ...bounds, refreshKey });
+  const key = JSON.stringify({ ...bounds, refreshKey, hideTest });
 
   useEffect(() => {
     let cancelled = false;
-    const { refreshKey: refreshed, ...range } = JSON.parse(key);
+    const { refreshKey: refreshed, ...request } = JSON.parse(key);
     callFunction("chat-admin", {
       action: "results",
       token,
-      ...range,
+      ...request,
       fresh: refreshed > 0,
     }).then((res) => {
       if (cancelled) return;
       // A Shopify problem shouldn't also log them out or toast every time:
-      // the strip says it couldn't load instead.
+      // the tab says it couldn't load instead.
       const data = res.data?.error ? null : handleResponse(res);
       setResult({ key, data, error: res.data?.error ?? null });
     });
@@ -59,209 +74,299 @@ const ChatResults = ({
     };
   }, [token, key, handleResponse]);
 
+  // Quietly reloads while the tab is open and in view (no "…" flash).
+  // Shopify's orders come from the server's 5-minute cache in between.
+  useEffect(() => {
+    const timer = setInterval(async () => {
+      if (document.hidden) return;
+      const { refreshKey: _refreshed, ...request } = JSON.parse(key);
+      const { data: fresh } = await callFunction("chat-admin", {
+        action: "results",
+        token,
+        ...request,
+      });
+      if (fresh && !fresh.error) {
+        setResult((prev) => (prev.key === key ? { key, data: fresh, error: null } : prev));
+      }
+    }, STATS_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [token, key]);
+
+  const toggleHideTest = () => {
+    const next = !hideTest;
+    setHideTest(next);
+    try {
+      localStorage.setItem(HIDE_TEST_KEY, next ? "1" : "0");
+    } catch {
+      // Just for this visit then.
+    }
+  };
+
   const loading = result.key !== key;
   const data = loading ? null : result.data;
-  const value = (v) => (loading ? "…" : data ? v(data) : "–");
-  const conversion = (d) =>
-    d.chats ? `${Math.round((d.orders / d.chats) * 100)}%` : "0%";
+  const show = (v) => (loading ? "…" : data ? v(data) : "–");
+
+  const steps = [
+    { label: "Chatted", n: (d) => d.chats },
+    {
+      label: "Had a real conversation",
+      n: (d) => d.realChats,
+      title: "Two or more messages",
+    },
+    { label: "Left their number", n: (d) => d.leads },
+    { label: "Ordered", n: (d) => d.ordered, good: true },
+  ];
 
   return (
-    <>
-    <div className="chats-results">
-      <div className="chats-results-stats">
-        <Stat label="Chats" value={value((d) => d.chats)} />
-        <Stat
-          label="Left their number"
-          value={value((d) => d.leads)}
-        />
-        <Stat
-          label="Orders after chatting"
-          value={value((d) => d.orders)}
-          note={value((d) => `${conversion(d)} of chats`)}
-        />
-        <Stat label="Their order value" value={value((d) => rupees(d.revenue))} />
-        <Stat
-          label="Added from chat"
-          value={value((d) => rupees(d.fromChatRevenue))}
-          note={value(
-            (d) => `${d.fromChatOrders} order${d.fromChatOrders === 1 ? "" : "s"}`,
+    <div className="chats-stats-body">
+      <div className="chats-stats-toolbar">
+        {toolbar}
+        <label className="chats-switch">
+          <input type="checkbox" checked={hideTest} onChange={toggleHideTest} />
+          <span className="chats-switch-track" aria-hidden="true" />
+          Hide test and junk chats
+          {hideTest && data?.hiddenTest > 0 && (
+            <span className="chats-switch-note">({data.hiddenTest} hidden)</span>
           )}
-        />
+        </label>
       </div>
 
-      {!loading && result.error && (
-        <p className="chats-results-note">{result.error}</p>
+      {result.error && !loading && (
+        <p className="chats-results-note chats-results-warn">{result.error}</p>
       )}
-      {!loading && data && (
-        <p className="chats-results-note">
-          Counted from{" "}
+
+      <section className="chats-card">
+        <h3>
+          From chat to order
+          <span> · how many people make it to each step</span>
+        </h3>
+        <div className="chats-funnel">
+          {steps.map((s, i) => {
+            const n = data ? s.n(data) : 0;
+            const tone = s.good && n > 0 ? " chats-funnel-good" : "";
+            return (
+              <div key={s.label} className={`chats-funnel-step${tone}`} title={s.title}>
+                <span className="chats-funnel-label">{s.label}</span>
+                <strong>{show(s.n)}</strong>
+                {i > 0 && (
+                  <span className="chats-funnel-sub">
+                    {show((d) => `${percent(s.n(d), d.chats)} of chats`)}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {data?.ordersError && (
+        <p className="chats-results-note chats-results-warn">
+          {data.ordersError} Order numbers show as 0 until then.
+        </p>
+      )}
+
+      <div className="chats-stats-pair">
+        <section className="chats-card">
+          <span className="chats-card-label">Orders from people who chatted</span>
+          <strong className="chats-card-big">{show((d) => rupees(d.revenue))}</strong>
+          <p className="chats-card-sub">
+            {show(
+              (d) =>
+                `${d.orders} order${d.orders === 1 ? "" : "s"}. They chatted, then bought on their own.`,
+            )}
+          </p>
+          {data?.list.length > 0 && (
+            <button
+              type="button"
+              className="chats-card-link"
+              onClick={() => setShowOrders((v) => !v)}
+            >
+              {showOrders ? "Hide orders" : "See orders"}
+              {showOrders ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            </button>
+          )}
+        </section>
+        <section className="chats-card">
+          <span className="chats-card-label">Orders from items added in chat</span>
+          <strong className="chats-card-big">
+            {show((d) => rupees(d.fromChatRevenue))}
+          </strong>
+          <p className="chats-card-sub">
+            {show(
+              (d) =>
+                `${d.fromChatOrders} order${d.fromChatOrders === 1 ? "" : "s"}. Items added to cart straight from a product card in chat.`,
+            )}
+          </p>
+        </section>
+      </div>
+
+      {showOrders && data?.list.length > 0 && (
+        <section className="chats-card chats-orders-card">
+          <table className="chats-results-orders">
+            <thead>
+              <tr>
+                <th>Order</th>
+                <th>Date</th>
+                <th>Total</th>
+                <th>Added from chat</th>
+                <th>Chat</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.list.map((o) => (
+                <tr key={o.id} className={o.cancelled ? "chats-results-cancelled" : ""}>
+                  <td>
+                    <a href={o.adminUrl} target="_blank" rel="noopener noreferrer">
+                      {o.name}
+                      <ExternalLink size={11} />
+                    </a>
+                    {o.cancelled && " (cancelled)"}
+                  </td>
+                  <td>{formatDate(o.createdAt)}</td>
+                  <td>{rupees(o.total)}</td>
+                  <td>{o.fromChatTotal ? rupees(o.fromChatTotal) : "–"}</td>
+                  <td>
+                    {o.conversationId ? (
+                      <button
+                        type="button"
+                        className="chats-results-chat"
+                        onClick={() => onOpenChat(o.conversationId)}
+                      >
+                        {o.chatTitle}
+                      </button>
+                    ) : (
+                      "–"
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      <div className="chats-stats-pair chats-stats-pair-wide">
+        <ChatPages pages={data?.pages} loading={loading} />
+        <section className="chats-card">
+          <h3>What people ask about</h3>
+          {loading ? (
+            <p className="chats-results-note">Loading…</p>
+          ) : !data?.askedAbout?.length ? (
+            <p className="chats-results-note">No chats in this period.</p>
+          ) : (
+            <ul className="chats-asks">
+              {data.askedAbout.map((a) => (
+                <li key={a.label}>
+                  <span>{a.label}</span>
+                  <strong>{a.chats}</strong>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+
+      {data && (
+        <p className="chats-results-note chats-stats-foot">
+          Orders counted from{" "}
           {new Date(data.trackingFrom).toLocaleDateString([], {
             day: "numeric",
             month: "short",
           })}
-          , when the chat started tagging carts. Only orders from the same
-          browser they chatted on; calls and WhatsApp orders aren't included.
-          {data.list.length > 0 && (
-            <>
-              {" "}
-              <button
-                type="button"
-                className="chats-results-toggle"
-                onClick={() => setShowOrders((v) => !v)}
-              >
-                {showOrders ? "Hide orders" : "See orders"}
-                {showOrders ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-              </button>
-            </>
-          )}
+          . Only orders from the same browser they chatted on; calls and
+          WhatsApp orders aren&apos;t included.
         </p>
       )}
-
-      {showOrders && data?.list.length > 0 && (
-        <table className="chats-results-orders">
-          <thead>
-            <tr>
-              <th>Order</th>
-              <th>Date</th>
-              <th>Total</th>
-              <th>Added from chat</th>
-              <th>Chat</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.list.map((o) => (
-              <tr key={o.id} className={o.cancelled ? "chats-results-cancelled" : ""}>
-                <td>
-                  <a href={o.adminUrl} target="_blank" rel="noopener noreferrer">
-                    {o.name}
-                    <ExternalLink size={11} />
-                  </a>
-                  {o.cancelled && " (cancelled)"}
-                </td>
-                <td>{formatDate(o.createdAt)}</td>
-                <td>{rupees(o.total)}</td>
-                <td>{o.fromChatTotal ? rupees(o.fromChatTotal) : "–"}</td>
-                <td>
-                  {o.conversationId ? (
-                    <button
-                      type="button"
-                      className="chats-results-chat"
-                      onClick={() => onOpenChat(o.conversationId)}
-                    >
-                      {o.chatTitle}
-                    </button>
-                  ) : (
-                    "–"
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
     </div>
-    <ChatPages pages={data?.pages} loading={loading} />
-    </>
   );
 };
 
-// "Pages": where chats come from, like Shopify's sessions by page: the
-// messages sent from each page, sorted by the most or A–Z, optionally one
-// kind of page only.
-const PAGES_SHOWN = 20;
-const ChatPages = ({ pages, loading }) => {
-  const count = "messages";
-  const [sort, setSort] = useState("most");
-  const [kind, setKind] = useState("all");
-  // Top 20, then "Show more" adds 20 at a time; changing a choice starts
-  // over from the top 20.
-  const [shown, setShown] = useState(PAGES_SHOWN);
-  const choose = (set) => (e) => {
-    set(e.target.value);
-    setShown(PAGES_SHOWN);
-  };
+// "Where chats start": chats per store page they started on, most first,
+// optionally one kind of page. Top 6, then all.
+const PAGES_SHOWN = 6;
+const PAGE_FILTERS = [
+  { id: "all", label: "All" },
+  { id: "products", label: "Products" },
+  { id: "collections", label: "Collections" },
+  { id: "pages", label: "Pages" },
+  { id: "home", label: "Home" },
+];
 
-  const rows = (pages ?? [])
-    .filter((p) => p[count] > 0 && (kind === "all" || pageKind(p.page) === kind))
-    .sort((a, b) =>
-      sort === "az"
-        ? a.page.localeCompare(b.page)
-        : b[count] - a[count] || a.page.localeCompare(b.page),
-    );
-  // Only the kinds that have something, so the menu stays short.
-  const kinds = PAGE_KINDS.filter((k) =>
-    (pages ?? []).some((p) => p[count] > 0 && pageKind(p.page) === k.id),
+const ChatPages = ({ pages, loading }) => {
+  const [kind, setKind] = useState("all");
+  const [showAll, setShowAll] = useState(false);
+
+  const all = (pages ?? []).filter((p) => p.chats > 0);
+  const rows = all
+    .filter((p) => kind === "all" || pageKind(p.page) === kind)
+    .sort((a, b) => b.chats - a.chats || a.page.localeCompare(b.page));
+  const most = rows[0]?.chats ?? 1;
+  // Only the kinds that have something.
+  const filters = PAGE_FILTERS.filter(
+    (f) => f.id === "all" || all.some((p) => pageKind(p.page) === f.id),
   );
 
   return (
-    <div className="chats-results chats-pages">
-      <div className="chats-pages-head">
-        <h3>
-          Pages <span className="chats-pages-sub">· messages sent from each</span>
-        </h3>
-        <div className="chats-pages-controls">
-          <select
-            value={kind}
-            onChange={choose(setKind)}
-            aria-label="Kind of page"
-          >
-            <option value="all">All pages</option>
-            {kinds.map((k) => (
-              <option key={k.id} value={k.id}>
-                {k.label === "Homepage" ? "Homepage" : `${k.label}s`}
-              </option>
-            ))}
-          </select>
-          <select
-            value={sort}
-            onChange={choose(setSort)}
-            aria-label="Sort"
-          >
-            <option value="most">Most first</option>
-            <option value="az">A–Z</option>
-          </select>
+    <section className="chats-card">
+      <h3>Where chats start</h3>
+      {filters.length > 2 && (
+        <div className="chats-views chats-page-filters">
+          {filters.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              className={`chats-view${kind === f.id ? " chats-view-active" : ""}`}
+              onClick={() => {
+                setKind(f.id);
+                setShowAll(false);
+              }}
+            >
+              {f.label}
+            </button>
+          ))}
         </div>
-      </div>
+      )}
       {loading ? (
         <p className="chats-results-note">Loading…</p>
       ) : rows.length === 0 ? (
         <p className="chats-results-note">
-          No pages recorded in this period yet. Pages are saved for messages
-          sent after Sep 29.
+          No pages recorded in this period yet. Pages are saved for chats
+          from Sep 29.
         </p>
       ) : (
         <>
-        <ol className="chats-pages-list">
-          {rows.slice(0, shown).map((p) => (
-            <li key={p.page}>
-              <a href={pageUrl(p.page)} target="_blank" rel="noopener noreferrer">
-                {pageKindLabel(p.page)} · {p.page}
-              </a>
-              <strong>{p[count]}</strong>
-            </li>
-          ))}
-        </ol>
-        {rows.length > shown && (
-          <button
-            type="button"
-            className="chats-results-toggle chats-pages-more"
-            onClick={() => setShown((n) => n + PAGES_SHOWN)}
-          >
-            Show more ({rows.length - shown} more)
-          </button>
-        )}
+          <ol className="chats-starts">
+            {rows.slice(0, showAll ? rows.length : PAGES_SHOWN).map((p) => (
+              <li key={p.page}>
+                <span className="chats-start-img">
+                  {p.image && <img src={thumb(p.image)} alt="" loading="lazy" />}
+                </span>
+                <span className="chats-start-name">
+                  <a href={pageUrl(p.page)} target="_blank" rel="noopener noreferrer">
+                    {p.title || pageLabel(p.page).replace(/^[\w ]+ · /, "")}
+                  </a>
+                  <small>{pageKindLabel(p.page)}</small>
+                </span>
+                <span className="chats-start-bar" aria-hidden="true">
+                  <span style={{ width: `${(p.chats / most) * 100}%` }} />
+                </span>
+                <strong>{p.chats}</strong>
+              </li>
+            ))}
+          </ol>
+          {rows.length > PAGES_SHOWN && (
+            <button
+              type="button"
+              className="chats-card-link"
+              onClick={() => setShowAll((v) => !v)}
+            >
+              {showAll ? "Show top 6" : `Show all ${rows.length}`}
+            </button>
+          )}
         </>
       )}
-    </div>
+    </section>
   );
 };
-
-const Stat = ({ label, value, note }) => (
-  <div className="chats-results-stat">
-    <span className="chats-results-label">{label}</span>
-    <strong>{value}</strong>
-    {note && <span className="chats-results-sub">{note}</span>}
-  </div>
-);
 
 export default ChatResults;
