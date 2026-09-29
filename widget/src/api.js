@@ -28,4 +28,7 @@ export const callFunction = async (name, body) => {
   }
 };
 
-export const callAskFaq = (body) => callFunction("ask-faq", body);
+// Every chat call says which store page it came from (just the path), so
+// the Chats page can show where conversations start.
+export const callAskFaq = (body) =>
+  callFunction("ask-faq", { ...body, page: location.pathname });

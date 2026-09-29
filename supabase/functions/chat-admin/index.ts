@@ -98,6 +98,114 @@ function takeoverActive(takeoverAt: string | null | undefined) {
     TAKEOVER_HOURS * 60 * 60 * 1000;
 }
 
+// ---- Results: orders the chat played a part in ----
+// The store chat tags the shopper's cart (see tagCart in AskAi.jsx):
+//   cart attribute  _ware_chat = their chat's visitor ID  -> "chatted, then
+//                                                            ordered"
+//   line property   _via = "Ware chat"   -> "added from the chat"
+// Both carry through to the order. Shopify can't search orders by them, so
+// this reads the orders in the date range (read-only, SHOPIFY_ADMIN_TOKEN
+// with read_orders) and picks those out. Only order number, date and
+// totals leave this function, never customer details.
+const SHOP = "ware-innovations-mumbai.myshopify.com";
+const SHOPIFY_API = "2026-07";
+const CHAT_ATTRIBUTE = "_ware_chat";
+const VIA_PROPERTY = "_via";
+// Nothing is tagged before the chat started tagging carts.
+const TRACKING_FROM = "2026-09-29T00:00:00Z";
+const MAX_ORDER_PAGES = 25; // x 80 orders
+// Shopify's orders are cached briefly (reading them takes a few calls);
+// the chat counts are always fresh.
+const ORDERS_CACHE_MS = 5 * 60 * 1000;
+const ordersCache = new Map<
+  string,
+  { at: number; value: Awaited<ReturnType<typeof chatOrders>> }
+>();
+
+const ORDERS_QUERY = `
+query Orders($q: String!, $after: String) {
+  orders(first: 80, after: $after, query: $q, sortKey: CREATED_AT, reverse: true) {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      legacyResourceId
+      name
+      createdAt
+      cancelledAt
+      test
+      customAttributes { key value }
+      currentTotalPriceSet { shopMoney { amount } }
+      lineItems(first: 15) {
+        nodes {
+          customAttributes { key value }
+          discountedTotalSet { shopMoney { amount } }
+        }
+      }
+    }
+  }
+}`;
+
+type Attr = { key: string; value: string | null };
+
+async function chatOrders(since: string | null, until: string | null) {
+  const token = Deno.env.get("SHOPIFY_ADMIN_TOKEN");
+  if (!token) throw new Error("SHOPIFY_ADMIN_TOKEN isn't set");
+  const from = since && since > TRACKING_FROM ? since : TRACKING_FROM;
+  const q = `created_at:>='${from}'` + (until ? ` created_at:<'${until}'` : "");
+  // deno-lint-ignore no-explicit-any
+  const found: any[] = [];
+  let after: string | null = null;
+  let scanned = 0;
+  for (let page = 0; page < MAX_ORDER_PAGES; page++) {
+    const res = await fetch(
+      `https://${SHOP}/admin/api/${SHOPIFY_API}/graphql.json`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": token,
+        },
+        body: JSON.stringify({ query: ORDERS_QUERY, variables: { q, after } }),
+      },
+    );
+    const body = await res.json();
+    if (!res.ok || body.errors) {
+      const detail = JSON.stringify(body.errors ?? body).slice(0, 300);
+      throw new Error(`Shopify orders failed (${res.status}): ${detail}`);
+    }
+    const { nodes, pageInfo } = body.data.orders;
+    scanned += nodes.length;
+    for (const o of nodes) {
+      if (o.test) continue;
+      const visitor = (o.customAttributes as Attr[])
+        .find((a) => a.key === CHAT_ATTRIBUTE)?.value ?? null;
+      // deno-lint-ignore no-explicit-any
+      const fromChat = o.lineItems.nodes.filter((l: any) =>
+        (l.customAttributes as Attr[]).some((a) => a.key === VIA_PROPERTY)
+      );
+      if (!visitor && !fromChat.length) continue;
+      found.push({
+        id: o.legacyResourceId,
+        name: o.name,
+        createdAt: o.createdAt,
+        cancelled: !!o.cancelledAt,
+        total: Number(o.currentTotalPriceSet.shopMoney.amount),
+        fromChatTotal: fromChat.reduce(
+          // deno-lint-ignore no-explicit-any
+          (sum: number, l: any) => sum + Number(l.discountedTotalSet.shopMoney.amount),
+          0,
+        ),
+        visitorId: visitor && UUID_RE.test(visitor) ? visitor : null,
+        adminUrl: `https://admin.shopify.com/store/${
+          SHOP.split(".")[0]
+        }/orders/${o.legacyResourceId}`,
+      });
+    }
+    if (!pageInfo.hasNextPage) break;
+    after = pageInfo.endCursor;
+  }
+  return { orders: found, scanned };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: CORS_HEADERS });
@@ -182,6 +290,9 @@ Deno.serve(async (req) => {
           // "Visitor 12" (scripts/supabase-visitor-numbers.sql); null until
           // that's been run.
           visitorNumber: c.visitor_number ?? null,
+          // Store pages (scripts/supabase-chat-pages.sql); null before that.
+          firstPage: c.first_page ?? null,
+          lastPage: c.last_page ?? null,
           label: c.label,
           startedAt: c.started_at,
           lastMessageAt: c.last_message_at,
@@ -269,6 +380,7 @@ Deno.serve(async (req) => {
           products: m.products,
           created_at: m.created_at,
           sender: m.sender ?? "ai",
+          page: m.page ?? null,
         })),
         takeover: takeoverActive(convo?.takeover_at),
       });
@@ -334,6 +446,83 @@ Deno.serve(async (req) => {
           sender: "agent",
         },
       });
+    }
+
+    // The Chats page's Results panel, for the same date range as the list.
+    if (body.action === "results") {
+      const key = `${since}|${until}`;
+      const cached = ordersCache.get(key);
+      const loadOrders = async () => {
+        if (cached && Date.now() - cached.at < ORDERS_CACHE_MS && !body.fresh) {
+          return cached.value;
+        }
+        const value = await chatOrders(since, until);
+        ordersCache.set(key, { at: Date.now(), value });
+        return value;
+      };
+      let chatsQuery = db
+        .from("chat_conversations")
+        // "*": works before and after first_page exists.
+        .select("*");
+      if (since) chatsQuery = chatsQuery.gte("last_message_at", since);
+      if (until) chatsQuery = chatsQuery.lt("last_message_at", until);
+      const [{ data: chats, error }, shop] = await Promise.all([
+        chatsQuery.limit(LIST_LIMIT),
+        loadOrders().catch((err) => ({ error: String(err) })),
+      ]);
+      if (error) throw error;
+      if ("error" in shop) {
+        console.error(shop.error);
+        const noAccess = /access|scope|denied|401|403/i.test(shop.error);
+        return json({
+          error: noAccess
+            ? "The Shopify token can't read orders yet (needs read_orders)."
+            : "Couldn't load orders from Shopify just now.",
+        }, 502);
+      }
+      // Which chat each order came from ("Visitor 12" / their name). The
+      // chat may be outside the date range, so look those up by ID.
+      const ids = [...new Set(shop.orders.map((o) => o.visitorId).filter(Boolean))];
+      const { data: linked } = ids.length
+        ? await db
+          .from("chat_conversations")
+          .select("id, visitor_id, visitor_number, visitor_name, label")
+          .in("visitor_id", ids)
+        : { data: [] };
+      const byVisitor = new Map((linked ?? []).map((c) => [c.visitor_id, c]));
+      const counted = shop.orders.filter((o) => !o.cancelled);
+      const value = {
+        chats: chats?.length ?? 0,
+        leads: (chats ?? []).filter((c) => c.visitor_phone).length,
+        orders: counted.length,
+        revenue: counted.reduce((s, o) => s + o.total, 0),
+        fromChatOrders: counted.filter((o) => o.fromChatTotal > 0).length,
+        fromChatRevenue: counted.reduce((s, o) => s + o.fromChatTotal, 0),
+        // Where chats start: the pages with the most chats, top 10.
+        topPages: [
+          ...(chats ?? []).reduce((m, c) => {
+            if (c.first_page) m.set(c.first_page, (m.get(c.first_page) ?? 0) + 1);
+            return m;
+          }, new Map<string, number>()),
+        ]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 10)
+          .map(([page, count]) => ({ page, count })),
+        ordersScanned: shop.scanned,
+        trackingFrom: TRACKING_FROM,
+        list: shop.orders.map((o) => {
+          const c = o.visitorId ? byVisitor.get(o.visitorId) : null;
+          return {
+            ...o,
+            conversationId: c?.id ?? null,
+            chatTitle: c
+              ? c.label || c.visitor_name ||
+                (c.visitor_number ? `Visitor ${c.visitor_number}` : "Visitor")
+              : null,
+          };
+        }),
+      };
+      return json(value);
     }
 
     if (body.action === "label") {

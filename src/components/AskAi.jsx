@@ -15,6 +15,7 @@ import {
   ArrowUpRight,
   ArrowUp,
   BookOpen,
+  MapPin,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -151,7 +152,7 @@ const LOCAL_REPLY_JITTER_MS = 600;
 // forgets them, and the card comes back). Clearing the chat resets this.
 const CONTACT_KEY = "askAiContact";
 // Without a follow-up-worthy enquiry, the details prompt waits this long.
-const CONTACT_AFTER_MESSAGES = 5;
+const CONTACT_AFTER_MESSAGES = 6;
 const loadContactPrefs = () => {
   try {
     const v = JSON.parse(localStorage.getItem(CONTACT_KEY)) ?? {};
@@ -173,7 +174,7 @@ const storeContactPrefs = (value) => {
 // or the details form), or they close it. Only the flags live here; the
 // name itself stays on the server, like the phone number.
 const NAME_KEY = "askAiName";
-const NAME_BOX_REPLIES = 3;
+const NAME_BOX_REPLIES = 4;
 const loadNamePrefs = () => {
   try {
     const v = JSON.parse(localStorage.getItem(NAME_KEY)) ?? {};
@@ -279,14 +280,38 @@ const storeRoot = () =>
   typeof window !== "undefined" && window.Shopify
     ? (window.Shopify.routes?.root ?? "/")
     : null;
+// Items added from the chat carry a hidden line property (the underscore
+// keeps it out of the cart and checkout), so their orders show "added from
+// the chat" on the Chats page's Results.
 const addToStoreCart = async (root, cartUrl) => {
   const id = Number(new URL(cartUrl).searchParams.get("id"));
   const res = await fetch(`${root}cart/add.js`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ items: [{ id, quantity: 1 }] }),
+    body: JSON.stringify({
+      items: [{ id, quantity: 1, properties: { _via: "Ware chat" } }],
+    }),
   });
   if (!res.ok) throw new Error(`Cart add failed: ${res.status}`);
+};
+
+// Once they've used the chat, their cart gets a hidden attribute with the
+// chat's visitor ID, which Shopify carries onto the order: the Results
+// panel counts it as "chatted, then ordered" and links it to the chat.
+// Just the random ID, nothing personal. Once per page view; skipped off
+// the store.
+let cartTagged = false;
+const tagCart = () => {
+  const root = storeRoot();
+  if (!root || cartTagged) return;
+  cartTagged = true;
+  fetch(`${root}cart/update.js`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ attributes: { _ware_chat: getVisitorId() } }),
+  }).catch(() => {
+    cartTagged = false;
+  });
 };
 
 // A product the AI recommended. Everything shown here comes from the
@@ -517,6 +542,13 @@ const AskAi = ({
   const [menuOpen, setMenuOpen] = useState(false);
   const listRef = useRef(null);
 
+  // Someone who chatted on an earlier page (or visit) may have a new cart
+  // by now: tag it too, so an order later still counts for the chat.
+  useEffect(() => {
+    if (customer && messages.some((m) => m.question)) tagCart();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Keep nextId ahead of anything restored from storage so new messages
   // never collide with old ones.
   useEffect(() => {
@@ -596,6 +628,7 @@ const AskAi = ({
     if (!question) return;
     setInput("");
     setContactThanks(null);
+    if (customer) tagCart();
 
     const id = nextId++;
 
@@ -715,6 +748,7 @@ const AskAi = ({
       images: data.images ?? [],
       whatsappUrl: data.whatsappUrl ?? null,
       showCatalog: !!data.catalog,
+      showStoreMap: !!data.storeMap,
       askForDetails: !!data.askForDetails,
       detailsOpen: !!data.detailsOpen,
       // A nudge to WhatsApp (too many / too long messages), not an answer.
@@ -755,6 +789,7 @@ const AskAi = ({
   // similar-products picks (no AI). A Ware Atelier piece: an offer of a
   // call from a designer, with Yes, call me / Not now.
   const productTap = (product) => {
+    tagCart();
     // Tapped again straight after: the answer's already on screen.
     const last = messages[messages.length - 1];
     if (last?.tapHandle === product.handle) return;
@@ -1522,6 +1557,18 @@ const AskAi = ({
                   >
                     <BookOpen size={14} />
                     {TEXTS.bespokeCatalog}
+                    <ArrowUpRight size={13} />
+                  </a>
+                )}
+                {m.showStoreMap && TEXTS.storeMapUrl && (
+                  <a
+                    href={TEXTS.storeMapUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="faq-chat-catalog-link"
+                  >
+                    <MapPin size={14} />
+                    {TEXTS.storeMapLabel}
                     <ArrowUpRight size={13} />
                   </a>
                 )}

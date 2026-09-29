@@ -1030,6 +1030,12 @@ const whatsAppLink = (text: string) =>
 const BESPOKE_WORDS =
   /\b(atelier|bespoke|catalog(ue)?|custom(ised|ized)? (furniture|pieces?|tables?|lamps?|lighting))\b/i;
 
+// A reply mentioning the store's address, or a question about getting
+// there, gets the Google Maps link.
+const STORE_ADDRESS_WORDS = /\b(raghuvanshi|lower parel)\b/i;
+const DIRECTIONS_WORDS =
+  /\b(directions?|showroom|google maps?|how (do i|to|can i) (get|reach|come))\b/i;
+
 // The "Enquire" button on a Ware Atelier card.
 const atelierEnquiryUrl = (title: string) =>
   whatsAppLink(
@@ -1077,19 +1083,29 @@ function cleanField(value: unknown) {
 
 // Columns added to chat_conversations after it first shipped. If the SQL
 // script hasn't been re-run yet, save without them rather than failing.
-const NEWER_COLUMNS = ["last_question", "visitor_phone"];
+const NEWER_COLUMNS = [
+  "last_question",
+  "visitor_phone",
+  "first_page",
+  "last_page",
+];
 
 // Update first, insert only for a new visitor: an upsert would use up a
 // visitor number (the identity column, "Visitor 12" in the Chats page) on
-// every save, even when the chat already exists.
-// deno-lint-ignore no-explicit-any
-async function saveConversation(admin: any, row: Record<string, string>) {
+// every save, even when the chat already exists. `onInsert` is only saved
+// for a new conversation (the page it started on).
+async function saveConversation(
+  // deno-lint-ignore no-explicit-any
+  admin: any,
+  row: Record<string, string>,
+  onInsert: Record<string, string>,
+) {
   const { id, ...fields } = row;
   const table = () => admin.from("chat_conversations");
   const { data, error } = await table().update(fields).eq("id", id).select("id");
   if (error) return error;
   if (data?.length) return null;
-  const { error: insertError } = await table().insert(row);
+  const { error: insertError } = await table().insert({ ...row, ...onInsert });
   // Two saves at once for a new visitor: the other one inserted it.
   if (insertError?.code === "23505") {
     return (await table().update(fields).eq("id", id)).error;
@@ -1097,13 +1113,21 @@ async function saveConversation(admin: any, row: Record<string, string>) {
   return insertError;
 }
 
-// deno-lint-ignore no-explicit-any
-async function upsertConversation(admin: any, row: Record<string, string>) {
-  let error = await saveConversation(admin, row);
+async function upsertConversation(
+  // deno-lint-ignore no-explicit-any
+  admin: any,
+  row: Record<string, string>,
+  onInsert: Record<string, string> = {},
+) {
+  let error = await saveConversation(admin, row, onInsert);
   if (error?.code === "PGRST204") {
     const trimmed = { ...row };
-    for (const c of NEWER_COLUMNS) delete trimmed[c];
-    error = await saveConversation(admin, trimmed);
+    const trimmedInsert = { ...onInsert };
+    for (const c of NEWER_COLUMNS) {
+      delete trimmed[c];
+      delete trimmedInsert[c];
+    }
+    error = await saveConversation(admin, trimmed, trimmedInsert);
   }
   if (error) throw error;
 }
@@ -1154,21 +1178,50 @@ async function logCustomerMessage(
   conversationId: string,
   visitorId: string,
   question: string,
+  page: string,
 ) {
   const admin = adminClient();
   if (!admin) return;
-  await upsertConversation(admin, {
-    id: conversationId,
-    visitor_id: visitorId,
-    last_message_at: new Date().toISOString(),
-    last_question: question.slice(0, 300),
-  });
-  const { error } = await admin.from("chat_messages").insert({
+  await upsertConversation(
+    admin,
+    {
+      id: conversationId,
+      visitor_id: visitorId,
+      last_message_at: new Date().toISOString(),
+      last_question: question.slice(0, 300),
+      ...(page ? { last_page: page } : {}),
+    },
+    page ? { first_page: page } : {},
+  );
+  await insertMessage(admin, {
     conversation_id: conversationId,
     question,
     answer: "",
     sender: "customer",
+    page,
   });
+}
+
+// The store page a message was sent from (from the chat widget), as a
+// path like "/products/lilo-cup": no query string or domain. Empty if
+// missing or odd.
+function readPage(raw: unknown) {
+  if (typeof raw !== "string" || !raw.startsWith("/")) return "";
+  const path = raw.split(/[?#]/)[0].slice(0, 200);
+  return /^\/[\w\-./%~]*$/.test(path) ? path : "";
+}
+
+// chat_messages.page arrived later (scripts/supabase-chat-pages.sql):
+// without it, save the message anyway.
+// deno-lint-ignore no-explicit-any
+async function insertMessage(admin: any, row: Record<string, unknown>) {
+  const { page, ...rest } = row;
+  let { error } = await admin
+    .from("chat_messages")
+    .insert(page ? row : rest);
+  if (error?.code === "PGRST204" && page) {
+    ({ error } = await admin.from("chat_messages").insert(rest));
+  }
   if (error) throw error;
 }
 
@@ -1200,6 +1253,7 @@ async function logTurn(turn: {
   visitorName: string;
   company: string;
   isFirst: boolean;
+  page: string;
 }) {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const { conversationId, visitorId } = turn;
@@ -1225,10 +1279,15 @@ async function logTurn(turn: {
   if (turn.company) conversation.company = turn.company;
   if (turn.isFirst) conversation.first_question = turn.question.slice(0, 300);
   conversation.last_question = turn.question.slice(0, 300);
+  if (turn.page) conversation.last_page = turn.page;
 
-  await upsertConversation(admin, conversation);
+  await upsertConversation(
+    admin,
+    conversation,
+    turn.page ? { first_page: turn.page } : {},
+  );
 
-  const { error: msgError } = await admin.from("chat_messages").insert({
+  await insertMessage(admin, {
     conversation_id: conversationId,
     question: turn.question,
     answer: turn.answer,
@@ -1237,8 +1296,8 @@ async function logTurn(turn: {
       url: c.url,
       available: c.available,
     })),
+    page: turn.page,
   });
-  if (msgError) throw msgError;
 }
 
 Deno.serve(async (req) => {
@@ -1439,6 +1498,7 @@ Deno.serve(async (req) => {
           visitorName: "",
           company: "",
           isFirst: !conversation,
+          page: readPage(payload.page),
         });
       } catch (err) {
         console.error("Chat log failed:", err);
@@ -1506,6 +1566,7 @@ Deno.serve(async (req) => {
           visitorName: "",
           company: "",
           isFirst: !conversation,
+          page: readPage(payload.page),
         });
       } catch (err) {
         console.error("Chat log failed:", err);
@@ -1572,6 +1633,7 @@ Deno.serve(async (req) => {
           payload.conversationId,
           payload.visitorId,
           question,
+          readPage(payload.page),
         );
       } catch (err) {
         console.error("Chat log failed:", err);
@@ -2096,6 +2158,7 @@ ${details || "(none)"}${
         visitorName: conversation?.visitor_phone ? "" : visitorName,
         company,
         isFirst: !conversation?.first_question,
+        page: readPage(payload.page),
       });
     } catch (err) {
       console.error("Chat log failed:", err);
@@ -2150,6 +2213,10 @@ ${details || "(none)"}${
       // link (atelierCatalogUrl in chatTexts).
       catalog: !bespoke &&
         (aboutAtelier || BESPOKE_WORDS.test(`${question} ${answer}`)),
+      // The reply gives the store's address (or they asked how to get
+      // there): the chat adds a Google Maps link (storeMapUrl in chatTexts).
+      storeMap: STORE_ADDRESS_WORDS.test(answer) ||
+        DIRECTIONS_WORDS.test(question),
       // Whether we know what to call them (typed in the chat, the name box
       // or the details form): the chat stops offering the name box.
       nameKnown: !!name,

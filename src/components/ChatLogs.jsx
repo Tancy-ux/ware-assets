@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   CalendarDays,
@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { toast } from "react-toastify";
 import { callFunction } from "../lib/askFaq";
+import ChatResults from "./ChatResults";
+import { pageLabel, pageUrl } from "../lib/storePages";
 import "./Chats.css";
 
 // Session token from the chat-admin function. sessionStorage, not
@@ -103,6 +105,17 @@ const ChatLogs = () => {
   const [editingLabel, setEditingLabel] = useState(null);
   const [reply, setReply] = useState("");
   const [sendingReply, setSendingReply] = useState(false);
+  // The open chat's transcript scrolls inside its own box: kept at the
+  // newest message.
+  const transcriptRef = useRef(null);
+  useEffect(() => {
+    const el = transcriptRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages]);
+  // "conversations" or "stats" (the Results panel).
+  const [tab, setTab] = useState("conversations");
+  // Bumped by Refresh so the stats reload too.
+  const [statsRefresh, setStatsRefresh] = useState(0);
 
   const logout = useCallback(() => {
     try {
@@ -355,6 +368,7 @@ const ChatLogs = () => {
             c.visitorPhone,
             c.preview,
             c.visitorNumber && `visitor ${c.visitorNumber}`,
+            c.firstPage && pageLabel(c.firstPage),
           ]
             .filter(Boolean)
             .some((s) => s.toLowerCase().includes(q))),
@@ -362,6 +376,67 @@ const ChatLogs = () => {
   }, [conversations, search, visitorFilter, messageHits]);
 
   const selected = conversations.find((c) => c.id === selectedId);
+
+  // The Results strip's range. Fixed per choice (not re-computed every
+  // render, which would move "last 7 days" along and reload it).
+  const bounds = useMemo(
+    () => rangeBounds(range, customFrom, customTo),
+    [range, customFrom, customTo],
+  );
+
+  // An order's chat may be older than the range shown: widen it first.
+  const openFromResults = (id) => {
+    if (!conversations.some((c) => c.id === id)) changeRange({ range: "all" });
+    setTab("conversations");
+    open(id);
+  };
+
+  const refresh = () => {
+    loadList();
+    setStatsRefresh((n) => n + 1);
+  };
+
+  // The date filter, shared by both tabs (same range in each).
+  const dateFilter = (
+    <>
+      <div className="chats-range">
+        <CalendarDays size={14} />
+        <select
+          value={range}
+          onChange={(e) => changeRange({ range: e.target.value })}
+          aria-label="Show chats from"
+        >
+          {RANGES.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      {range === "custom" && (
+        <div className="chats-range-custom">
+          <label>
+            From
+            <input
+              type="date"
+              value={customFrom}
+              max={customTo || undefined}
+              onChange={(e) => changeRange({ from: e.target.value })}
+            />
+          </label>
+          <label>
+            To
+            <input
+              type="date"
+              value={customTo}
+              min={customFrom || undefined}
+              onChange={(e) => changeRange({ to: e.target.value })}
+            />
+          </label>
+        </div>
+      )}
+    </>
+  );
 
   if (!token) {
     return (
@@ -388,7 +463,7 @@ const ChatLogs = () => {
           <button
             type="button"
             className="chats-btn"
-            onClick={loadList}
+            onClick={refresh}
             disabled={loadingList}
           >
             <RefreshCw size={14} className={loadingList ? "chats-spin" : ""} />
@@ -401,6 +476,36 @@ const ChatLogs = () => {
         </div>
       </div>
 
+      <div className="chats-tabs" role="tablist">
+        {[
+          ["conversations", "Conversations"],
+          ["stats", "Stats"],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            className={`chats-tab${tab === id ? " chats-tab-active" : ""}`}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "stats" ? (
+        <div className="chats-stats">
+          <div className="chats-stats-filter">{dateFilter}</div>
+          <ChatResults
+            token={token}
+            bounds={bounds}
+            refreshKey={statsRefresh}
+            handleResponse={handleResponse}
+            onOpenChat={openFromResults}
+          />
+        </div>
+      ) : (
       <div className={`chats-layout${selected ? " chats-has-selection" : ""}`}>
         <aside className="chats-list">
           <div className="chats-search">
@@ -417,42 +522,7 @@ const ChatLogs = () => {
             )}
           </div>
 
-          <div className="chats-range">
-            <CalendarDays size={14} />
-            <select
-              value={range}
-              onChange={(e) => changeRange({ range: e.target.value })}
-              aria-label="Show chats from"
-            >
-              {RANGES.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          {range === "custom" && (
-            <div className="chats-range-custom">
-              <label>
-                From
-                <input
-                  type="date"
-                  value={customFrom}
-                  max={customTo || undefined}
-                  onChange={(e) => changeRange({ from: e.target.value })}
-                />
-              </label>
-              <label>
-                To
-                <input
-                  type="date"
-                  value={customTo}
-                  min={customFrom || undefined}
-                  onChange={(e) => changeRange({ to: e.target.value })}
-                />
-              </label>
-            </div>
-          )}
+          {dateFilter}
 
           {visitorFilter && (
             <div className="chats-filter-chip">
@@ -475,54 +545,63 @@ const ChatLogs = () => {
                 }`}
           </div>
 
-          {!loadingList && conversations.length === 0 && (
-            <p className="chats-empty">
-              {range === "all"
-                ? "No chats yet. They'll appear here as people use Ask AI."
-                : "No chats in this period. Try a longer range, or All time."}
-            </p>
-          )}
+          {/* Only this part scrolls; search and dates stay put. */}
+          <div className="chats-items">
+            {!loadingList && conversations.length === 0 && (
+              <p className="chats-empty">
+                {range === "all"
+                  ? "No chats yet. They'll appear here as people use Ask AI."
+                  : "No chats in this period. Try a longer range, or All time."}
+              </p>
+            )}
 
-          {filtered.map((c) => (
-            <button
-              type="button"
-              key={c.id}
-              className={`chats-item${c.id === selectedId ? " chats-item-active" : ""}`}
-              onClick={() => open(c.id)}
-            >
-              <div className="chats-item-top">
-                <span className="chats-item-title">
-                  {titleOf(c)}
-                  {c.takeover && <span className="chats-team-badge">Team</span>}
-                </span>
-                <span className="chats-item-date">{formatDate(c.lastMessageAt)}</span>
-              </div>
-              {(c.company && titleOf(c) !== c.company) || c.visitorPhone ? (
-                <div className="chats-item-company">
-                  {[titleOf(c) !== c.company && c.company, c.visitorPhone]
-                    .filter(Boolean)
-                    .join(" · ")}
+            {filtered.map((c) => (
+              <button
+                type="button"
+                key={c.id}
+                className={`chats-item${c.id === selectedId ? " chats-item-active" : ""}`}
+                onClick={() => open(c.id)}
+              >
+                <div className="chats-item-top">
+                  <span className="chats-item-title">
+                    {titleOf(c)}
+                    {c.takeover && <span className="chats-team-badge">Team</span>}
+                  </span>
+                  <span className="chats-item-date">{formatDate(c.lastMessageAt)}</span>
                 </div>
-              ) : null}
-              {/* While searching, the line that matched (if it's in a
-                  message) instead of the latest question. */}
-              {messageHits.has(c.id) ? (
-                <div className="chats-item-preview chats-item-match">
-                  {messageHits.get(c.id)}
+                {(c.company && titleOf(c) !== c.company) || c.visitorPhone ? (
+                  <div className="chats-item-company">
+                    {[titleOf(c) !== c.company && c.company, c.visitorPhone]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </div>
+                ) : null}
+                {/* While searching, the line that matched (if it's in a
+                    message) instead of the latest question. */}
+                {messageHits.has(c.id) ? (
+                  <div className="chats-item-preview chats-item-match">
+                    {messageHits.get(c.id)}
+                  </div>
+                ) : (
+                  <div className="chats-item-preview">{c.preview}</div>
+                )}
+                <div className="chats-item-meta">
+                  <MessageSquare size={11} />
+                  {c.messageCount}
+                  <span>·</span>
+                  {visitorTag(c.visitorId)}
+                  {visitorCounts.get(c.visitorId) > 1 &&
+                    ` (${visitorCounts.get(c.visitorId)} chats)`}
+                  {c.firstPage && (
+                    <>
+                      <span>·</span>
+                      <span className="chats-item-page">{pageLabel(c.firstPage)}</span>
+                    </>
+                  )}
                 </div>
-              ) : (
-                <div className="chats-item-preview">{c.preview}</div>
-              )}
-              <div className="chats-item-meta">
-                <MessageSquare size={11} />
-                {c.messageCount}
-                <span>·</span>
-                {visitorTag(c.visitorId)}
-                {visitorCounts.get(c.visitorId) > 1 &&
-                  ` (${visitorCounts.get(c.visitorId)} chats)`}
-              </div>
-            </button>
-          ))}
+              </button>
+            ))}
+          </div>
         </aside>
 
         <section className="chats-detail">
@@ -599,7 +678,22 @@ const ChatLogs = () => {
                         </a>
                       </span>
                     )}
-                    <span>Started {formatDate(selected.startedAt)}</span>
+                    <span>
+                      Started {formatDate(selected.startedAt)}
+                      {selected.firstPage && (
+                        <>
+                          {" on "}
+                          <a
+                            className="chats-link-btn"
+                            href={pageUrl(selected.firstPage)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            {pageLabel(selected.firstPage)}
+                          </a>
+                        </>
+                      )}
+                    </span>
                     <button
                       type="button"
                       className="chats-link-btn"
@@ -636,14 +730,24 @@ const ChatLogs = () => {
                 </button>
               </div>
 
-              <div className="chats-transcript">
+              <div className="chats-transcript" ref={transcriptRef}>
                 {loadingMessages && <p className="chats-empty">Loading...</p>}
-                {messages.map((m) => m.sender === "system" ? (
+                {messages.map((m, i) => m.sender === "system" ? (
                   <div key={m.id} className="chats-system-note">
                     {m.answer} · {formatDate(m.created_at)}
                   </div>
                 ) : (
                   <div key={m.id} className="chats-turn">
+                    {/* Which page they were on, whenever it changes. */}
+                    {m.page &&
+                      m.page !== messages.slice(0, i).findLast((x) => x.page)?.page && (
+                        <div className="chats-page-note">
+                          on{" "}
+                          <a href={pageUrl(m.page)} target="_blank" rel="noopener noreferrer">
+                            {pageLabel(m.page)}
+                          </a>
+                        </div>
+                      )}
                     {m.question && (
                       <div className="chats-bubble chats-bubble-user">
                         {m.question}
@@ -713,6 +817,7 @@ const ChatLogs = () => {
           )}
         </section>
       </div>
+      )}
     </div>
   );
 };
