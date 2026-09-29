@@ -16,6 +16,7 @@ import {
 import { toast } from "react-toastify";
 import { callFunction } from "../lib/askFaq";
 import ChatResults from "./ChatResults";
+import LeadCard from "./LeadCard";
 import { pageLabel, pageUrl } from "../lib/storePages";
 import "./Chats.css";
 
@@ -47,6 +48,18 @@ const titleOf = (c) =>
   c.visitorName ||
   c.company ||
   (c.visitorNumber ? `Visitor ${c.visitorNumber}` : "Anonymous visitor");
+
+// Visitor numbers restart every day (chat-admin's dailyNumbers), so an
+// unnamed chat's title comes with its day.
+const isNumberTitle = (c) =>
+  !c.label && !c.visitorName && !c.company && !!c.visitorNumber;
+const formatDay = (day) =>
+  day
+    ? new Date(`${day}T12:00:00`).toLocaleDateString([], {
+        day: "numeric",
+        month: "short",
+      })
+    : "";
 
 // Short, stable tag for grouping anonymous visitors by eye.
 const visitorTag = (id) => `#${id.slice(0, 6)}`;
@@ -564,7 +577,15 @@ const ChatLogs = () => {
               >
                 <div className="chats-item-top">
                   <span className="chats-item-title">
-                    {titleOf(c)}
+                    <span className="chats-item-name">
+                      {titleOf(c)}
+                      {/* Visitor numbers restart daily: which day's. */}
+                      {isNumberTitle(c) && (
+                        <small className="chats-item-day">
+                          {formatDay(c.visitorDay)}
+                        </small>
+                      )}
+                    </span>
                     {c.takeover && <span className="chats-team-badge">Team</span>}
                   </span>
                   <span className="chats-item-date">{formatDate(c.lastMessageAt)}</span>
@@ -729,6 +750,17 @@ const ChatLogs = () => {
                   <Trash2 size={15} />
                 </button>
               </div>
+
+              <LeadCard
+                key={selected.id}
+                conversation={selected}
+                api={api}
+                onUpdated={(patch) =>
+                  setConversations((prev) =>
+                    prev.map((c) => (c.id === selected.id ? { ...c, ...patch } : c)),
+                  )
+                }
+              />
 
               <div className="chats-transcript" ref={transcriptRef}>
                 {loadingMessages && <p className="chats-empty">Loading...</p>}

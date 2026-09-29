@@ -96,6 +96,10 @@ export const TEXTS = {
   bespokeLater:
     "Of course, no rush at all. Take your time with it, and whenever you'd like to talk it through, I'm right here.",
 
+  // Notice after adding a piece from a card
+  addedToCart: "Added to your cart",
+  viewCart: "View cart",
+
   // Under replies giving the store's address
   storeMapLabel: "Get directions on Google Maps",
   storeMapUrl: "https://maps.app.goo.gl/xvfFKjgKcb9agCtc6",

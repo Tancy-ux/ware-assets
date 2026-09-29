@@ -142,6 +142,9 @@ const shortName = (title) =>
     .replace(/^the\s+/i, "")
     .trim() || title;
 
+// How long the "Added to cart" notice stays (it fades out at the end).
+const CART_NOTICE_MS = 4500;
+
 // How long local replies (Show more, similar products) "type" for.
 const LOCAL_REPLY_MIN_MS = 1000;
 const LOCAL_REPLY_JITTER_MS = 600;
@@ -318,7 +321,13 @@ const tagCart = () => {
 // Shopify catalog via the function, not from the model's text. Single-
 // variant products add straight to the store's cart; ones with options
 // (size, colour) go to the product page to pick.
-const ProductCard = ({ product, restockState, onCheckRestock, customer }) => {
+const ProductCard = ({
+  product,
+  restockState,
+  onCheckRestock,
+  customer,
+  onAddedToCart,
+}) => {
   const [cartState, setCartState] = useState(null); // adding | added
   const root = customer ? storeRoot() : null;
   // In the store the product pages open in the same tab (the chat comes
@@ -330,6 +339,7 @@ const ProductCard = ({ product, restockState, onCheckRestock, customer }) => {
     try {
       await addToStoreCart(root, product.cartUrl);
       setCartState("added");
+      onAddedToCart?.();
     } catch (err) {
       console.error(err);
       // The plain cart link still works: it adds and opens the cart.
@@ -540,6 +550,19 @@ const AskAi = ({
   const [copiedKey, setCopiedKey] = useState(null);
   const [expanded, setExpanded] = useState(loadExpanded);
   const [menuOpen, setMenuOpen] = useState(false);
+  // "Added to cart" notice after the + on a card: shows for a few
+  // seconds, then fades (the CSS animation matches CART_NOTICE_MS).
+  const [cartNotice, setCartNotice] = useState(null);
+  const cartNoticeTimer = useRef(null);
+  const showCartNotice = () => {
+    clearTimeout(cartNoticeTimer.current);
+    setCartNotice(Date.now()); // a new key restarts the animation
+    cartNoticeTimer.current = setTimeout(
+      () => setCartNotice(null),
+      CART_NOTICE_MS,
+    );
+  };
+  useEffect(() => () => clearTimeout(cartNoticeTimer.current), []);
   const listRef = useRef(null);
 
   // Someone who chatted on an earlier page (or visit) may have a new cart
@@ -1440,6 +1463,7 @@ const AskAi = ({
                         key={p.url}
                         product={p}
                         customer={customer}
+                        onAddedToCart={showCartNotice}
                         restockState={
                           m.restockDone?.[p.url]
                             ? "done"
@@ -1701,6 +1725,13 @@ const AskAi = ({
         )}
       </div>
 
+      {cartNotice && (
+        <div key={cartNotice} className="ware-cart-notice" role="status">
+          <Check size={14} />
+          {TEXTS.addedToCart}
+          <a href={`${storeRoot() ?? "/"}cart`}>{TEXTS.viewCart}</a>
+        </div>
+      )}
       <form onSubmit={send} className="faq-chat-input-row">
         <input
           type="text"

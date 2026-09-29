@@ -590,3 +590,49 @@
     font-size: 16px;
   }
 }
+
+/* "Added to your cart" notice above the typing box, fading out after
+   4.5s (CART_NOTICE_MS in AskAi.jsx) */
+.ware-cart-notice {
+  position: absolute;
+  left: 50%;
+  bottom: 76px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--ware-ink, #2b2622);
+  color: #fff;
+  font-size: 13px;
+  white-space: nowrap;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  pointer-events: auto;
+  animation: ware-cart-notice 4.5s ease forwards;
+}
+.ware-cart-notice a {
+  margin-left: 4px;
+  color: #fff;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+@keyframes ware-cart-notice {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  6% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  85% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, 0);
+  }
+}

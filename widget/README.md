@@ -1,5 +1,8 @@
 # Ware chat for the Shopify store
 
+(The full picture, including tracking, leads and every setting, is in
+[docs/GUIDE.md](../docs/GUIDE.md).)
+
 The customer-facing version of Ask AI: the "Ware concierge" chat on
 wareinnovations.com. It's the same chat component as the ware-assets site
 (`src/components/AskAi.jsx` with `customer` on), minus the team tools.
@@ -49,13 +52,11 @@ http://localhost:5050/widget/dist/test.html. It talks to the deployed
 3. **Assets** → Add a new asset → upload `ware-chat.js`.
 4. **Snippets** → Add a new snippet → name it `ware-chat` → paste the whole
    of `widget/ware-chat.liquid` → Save.
-5. In `layout/theme.liquid`, just above `</body>`, render it where it
-   should show, e.g. only on the wedding gifts collection:
+5. In `layout/theme.liquid`, just above `</body>`, render it (it's on every
+   page today; wrap it in an `{% if %}` to limit where it shows):
 
    ```liquid
-   {% if template.name == 'collection' and template.suffix == 'wedding_gift_2024' %}
-     {% render 'ware-chat' %}
-   {% endif %}
+   {% render 'ware-chat' %}
    ```
 
 6. Save, then ⋯ → **Preview** on the copy.

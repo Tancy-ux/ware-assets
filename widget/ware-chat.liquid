@@ -118,6 +118,10 @@
       bespokeLater:
         "Of course, no rush at all. Take your time with it, and whenever you'd like to talk it through, I'm right here.",
 
+      // Notice after adding a piece from a card
+      addedToCart: "Added to your cart",
+      viewCart: "View cart",
+
       // Under replies giving the store's address
       storeMapLabel: "Get directions on Google Maps",
       storeMapUrl: "https://maps.app.goo.gl/xvfFKjgKcb9agCtc6",
@@ -1626,6 +1630,51 @@
       /* Under 16px, iPhones zoom the page in when the field is tapped. */
       .ware-chat-root .faq-chat-input-row input {
         font-size: 16px;
+      }
+    }
+    /* "Added to your cart" notice above the typing box, fading out after
+       4.5s (CART_NOTICE_MS in AskAi.jsx) */
+    .ware-cart-notice {
+      position: absolute;
+      left: 50%;
+      bottom: 76px;
+      z-index: 5;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: var(--ware-ink, #2b2622);
+      color: #fff;
+      font-size: 13px;
+      white-space: nowrap;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+      pointer-events: auto;
+      animation: ware-cart-notice 4.5s ease forwards;
+    }
+    .ware-cart-notice a {
+      margin-left: 4px;
+      color: #fff;
+      font-weight: 600;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    @keyframes ware-cart-notice {
+      0% {
+        opacity: 0;
+        transform: translate(-50%, 8px);
+      }
+      6% {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+      85% {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+      100% {
+        opacity: 0;
+        transform: translate(-50%, 0);
       }
     }
   </style>

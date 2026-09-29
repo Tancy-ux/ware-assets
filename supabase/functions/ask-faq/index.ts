@@ -177,6 +177,8 @@ type Product = {
   // Which of Ware's lines it belongs to. Similar products never cross
   // lines, and Atelier pieces are handled differently (no prices).
   line: "atelier" | "collectibles" | "marble" | "ceramic";
+  // Capacity from the name ("Uno 275ml Katori Bowl" -> 275), if it has one.
+  ml: number | null;
   keyTags: Set<string>;
   // Photos of this product's gift packaging (box, sleeve, hamper).
   giftImages: string[];
@@ -314,6 +316,7 @@ function toProduct(p: any): Product {
       .toLowerCase(),
     ...splitTitle(p.title),
     line: productLine(p),
+    ml: sizeInMl(p.title),
     typePath: (p.product_type || "")
       .split(/[<>]/)
       .map((s: string) => s.trim().toLowerCase())
@@ -473,6 +476,20 @@ function weightedOverlap(
   return total ? shared / total : 0;
 }
 
+// "275ml" / "1.2 L" in a product name, in ml. (Sizes only ever appear in
+// names on the store, never in descriptions.)
+function sizeInMl(title: string) {
+  const m = title.match(/(\d+(?:\.\d+)?)\s*(ml|ltr|litres?|liters?|l)\b/i);
+  if (!m) return null;
+  const value = Number(m[1]);
+  return /^ml$/i.test(m[2]) ? value : value * 1000;
+}
+
+// How close two capacities are: 1 = same, 0.5 = one is double the other.
+// Null when either has no size in its name.
+const sizeCloseness = (a: number | null, b: number | null) =>
+  a && b ? Math.min(a, b) / Math.max(a, b) : null;
+
 // In-stock alternatives to a (usually sold-out) product. All signals
 // count at once, weighted in priority order: same collection and name
 // (rare words count most) > type > price > shared distinctive tags >
@@ -500,9 +517,15 @@ function similarProducts(target: Product, products: Product[]) {
       // Some names span unrelated lines (ceramic Pivot tableware vs Pivot
       // marble vases and candle stands), so the collection bonus shrinks
       // when the types are far apart.
+      // A 275ml katori's alternatives are small bowls, not 1100ml serving
+      // bowls: close sizes count a lot, and anything under half or over
+      // double the size is pushed well down.
+      const size = sizeCloseness(p.ml, target.ml);
+      const sizeScore = size === null ? 0 : 4 * size - (size < 0.5 ? 6 : 0);
       const score = 5 * (sameCollection ? 0.4 + 0.6 * typeScore : 0) +
         4 * weightedOverlap(p.nameWords, target.nameWords, weight) +
         3 * typeScore +
+        sizeScore +
         2 * Math.max(0, 1 - priceGap) +
         1.5 * overlap(p.keyTags, target.keyTags) +
         1 * overlap(p.colors, target.colors);
@@ -1088,7 +1111,13 @@ const NEWER_COLUMNS = [
   "visitor_phone",
   "first_page",
   "last_page",
+  "visitor_email",
 ];
+
+// An email or an Indian mobile number typed into the chat (not a 6-digit
+// pincode or an order number).
+const EMAIL_RE = /[\w.+-]+@[\w-]+(\.[\w-]+)+/;
+const MOBILE_RE = /(?:\+?91[\s-]?)?\b[6-9]\d{4}[\s-]?\d{5}\b/;
 
 // Update first, insert only for a new visitor: an upsert would use up a
 // visitor number (the identity column, "Visitor 12" in the Chats page) on
@@ -1102,9 +1131,18 @@ async function saveConversation(
 ) {
   const { id, ...fields } = row;
   const table = () => admin.from("chat_conversations");
-  const { data, error } = await table().update(fields).eq("id", id).select("id");
+  const { data, error } = await table().update(fields).eq("id", id).select("*");
   if (error) return error;
-  if (data?.length) return null;
+  if (data?.length) {
+    // A chat from before pages were recorded: its first page from now.
+    const missing = Object.fromEntries(
+      Object.entries(onInsert).filter(([k]) => k in data[0] && data[0][k] == null),
+    );
+    if (Object.keys(missing).length) {
+      return (await table().update(missing).eq("id", id)).error;
+    }
+    return null;
+  }
   const { error: insertError } = await table().insert({ ...row, ...onInsert });
   // Two saves at once for a new visitor: the other one inserted it.
   if (insertError?.code === "23505") {
@@ -1281,11 +1319,17 @@ async function logTurn(turn: {
   conversation.last_question = turn.question.slice(0, 300);
   if (turn.page) conversation.last_page = turn.page;
 
-  await upsertConversation(
-    admin,
-    conversation,
-    turn.page ? { first_page: turn.page } : {},
-  );
+  // Saved only if the chat has none yet (the details form's number wins):
+  // the page it started on, and an email / mobile number typed in the
+  // chat, for the Chats page's Zoho lead.
+  const fillIfEmpty: Record<string, string> = {};
+  if (turn.page) fillIfEmpty.first_page = turn.page;
+  const email = turn.question.match(EMAIL_RE)?.[0];
+  if (email) fillIfEmpty.visitor_email = email.toLowerCase();
+  const phone = turn.question.match(MOBILE_RE)?.[0];
+  if (phone) fillIfEmpty.visitor_phone = phone.trim();
+
+  await upsertConversation(admin, conversation, fillIfEmpty);
 
   await insertMessage(admin, {
     conversation_id: conversationId,
