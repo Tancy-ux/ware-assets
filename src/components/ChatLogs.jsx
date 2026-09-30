@@ -1574,22 +1574,9 @@ const ReplyExtras = ({ extras }) => {
           </span>
         </div>
       )}
-      {has("details_form") && (
-        <div className="chats-extra-card">
-          <UserPlus size={15} />
-          <span>
-            <strong>Name &amp; number form</strong>
-            <small>{TEXTS.contactFormTitleCall}</small>
-          </span>
-        </div>
-      )}
-      {has("details_prompt") && (
-        <div className="chats-extra-card">
-          <UserPlus size={15} />
-          <span>
-            <strong>{TEXTS.contactPrompt}</strong>
-            <small>{TEXTS.contactPromptButton}</small>
-          </span>
+      {(has("details_form") || has("details_prompt")) && (
+        <div className="chats-extra-note">
+          <UserPlus size={13} /> Details asked
         </div>
       )}
       {has("gift_photos") && (

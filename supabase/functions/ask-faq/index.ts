@@ -169,8 +169,17 @@ const GEMINI_DEADLINE_MS = 25_000;
 // How long to skip a model after it says its quota is used up.
 const QUOTA_SKIP_MS = 10 * 60 * 1000;
 const PRODUCT_CACHE_MS = 10 * 60 * 1000;
-// Checkout helpers that live in the feed but aren't real products.
-const EXCLUDED_TITLES = new Set(["Partial Payment"]);
+// Checkout helpers and add-ons that live in the feed but aren't products
+// to recommend (Gift Wrapping is the ₹150 wrap added at checkout), and the
+// e-gift card, which the team doesn't want suggested.
+const EXCLUDED_TITLES = new Set([
+  "Partial Payment",
+  "Gift Wrapping",
+  "Ware's E-Gift Card",
+]);
+// Tagged "merchandise" in Shopify (keychain, notebook, lapel pin): never
+// suggested either.
+const EXCLUDED_TAGS = new Set(["merchandise"]);
 
 type Product = {
   handle: string;
@@ -703,7 +712,10 @@ async function refreshCatalog(): Promise<RawProduct[]> {
 
 function buildProducts(raw: RawProduct[]): Product[] {
   const products = raw
-    .filter((p) => !EXCLUDED_TITLES.has(p.title))
+    .filter((p) =>
+      !EXCLUDED_TITLES.has(p.title) &&
+      !(p.tags ?? []).some((t: string) => EXCLUDED_TAGS.has(t.toLowerCase()))
+    )
     .map(toProduct);
   // Tags on a big share of the catalog (active, google, ceramic, sale
   // tags...) say nothing about similarity; keep only the distinctive ones.
@@ -2797,7 +2809,10 @@ ${details || "(none)"}${
       intent === "call_request" ||
       (intent !== "human" && askForCall && /\bcall\b/i.test(answer))
     );
+    // Not straight after a reply that already showed the details card: at
+    // most every other reply (the chat says whether it did).
     const askForDetails = detailsOpen || (!bespoke && intent !== "human" &&
+      payload.detailsShownLast !== true &&
       (followUp || aboutAtelier || FOLLOW_UP_WORDS.test(question)));
 
     // About Ware Atelier / bespoke pieces: the chat adds the catalogue's

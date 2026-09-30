@@ -449,7 +449,10 @@ block at the top of `delivery.ts`.
   name is known or closed (×).
 - **"Want our team to follow up with you?" → Enter your details** (name +
   phone) from the shopper's 6th typed message, or straight away for bulk /
-  corporate / custom / Atelier enquiries. **Not now** hides it.
+  corporate / custom / Atelier enquiries. **Not now** hides it. It shows
+  under **every other reply at most** (never two replies in a row), unless
+  the reply itself asks for a call. In the Chats transcript it's a one-line
+  "Details asked" note.
 - When the bot asks "could our team give you a quick call?" the form opens
   right under that reply. It never says the team will call unless a number
   is on file.
@@ -876,6 +879,13 @@ until this was changed. If a refresh fails, the last copy stays in use.
 To check what the store's feed answers from Supabase, call ask-faq with
 `{"mode": "shipping-debug", "feed": true}` (or `"scopes": true` for the
 Admin key's permissions) using the service role key.
+
+Some store products are never recommended: the checkout add-ons
+("Partial Payment", the ₹150 "Gift Wrapping"), "Ware's E-Gift Card", and
+anything tagged `merchandise` (keychain, notebook, lapel pin). They're
+listed in `EXCLUDED_TITLES` / `EXCLUDED_TAGS` at the top of
+`ask-faq/index.ts`; add a new one there by its exact title, or tag it
+`merchandise` in Shopify.
 
 ## 15. Known gaps and ideas not built
 

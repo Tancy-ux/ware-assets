@@ -701,6 +701,13 @@ const AskAi = ({
     // One conversation per visitor in the Chats page, so it's keyed on the
     // browser's visitor ID; resets only clear the AI's memory above.
     const conversationId = getVisitorId();
+    // The details card shows under every other reply at most: not again
+    // straight after one it showed under (unless the reply asks for a call).
+    const detailsShownLast = !!messages
+      .slice(lastReset + 1)
+      .findLast((m) => m.answer && !m.isAgent && !m.isLocal)?.contactShown;
+    const typedSoFar =
+      messages.filter((m) => m.question && !m.isLocal && !m.isReset).length + 1;
 
     setMessages((prev) => [
       ...prev,
@@ -724,6 +731,7 @@ const AskAi = ({
       history,
       conversationId,
       visitorId: getVisitorId(),
+      detailsShownLast,
     });
     if (data && typeof data.contactSaved === "boolean") {
       syncContactSaved(data.contactSaved);
@@ -783,6 +791,12 @@ const AskAi = ({
       showStoreMap: !!data.storeMap,
       askForDetails: !!data.askForDetails,
       detailsOpen: !!data.detailsOpen,
+      // Whether the details card goes under this reply (the server has
+      // already skipped askForDetails right after one).
+      contactShown:
+        !!data.detailsOpen ||
+        !!data.askForDetails ||
+        (!detailsShownLast && typedSoFar >= CONTACT_AFTER_MESSAGES),
       // A nudge to WhatsApp (too many / too long messages), not an answer.
       ...(data.fallback ? { failed: true, isLocal: true } : {}),
     });
@@ -1076,10 +1090,8 @@ const AskAi = ({
     .findLast((m) => m.conversationId && m.answer)?.conversationId;
   // Offer it only when it's useful: the function flagged an enquiry the
   // team should follow up on (bulk / custom / quote...), or they've been
-  // chatting a while. Not from the very first message.
-  const customerMessages = messages.filter(
-    (m) => m.question && !m.isLocal && !m.isReset,
-  ).length;
+  // chatting a while. Not from the very first message, and under every
+  // other reply at most (contactShown, set as each reply arrives).
   // Not straight after the WhatsApp button either: two asks at once.
   const lastReplyHasWhatsApp = !!messages.findLast((m) => m.answer)
     ?.whatsappUrl;
@@ -1090,8 +1102,9 @@ const AskAi = ({
     !!currentConversationId &&
     !lastReplyHasWhatsApp &&
     !messages.some((m) => m.loading) &&
-    (messages.some((m) => m.askForDetails) ||
-      customerMessages >= CONTACT_AFTER_MESSAGES);
+    !!messages
+      .slice(lastResetIndex + 1)
+      .findLast((m) => m.answer && !m.isAgent && !m.isLocal)?.contactShown;
   // "What should we call you?": under the latest reply while it's one of
   // their first few (since the last reset), until the name is known or
   // they close it. Never at the same time as the details form.
