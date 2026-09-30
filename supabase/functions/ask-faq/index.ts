@@ -17,7 +17,7 @@
 // site's Ask AI talks to it.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { deliveryNote, loadZones, lookupPincode } from "./delivery.ts";
+import { deliveryNote, loadZones, lookupPincode, shopifyAdmin } from "./delivery.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -536,19 +536,154 @@ function similarProducts(target: Product, products: Product[]) {
     .map((x) => x.p);
 }
 
-async function loadProducts(): Promise<Product[]> {
-  if (productCache && Date.now() - productCache.at < PRODUCT_CACHE_MS) {
-    return productCache.products;
+// ---- The product catalogue ----
+// One shared copy for all of this function's servers, in Supabase Storage
+// (bucket CATALOG_BUCKET), refreshed every CATALOG_FRESH_MS through the
+// Shopify Admin API (the app's own rate limit, read_products). The public
+// products.json feed is only a fallback: Shopify rate-limits it by server
+// address, and Supabase's servers share theirs with other apps, so it can
+// refuse for a while ("429 local_rate_limited"). When a refresh fails the
+// last good copy is used, so the bot never loses the catalogue.
+const CATALOG_BUCKET = "bot-cache";
+const CATALOG_FILE = "catalog.json";
+const CATALOG_FRESH_MS = 30 * 60 * 1000;
+
+// deno-lint-ignore no-explicit-any
+type RawProduct = any; // the products.json shape toProduct reads
+
+// Every active product on the Online Store, via the Admin API, in the
+// products.json shape (only the fields toProduct uses).
+async function catalogFromAdmin(): Promise<RawProduct[]> {
+  const raw: RawProduct[] = [];
+  let after: string | null = null;
+  for (let page = 0; page < 40; page++) {
+    // deno-lint-ignore no-explicit-any
+    let data: any = null;
+    for (let attempt = 0; attempt < 5 && !data; attempt++) {
+      try {
+        data = await shopifyAdmin(
+          `query Catalog($after: String) {
+            products(first: 40, after: $after, query: "status:active") {
+              pageInfo { hasNextPage endCursor }
+              nodes {
+                handle title productType tags descriptionHtml publishedAt
+                variants(first: 10) {
+                  nodes { legacyResourceId title price availableForSale }
+                }
+                images(first: 12) { nodes { url } }
+              }
+            }
+          }`,
+          { after },
+        );
+      } catch (err) {
+        // Over the query budget for a moment: wait and try again.
+        if (!/THROTTLED/i.test(String(err)) || attempt === 4) throw err;
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+      }
+    }
+    const { nodes, pageInfo } = data.products;
+    for (const n of nodes) {
+      // products.json only lists what's published to the Online Store.
+      if (!n.publishedAt) continue;
+      raw.push({
+        handle: n.handle,
+        title: n.title,
+        product_type: n.productType ?? "",
+        tags: n.tags ?? [],
+        body_html: n.descriptionHtml ?? "",
+        variants: n.variants.nodes.map((v: RawProduct) => ({
+          id: Number(v.legacyResourceId),
+          title: v.title,
+          price: v.price,
+          available: v.availableForSale,
+        })),
+        images: n.images.nodes.map((i: RawProduct) => ({ src: i.url })),
+      });
+    }
+    if (!pageInfo.hasNextPage) break;
+    after = pageInfo.endCursor;
   }
-  // deno-lint-ignore no-explicit-any
-  const raw: any[] = [];
+  if (!raw.length) throw new Error("Admin API returned no products");
+  return raw;
+}
+
+// The public feed (the old way), trimmed to the same fields.
+async function catalogFromFeed(): Promise<RawProduct[]> {
+  const raw: RawProduct[] = [];
   for (let page = 1; page <= 20; page++) {
     const res = await fetch(`${STORE_URL}/products.json?limit=250&page=${page}`);
     if (!res.ok) throw new Error(`Shopify feed returned ${res.status}`);
     const { products } = await res.json();
-    raw.push(...products);
+    for (const p of products) {
+      raw.push({
+        handle: p.handle,
+        title: p.title,
+        product_type: p.product_type,
+        tags: p.tags,
+        body_html: p.body_html,
+        variants: p.variants.map((v: RawProduct) => ({
+          id: v.id,
+          title: v.title,
+          price: v.price,
+          available: v.available,
+        })),
+        images: p.images.map((i: RawProduct) => ({ src: i.src })),
+      });
+    }
     if (products.length < 250) break;
   }
+  return raw;
+}
+
+async function readSnapshot(): Promise<{ at: number; raw: RawProduct[] } | null> {
+  const admin = adminClient();
+  if (!admin) return null;
+  const { data, error } = await admin.storage
+    .from(CATALOG_BUCKET)
+    .download(CATALOG_FILE);
+  if (error || !data) return null;
+  try {
+    const snap = JSON.parse(await data.text());
+    return Array.isArray(snap.raw) && snap.raw.length ? snap : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeSnapshot(raw: RawProduct[]) {
+  const admin = adminClient();
+  if (!admin) return;
+  const body = JSON.stringify({ at: Date.now(), raw });
+  const upload = () =>
+    admin.storage.from(CATALOG_BUCKET).upload(CATALOG_FILE, body, {
+      contentType: "application/json",
+      upsert: true,
+    });
+  let { error } = await upload();
+  if (error && /not found/i.test(error.message ?? "")) {
+    // First time: a private bucket just for this.
+    await admin.storage.createBucket(CATALOG_BUCKET, { public: false });
+    ({ error } = await upload());
+  }
+  if (error) console.error("Catalogue snapshot not saved:", error.message);
+}
+
+// A fresh catalogue from Shopify (Admin API, else the feed), saved as the
+// shared copy.
+async function refreshCatalog(): Promise<RawProduct[]> {
+  let raw: RawProduct[];
+  try {
+    raw = await catalogFromAdmin();
+  } catch (err) {
+    console.error("Catalogue via Admin API failed:", String(err));
+    raw = await catalogFromFeed();
+  }
+  await writeSnapshot(raw);
+  return raw;
+}
+
+function buildProducts(raw: RawProduct[]): Product[] {
   const products = raw
     .filter((p) => !EXCLUDED_TITLES.has(p.title))
     .map(toProduct);
@@ -563,8 +698,45 @@ async function loadProducts(): Promise<Product[]> {
       p.tags.filter((t) => (tagCount.get(t) ?? 0) < products.length * 0.15),
     );
   }
-  productCache = { at: Date.now(), products };
   return products;
+}
+
+let refreshing: Promise<unknown> | null = null;
+
+async function loadProducts(): Promise<Product[]> {
+  if (productCache && Date.now() - productCache.at < PRODUCT_CACHE_MS) {
+    return productCache.products;
+  }
+  const snap = await readSnapshot();
+  if (snap) {
+    const products = buildProducts(snap.raw);
+    productCache = { at: Date.now(), products };
+    // Old copy: use it now, refresh it in the background (this reply
+    // doesn't wait for Shopify).
+    if (Date.now() - snap.at > CATALOG_FRESH_MS && !refreshing) {
+      refreshing = refreshCatalog()
+        .then((raw) => {
+          productCache = { at: Date.now(), products: buildProducts(raw) };
+        })
+        .catch((err) => console.error("Catalogue refresh failed:", String(err)))
+        .finally(() => {
+          refreshing = null;
+        });
+      // deno-lint-ignore no-explicit-any
+      (globalThis as any).EdgeRuntime?.waitUntil?.(refreshing);
+    }
+    return products;
+  }
+  // No shared copy yet (the very first time): fetch one now.
+  try {
+    const products = buildProducts(await refreshCatalog());
+    productCache = { at: Date.now(), products };
+    return products;
+  } catch (err) {
+    // Keep answering from an older copy if this server has one.
+    if (productCache) return productCache.products;
+    throw err;
+  }
 }
 
 const STOPWORDS = new Set(
@@ -1472,10 +1644,12 @@ Deno.serve(async (req) => {
     // conversation in the Chats page, so: end any takeover, and leave a
     // marker in the transcript showing where they started over.
     if (
-      ["reset", "contact", "name", "similar", "bespoke"].includes(payload.mode) &&
+      ["reset", "contact", "name", "similar", "bespoke", "info"].includes(
+        payload.mode,
+      ) &&
       !(await formAllowed(
         req,
-        ["similar", "bespoke"].includes(payload.mode) ? "tap" : "form",
+        ["similar", "bespoke", "info"].includes(payload.mode) ? "tap" : "form",
       ))
     ) {
       return json(
@@ -1550,6 +1724,53 @@ Deno.serve(async (req) => {
       }
       if (role !== "service_role") {
         return json({ error: "Not allowed" }, 403);
+      }
+      // What the store's product feed answers from here (it can refuse
+      // cloud servers while answering browsers fine).
+      if (payload.scopes) {
+        try {
+          const d = await shopifyAdmin(
+            "{ currentAppInstallation { accessScopes { handle } } products(first: 1) { nodes { handle } } }",
+          );
+          return json({
+            scopes: d.currentAppInstallation.accessScopes.map((s: { handle: string }) => s.handle),
+            product: d.products.nodes[0]?.handle ?? null,
+          });
+        } catch (err) {
+          return json({ error: String(err) });
+        }
+      }
+      // A product's detail metafields (what the store snippet gives the
+      // chat's product options), to check or test with real values.
+      if (typeof payload.meta === "string") {
+        try {
+          const d = await shopifyAdmin(
+            `query($q: String!) { products(first: 1, query: $q) { nodes {
+              handle title
+              includes: metafield(namespace: "custom", key: "this_set_includes") { value type }
+              dimensions: metafield(namespace: "my_fields", key: "set_dimensions") { value type }
+              volume: metafield(namespace: "my_fields", key: "set_volumes") { value type }
+              weight: metafield(namespace: "my_fields", key: "set_weight") { value type }
+            } } }`,
+            { q: `handle:${payload.meta}` },
+          );
+          return json(d.products.nodes[0] ?? { error: "No such product" });
+        } catch (err) {
+          return json({ error: String(err) });
+        }
+      }
+      if (payload.feed) {
+        const res = await fetch(`${STORE_URL}/products.json?limit=1`);
+        const text = await res.text();
+        return json({
+          status: res.status,
+          headers: Object.fromEntries(
+            [...res.headers].filter(([k]) =>
+              /retry|server|cf-|x-shopify|content-type|x-request/i.test(k)
+            ),
+          ),
+          body: text.slice(0, 300),
+        });
       }
       try {
         const zones = await loadZones();
@@ -1645,6 +1866,46 @@ Deno.serve(async (req) => {
         ),
         contactSaved: !!conversation?.visitor_phone,
       });
+    }
+
+    // An option on a product page ("What's in the set?", "Dimensions"…),
+    // answered in the chat from the product's own details (its metafields,
+    // put on the page by the store snippet). Only logged here, for the
+    // Chats page (no AI); the product must be a real one.
+    if (payload.mode === "info") {
+      const handle = typeof payload.handle === "string" ? payload.handle : "";
+      const target = (await loadProducts()).find((p) => p.handle === handle);
+      const { conversationId, visitorId } = payload;
+      const text = (v: unknown, max: number) =>
+        typeof v === "string" ? v.trim().slice(0, max) : "";
+      const question = text(payload.question, 200);
+      const answer = text(payload.answer, 800);
+      if (!target) return json({ error: "Unknown product" }, 404);
+      if (!question || !answer || !validIds(conversationId, visitorId)) {
+        return json({ error: "Can't save that right now" }, 400);
+      }
+      const conversation = await ownConversation(conversationId, visitorId);
+      try {
+        await logTurn({
+          conversationId,
+          visitorId,
+          question,
+          answer,
+          cards: [],
+          visitorName: "",
+          company: "",
+          isFirst: !conversation,
+          page: readPage(payload.page),
+          extra: visitorInfo(req, payload),
+          ifEmpty: {
+            topic: `Details of the ${target.title}`.slice(0, 80),
+            interest: "warm",
+          },
+        });
+      } catch (err) {
+        console.error("Chat log failed:", err);
+      }
+      return json({ ok: true });
     }
 
     // The pill on a Ware Atelier (bespoke) piece: "we'd love to call you".

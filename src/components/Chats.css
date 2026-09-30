@@ -12,7 +12,8 @@
   --chats-accent-soft: #eaf0ea;
   --chats-radius: 6px;
 
-  width: min(1400px, 100% - 32px);
+  /* Full width of the screen, with a small gutter each side. */
+  width: calc(100% - 32px);
   margin: 0 auto;
   padding: 32px 0 48px;
   color: var(--chats-text);
@@ -1512,7 +1513,7 @@
   gap: 14px;
 }
 .chats-layout.chats-has-selection {
-  grid-template-columns: minmax(280px, 330px) minmax(0, 1fr) 290px;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr) minmax(290px, 340px);
 }
 @media (max-width: 1180px) {
   .chats-layout.chats-has-selection {

@@ -18,13 +18,26 @@ import { TEXTS, setTexts } from "../../src/lib/chatTexts";
 
 const STYLES_ID = "ware-chat-styles";
 
+// The product's details from the snippet (its metafields), only the ones
+// it has: { includes, dimensions, volume, weight }, or null.
+function productInfo(handle) {
+  const info = window.WareChatConfig?.productInfo;
+  if (!info || info.handle !== handle) return null;
+  const found = {};
+  for (const key of ["includes", "dimensions", "volume", "weight"]) {
+    const value = typeof info[key] === "string" ? info[key].trim() : "";
+    if (value) found[key] = value;
+  }
+  return Object.keys(found).length ? found : null;
+}
+
 // The product this page is about, if it's a product page: { handle, title,
-// bespoke } (bespoke = tagged "ware atelier"). Read from Shopify's own
-// /products/<handle>.js; a test page can set window.WareChatConfig.product
-// instead.
+// bespoke, info } (bespoke = tagged "ware atelier"; info = productInfo).
+// Read from Shopify's own /products/<handle>.js; a test page can set
+// window.WareChatConfig.product instead.
 async function pageProduct() {
   const given = window.WareChatConfig?.product;
-  if (given?.handle) return given;
+  if (given?.handle) return { ...given, info: given.info ?? productInfo(given.handle) };
   const match = location.pathname.match(/\/products\/([^/?#]+)/);
   if (!match) return null;
   try {
@@ -37,6 +50,7 @@ async function pageProduct() {
       bespoke: (p.tags ?? []).some(
         (t) => t.toLowerCase().trim() === "ware atelier",
       ),
+      info: productInfo(p.handle),
     };
   } catch {
     return null;
@@ -48,8 +62,9 @@ const WareChat = () => {
   // Always starts closed, on every page: shoppers open it themselves. (The
   // conversation itself is kept by AskAi, so it's all there when they do.)
   const [open, setOpen] = useState(false);
-  // On a product page the pill offers more like it (or, for a bespoke
-  // piece, a designer's call) and tapping it asks straight away.
+  // On a product page the pill opens the chat with options about the
+  // piece (when it has details), or asks for more like it straight away
+  // (when it has none), or for a bespoke piece offers a designer's call.
   const [product, setProduct] = useState(null);
   const chat = useRef(null);
   useEffect(() => {
@@ -59,7 +74,9 @@ const WareChat = () => {
     ? TEXTS.pill
     : product.bespoke
       ? TEXTS.pillBespoke
-      : TEXTS.pillProduct;
+      : product.info
+        ? TEXTS.pillProductAsk
+        : TEXTS.pillProduct;
   const openChat = () => {
     setOpen(true);
     if (product) chat.current?.productTap(product);

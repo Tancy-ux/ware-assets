@@ -153,13 +153,57 @@ async function readFeed(kind: "products" | "collections") {
   return items;
 }
 
-async function storeCatalog(): Promise<StoreCatalog> {
+// Products: the bot's shared copy of the catalogue (ask-faq keeps it in
+// Storage, bot-cache/catalog.json). Collections: the Admin API. The
+// public feeds are only a fallback, since Shopify rate-limits them for
+// Supabase's servers.
+// deno-lint-ignore no-explicit-any
+async function productsFromSnapshot(db: any) {
+  const { data, error } = await db.storage.from("bot-cache").download("catalog.json");
+  if (error || !data) throw new Error("No catalogue copy yet");
+  const items = new Map<string, CatalogItem>();
+  for (const p of JSON.parse(await data.text()).raw ?? []) {
+    items.set(p.handle, { title: p.title, image: p.images?.[0]?.src ?? null });
+  }
+  return items;
+}
+
+async function collectionsFromAdmin() {
+  const token = Deno.env.get("SHOPIFY_ADMIN_TOKEN");
+  if (!token) throw new Error("SHOPIFY_ADMIN_TOKEN isn't set");
+  const items = new Map<string, CatalogItem>();
+  let after: string | null = null;
+  for (let page = 0; page < 10; page++) {
+    const res: Response = await fetch(`https://${SHOP}/admin/api/${SHOPIFY_API}/graphql.json`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
+      body: JSON.stringify({
+        query: `query($after: String) { collections(first: 250, after: $after) {
+          pageInfo { hasNextPage endCursor } nodes { handle title image { url } } } }`,
+        variables: { after },
+      }),
+    });
+    // deno-lint-ignore no-explicit-any
+    const json: any = await res.json();
+    if (!res.ok || json.errors) throw new Error(JSON.stringify(json.errors ?? json).slice(0, 200));
+    for (const c of json.data.collections.nodes) {
+      items.set(c.handle, { title: c.title, image: c.image?.url ?? null });
+    }
+    if (!json.data.collections.pageInfo.hasNextPage) break;
+    after = json.data.collections.pageInfo.endCursor;
+  }
+  return items;
+}
+
+// deno-lint-ignore no-explicit-any
+async function storeCatalog(db?: any): Promise<StoreCatalog> {
   if (catalogCache && Date.now() - catalogCache.at < CATALOG_CACHE_MS) {
     return catalogCache.value;
   }
   const [products, collections] = await Promise.all([
-    readFeed("products"),
-    readFeed("collections"),
+    (db ? productsFromSnapshot(db) : Promise.reject(new Error("no db")))
+      .catch(() => readFeed("products")),
+    collectionsFromAdmin().catch(() => readFeed("collections")),
   ]);
   catalogCache = { at: Date.now(), value: { products, collections } };
   return catalogCache.value;
@@ -249,7 +293,7 @@ async function chatOrders(since: string | null, until: string | null) {
   let after: string | null = null;
   let scanned = 0;
   for (let page = 0; page < MAX_ORDER_PAGES; page++) {
-    const res = await fetch(
+    const res: Response = await fetch(
       `https://${SHOP}/admin/api/${SHOPIFY_API}/graphql.json`,
       {
         method: "POST",
@@ -260,7 +304,8 @@ async function chatOrders(since: string | null, until: string | null) {
         body: JSON.stringify({ query: ORDERS_QUERY, variables: { q, after } }),
       },
     );
-    const body = await res.json();
+    // deno-lint-ignore no-explicit-any
+    const body: any = await res.json();
     if (!res.ok || body.errors) {
       const detail = JSON.stringify(body.errors ?? body).slice(0, 300);
       throw new Error(`Shopify orders failed (${res.status}): ${detail}`);
@@ -827,7 +872,7 @@ Deno.serve(async (req) => {
         (m.products ?? []).some((p: any) => p?.url && !p.image)
       );
       const images = needPhotos
-        ? (await storeCatalog().catch(() => EMPTY_CATALOG)).products
+        ? (await storeCatalog(db).catch(() => EMPTY_CATALOG)).products
         : null;
       return json({
         messages: (data ?? []).map((m) => ({
@@ -934,7 +979,7 @@ Deno.serve(async (req) => {
       const [{ data: allChats, error }, shop, catalog] = await Promise.all([
         chatsQuery.limit(LIST_LIMIT),
         loadOrders().catch((err) => ({ error: String(err) })),
-        storeCatalog().catch(() => EMPTY_CATALOG),
+        storeCatalog(db).catch(() => EMPTY_CATALOG),
       ]);
       if (error) throw error;
       // "Hide test and junk chats" (on unless turned off).

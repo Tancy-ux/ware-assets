@@ -99,6 +99,37 @@ const snippet = `{% comment %}
     texts: ${texts}
   };
 </script>
+<script>
+  /* The product's details for the chat's options (product pages only;
+     empty ones are left out by the chat). */
+  {%- if product -%}
+    {%- liquid
+      assign ware_includes = ''
+      assign ware_dimensions = ''
+      assign ware_volume = ''
+      assign ware_weight = ''
+      if product.metafields.custom.this_set_includes != blank
+        assign ware_includes = product.metafields.custom.this_set_includes | metafield_text | strip
+      endif
+      if product.metafields.my_fields.set_dimensions != blank
+        assign ware_dimensions = product.metafields.my_fields.set_dimensions | metafield_text | strip
+      endif
+      if product.metafields.my_fields.set_volumes != blank
+        assign ware_volume = product.metafields.my_fields.set_volumes | metafield_text | strip
+      endif
+      if product.metafields.my_fields.set_weight != blank
+        assign ware_weight = product.metafields.my_fields.set_weight | metafield_text | strip
+      endif
+    -%}
+  window.WareChatConfig.productInfo = {
+    handle: {{ product.handle | json }},
+    includes: {{ ware_includes | json }},
+    dimensions: {{ ware_dimensions | json }},
+    volume: {{ ware_volume | json }},
+    weight: {{ ware_weight | json }}
+  };
+  {%- endif -%}
+</script>
 
 <template id="ware-chat-styles">
 <style>
@@ -136,6 +167,9 @@ try {
 // render it.
 const rendered = (storeCopy ?? snippet)
   .replace(/\{% comment %\}[\s\S]*?\{% endcomment %\}\n?/, "")
+  // The product details come from Liquid, which a plain page can't run:
+  // test.html sets them from its address instead.
+  .replace(/[ \t]*\/\* The product's details[\s\S]*?\{%- endif -%\}\n/, "")
   .replace(/\{\{\s*'ware-chat\.js'\s*\|\s*asset_url\s*\}\}/, "ware-chat.js");
 const page = (await read("widget/test.html")).replace(
   "<!-- WARE_CHAT_SNIPPET -->",

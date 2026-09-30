@@ -88,6 +88,21 @@ export const TEXTS = {
   bespokeCatalog: "Browse our bespoke catalogue",
   atelierCatalogUrl:
     "https://cdn.shopify.com/s/files/1/0039/8498/2051/files/Ware_Atelier_Bespoke_Furniture_Catalog.pdf?v=1790597905",
+  // On a product page with details (metafields): the pill opens the chat
+  // with these options. Each answer comes straight from the product's own
+  // details ({value}); only the ones a product has are offered.
+  pillProductAsk: "I want to know more about this",
+  productOptionsIntro: "Anything you'd like to know about the {name}?",
+  productOptionsMore: "Anything else about the {name}?",
+  optMoreLikeThis: "Show me more like this",
+  optIncludes: "What's in the set?",
+  optDimensions: "Dimensions",
+  optVolume: "Volume",
+  optWeight: "Weight",
+  infoIncludes: "The {name} includes:\n{value}",
+  infoDimensions: "Dimensions of the {name}:\n{value}",
+  infoVolume: "Volume of the {name}:\n{value}",
+  infoWeight: "Weight of the {name}:\n{value}",
   bespokeYes: "Yes, call me",
   bespokeFormTitle:
     "Share your name and number, and one of our designers will call you.",

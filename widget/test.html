@@ -48,7 +48,8 @@
     <!-- WARE_CHAT_SNIPPET -->
     <script>
       // Pretend to be a product page: test.html?product=<handle>&title=<name>
-      // (add &bespoke=1 for a Ware Atelier piece).
+      // (add &bespoke=1 for a Ware Atelier piece, and &includes=…,
+      // &dimensions=…, &volume=…, &weight=… for its details).
       (function () {
         var q = new URLSearchParams(location.search);
         if (!q.get("product")) return;
@@ -57,6 +58,13 @@
           handle: q.get("product"),
           title: q.get("title") || q.get("product"),
           bespoke: q.get("bespoke") === "1",
+        };
+        window.WareChatConfig.productInfo = {
+          handle: q.get("product"),
+          includes: q.get("includes") || "",
+          dimensions: q.get("dimensions") || "",
+          volume: q.get("volume") || "",
+          weight: q.get("weight") || "",
         };
       })();
     </script>

@@ -370,6 +370,15 @@
   color: var(--ware-brown);
 }
 
+/* A product's options: the details, then "Show me more like this" on its
+   own line. */
+.ware-chat-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 /* Product cards: a swipeable row */
 .ware-chat-root .faq-chat-products {
   gap: 10px;

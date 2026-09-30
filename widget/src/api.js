@@ -43,7 +43,7 @@ const readCart = () =>
   ]);
 
 // Calls that log a message (questions and pill taps), not polls or forms.
-const LOGGED_MODES = [undefined, "similar", "bespoke"];
+const LOGGED_MODES = [undefined, "similar", "bespoke", "info"];
 
 // Every chat call says which store page it came from (just the path), so
 // the Chats page can show where conversations start.

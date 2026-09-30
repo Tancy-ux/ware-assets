@@ -320,6 +320,28 @@ type > price > distinctive tags > colour. For product-page taps: at most one
 other colour of the same design and at most two more from the same range
 before other ranges get a turn.
 
+### 5.4a Product details on product pages (no AI)
+
+On a product page whose product has any of these metafields, the pill reads
+**"Questions about this piece?"** and opens the chat with "Anything you'd
+like to know about the {product}?" and one button per detail it has:
+
+| Button | Metafield |
+|---|---|
+| What's in the set? | `custom.this_set_includes` |
+| Dimensions | `my_fields.set_dimensions` |
+| Volume | `my_fields.set_volumes` |
+| Weight | `my_fields.set_weight` |
+
+plus **Show me more like this** (§5.4). Empty metafields get no button. The
+answer is the metafield's own text, instantly and for free; used buttons
+drop off the next "Anything else about…". Each answer is logged to the
+Chats page (ask-faq mode `info`) and the AI sees it for follow-up
+questions. The snippet reads the metafields with Liquid (its own
+`<script>` block setting `WareChatConfig.productInfo`); a product with none
+keeps the old pill, which asks for more like it straight away. The local
+test page takes `&includes=…&dimensions=…&volume=…&weight=…`.
+
 ### 5.5 Ware Atelier (bespoke) pieces
 
 Any question about specific Atelier pieces (typed, or the pill) gets the
@@ -772,6 +794,18 @@ this one active.
 | Test chats cluttering the Chats page | Delete them there; visitor numbers for that day close up. |
 
 ---
+
+### The bot says it can't find products it should
+
+The catalogue comes from a shared copy in Supabase Storage
+(`bot-cache/catalog.json`), refreshed every 30 minutes through the Shopify
+Admin API (`read_products`). The public `products.json` feed is only a
+fallback: Shopify rate-limits it for Supabase's servers ("429
+local_rate_limited"), which on 30 Sep 2026 left the bot with no products
+until this was changed. If a refresh fails, the last copy stays in use.
+To check what the store's feed answers from Supabase, call ask-faq with
+`{"mode": "shipping-debug", "feed": true}` (or `"scopes": true` for the
+Admin key's permissions) using the service role key.
 
 ## 15. Known gaps and ideas not built
 

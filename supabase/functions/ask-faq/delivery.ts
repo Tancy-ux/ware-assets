@@ -103,6 +103,26 @@ async function shopifyToken() {
   return token.value;
 }
 
+// One Admin GraphQL call (for the product catalogue and the checks in
+// ask-faq's developer-only debug mode).
+// deno-lint-ignore no-explicit-any
+export async function shopifyAdmin(query: string, variables?: Record<string, unknown>, timeoutMs = 15000): Promise<any> {
+  const res = await fetch(`https://${SHOP}/admin/api/${API_VERSION}/graphql.json`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Shopify-Access-Token": await shopifyToken(),
+    },
+    body: JSON.stringify({ query, variables }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const json = await res.json();
+  if (!res.ok || json.errors) {
+    throw new Error(`Shopify admin: ${JSON.stringify(json.errors ?? json).slice(0, 300)}`);
+  }
+  return json.data;
+}
+
 // ---- Shipping zones ----
 
 export type Rate = {

@@ -109,6 +109,21 @@
       bespokeCatalog: "Browse our bespoke catalogue",
       atelierCatalogUrl:
         "https://cdn.shopify.com/s/files/1/0039/8498/2051/files/Ware_Atelier_Bespoke_Furniture_Catalog.pdf?v=1790597905",
+      // On a product page with details (metafields): the pill opens the chat
+      // with these options. Each answer comes straight from the product's own
+      // details ({value}); only the ones a product has are offered.
+      pillProductAsk: "I want to know more about this",
+      productOptionsIntro: "Anything you'd like to know about the {name}?",
+      productOptionsMore: "Anything else about the {name}?",
+      optMoreLikeThis: "Show me more like this",
+      optIncludes: "What's in the set?",
+      optDimensions: "Dimensions",
+      optVolume: "Volume",
+      optWeight: "Weight",
+      infoIncludes: "The {name} includes:\n{value}",
+      infoDimensions: "Dimensions of the {name}:\n{value}",
+      infoVolume: "Volume of the {name}:\n{value}",
+      infoWeight: "Weight of the {name}:\n{value}",
       bespokeYes: "Yes, call me",
       bespokeFormTitle:
         "Share your name and number, and one of our designers will call you.",
@@ -136,6 +151,37 @@
       sentToTeam: "Sent to the Ware team ·",
     }
   };
+</script>
+<script>
+  /* The product's details for the chat's options (product pages only;
+     empty ones are left out by the chat). */
+  {%- if product -%}
+    {%- liquid
+      assign ware_includes = ''
+      assign ware_dimensions = ''
+      assign ware_volume = ''
+      assign ware_weight = ''
+      if product.metafields.custom.this_set_includes != blank
+        assign ware_includes = product.metafields.custom.this_set_includes | metafield_text | strip
+      endif
+      if product.metafields.my_fields.set_dimensions != blank
+        assign ware_dimensions = product.metafields.my_fields.set_dimensions | metafield_text | strip
+      endif
+      if product.metafields.my_fields.set_volumes != blank
+        assign ware_volume = product.metafields.my_fields.set_volumes | metafield_text | strip
+      endif
+      if product.metafields.my_fields.set_weight != blank
+        assign ware_weight = product.metafields.my_fields.set_weight | metafield_text | strip
+      endif
+    -%}
+  window.WareChatConfig.productInfo = {
+    handle: {{ product.handle | json }},
+    includes: {{ ware_includes | json }},
+    dimensions: {{ ware_dimensions | json }},
+    volume: {{ ware_volume | json }},
+    weight: {{ ware_weight | json }}
+  };
+  {%- endif -%}
 </script>
 
 <template id="ware-chat-styles">
@@ -1411,6 +1457,15 @@
       background: var(--ware-peach);
       border-color: var(--faq-accent);
       color: var(--ware-brown);
+    }
+
+    /* A product's options: the details, then "Show me more like this" on its
+       own line. */
+    .ware-chat-options {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 10px;
     }
 
     /* Product cards: a swipeable row */

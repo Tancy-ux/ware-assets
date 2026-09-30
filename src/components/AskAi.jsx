@@ -685,7 +685,11 @@ const AskAi = ({
     const recent = messages
       .slice(lastReset + 1)
       .filter(
-        (m) => (m.answer || m.awaitingTeam) && !m.failed && m.time > cutoff,
+        (m) =>
+          (m.answer || m.awaitingTeam) &&
+          !m.failed &&
+          !m.skipHistory &&
+          m.time > cutoff,
       )
       .slice(-HISTORY_MAX_TURNS);
     const history = recent.map((m) => ({
@@ -812,9 +816,11 @@ const AskAi = ({
   };
 
   // ---- The store pill on a product page (widget/src/main.jsx) ----
-  // A normal piece: "Show me more products like this", answered with the
-  // similar-products picks (no AI). A Ware Atelier piece: an offer of a
-  // call from a designer, with Yes, call me / Not now.
+  // A piece with details (its metafields): options about it, answered
+  // from those details (no AI). A piece without: "Show me more products
+  // like this", answered with the similar-products picks (no AI). A Ware
+  // Atelier piece: an offer of a call from a designer, with Yes, call me /
+  // Not now.
   const productTap = (product) => {
     tagCart();
     // Tapped again straight after: the answer's already on screen.
@@ -822,7 +828,96 @@ const AskAi = ({
     if (last?.tapHandle === product.handle) return;
     setContactThanks(null);
     if (product.bespoke) startBespoke(product);
-    else showMoreLikeThis(product);
+    else if (product.info) {
+      showProductOptions(product, askedAbout(product.handle), true);
+    } else showMoreLikeThis(product);
+  };
+
+  // The options already answered for a piece in this chat (since the
+  // last "reset"), so reopening the chat doesn't offer them again.
+  const askedAbout = (handle) =>
+    messages
+      .slice(messages.findLastIndex((m) => m.isReset) + 1)
+      .filter((m) => m.optionFor?.handle === handle && !m.failed)
+      .map((m) => m.optionFor.id);
+
+  // The options for a piece: "Show me more like this" and one per detail
+  // it has, minus the ones already asked (`used`).
+  const PRODUCT_OPTIONS = [
+    { id: "similar", label: () => TEXTS.optMoreLikeThis },
+    { id: "includes", label: () => TEXTS.optIncludes, answer: () => TEXTS.infoIncludes },
+    { id: "dimensions", label: () => TEXTS.optDimensions, answer: () => TEXTS.infoDimensions },
+    { id: "volume", label: () => TEXTS.optVolume, answer: () => TEXTS.infoVolume },
+    { id: "weight", label: () => TEXTS.optWeight, answer: () => TEXTS.infoWeight },
+  ];
+  const optionsFor = (product, used) =>
+    PRODUCT_OPTIONS.filter(
+      (o) => !used.includes(o.id) && (o.id === "similar" || product.info?.[o.id]),
+    );
+
+  // "Anything you'd like to know about the Uno Katori?" with the options
+  // under it (first time), or "Anything else…" after an answer.
+  const showProductOptions = (product, used, first = false) => {
+    if (!optionsFor(product, used).length) return;
+    const name = shortName(product.title);
+    setMessages((prev) => [
+      // Only one set of options at a time.
+      ...prev.filter((m) => !m.productOptions),
+      {
+        id: nextId++,
+        answer: fillText(
+          first ? TEXTS.productOptionsIntro : TEXTS.productOptionsMore,
+          { name },
+        ),
+        productOptions: { product, used },
+        tapHandle: first ? product.handle : undefined,
+        isLocal: true,
+        // A prompt, not something the AI needs to know.
+        skipHistory: true,
+        time: Date.now(),
+      },
+    ]);
+  };
+
+  const chooseProductOption = async (msg, option) => {
+    const { product, used } = msg.productOptions;
+    const nowUsed = [...used, option.id];
+    setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+    if (option.id === "similar") {
+      await showMoreLikeThis(product);
+      showProductOptions(product, nowUsed);
+      return;
+    }
+    const name = shortName(product.title);
+    const question = option.label();
+    const answer = fillText(option.answer(), {
+      name,
+      value: product.info[option.id],
+    });
+    // Logged for the team like any reply (no AI).
+    callAskFaq({
+      mode: "info",
+      handle: product.handle,
+      question: `${question} (${product.title})`,
+      answer,
+      conversationId: getVisitorId(),
+      visitorId: getVisitorId(),
+    }).then(({ error, data }) => {
+      if (error || data?.error) console.error(error ?? data?.error);
+    });
+    postLocalReply(
+      question,
+      { answer, conversationId: getVisitorId() },
+      // The AI sees which piece it was about, for follow-up questions.
+      {
+        historyQuestion: `${question} (${product.title})`,
+        optionFor: { handle: product.handle, id: option.id },
+      },
+    );
+    setTimeout(
+      () => showProductOptions(product, nowUsed),
+      LOCAL_REPLY_MIN_MS + LOCAL_REPLY_JITTER_MS + 50,
+    );
   };
   useEffect(() => {
     if (actionsRef) actionsRef.current = { productTap };
@@ -839,6 +934,7 @@ const AskAi = ({
         question: TEXTS.moreLikeThisAsk,
         historyQuestion,
         tapHandle: product.handle,
+        optionFor: { handle: product.handle, id: "similar" },
         conversationId,
         loading: true,
         isLocal: true,
@@ -1597,6 +1693,32 @@ const AskAi = ({
                     {TEXTS.storeMapLabel}
                     <ArrowUpRight size={13} />
                   </a>
+                )}
+                {m.productOptions && (
+                  // The details first; "Show me more like this" on its own
+                  // line under them.
+                  <div className="ware-chat-options">
+                    {[false, true].map((main) => {
+                      const row = optionsFor(
+                        m.productOptions.product,
+                        m.productOptions.used,
+                      ).filter((o) => (o.id === "similar") === main);
+                      return row.length > 0 && (
+                        <div key={String(main)} className="ware-chat-suggestions">
+                          {row.map((o) => (
+                            <button
+                              key={o.id}
+                              type="button"
+                              className="ware-chat-suggestion"
+                              onClick={() => chooseProductOption(m, o)}
+                            >
+                              {o.label()}
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
                 {m.bespokeOffer && (
                   <div className="faq-chat-contact-prompt-actions">
