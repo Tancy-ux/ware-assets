@@ -9,10 +9,13 @@ import { toast } from "react-toastify";
 // has a lead with that phone or email, only its empty fields are filled
 // (chat-admin's lead-push); otherwise a new lead is created.
 
-const missingFor = (lead) => {
+// `contactSaved`: a phone or email is saved but this login can't see it.
+const missingFor = (lead, contactSaved = false) => {
   const missing = [];
   if (!lead.name.trim()) missing.push("name");
-  if (!lead.phone.trim() && !lead.email.trim()) missing.push("phone or email");
+  if (!contactSaved && !lead.phone.trim() && !lead.email.trim()) {
+    missing.push("phone or email");
+  }
   if (!lead.requirement.trim()) missing.push("requirement");
   return missing;
 };
@@ -22,8 +25,19 @@ let optionsPromise = null;
 
 // The side panel's contact details too: Save keeps them in the admin
 // only; Send to Zoho is the separate push. `open` / `onOpenChange` are the
-// panel's (open when a chat opens).
-const LeadCard = ({ conversation: c, api, onUpdated, open, onOpenChange }) => {
+// panel's (open when a chat opens). What the login may do (checked on the
+// server too): canEdit (fields, Draft, Save), canPush (Send to Zoho),
+// canSeeContacts (phone and email; hidden otherwise).
+const LeadCard = ({
+  conversation: c,
+  api,
+  onUpdated,
+  open,
+  onOpenChange,
+  canEdit = true,
+  canPush = true,
+  canSeeContacts = true,
+}) => {
   const [lead, setLead] = useState(() => ({
     name: c.visitorName ?? "",
     phone: c.visitorPhone ?? "",
@@ -59,13 +73,13 @@ const LeadCard = ({ conversation: c, api, onUpdated, open, onOpenChange }) => {
   const [busy, setBusy] = useState(null); // draft | save | push
   const [options, setOptions] = useState(null);
 
-  const missing = missingFor(lead);
+  const missing = missingFor(lead, !canSeeContacts && !!c.hasContact);
   const inZoho = !!c.zohoLeadId;
 
   const toggle = () => onOpenChange(!open);
 
   useEffect(() => {
-    if (!open || options) return;
+    if (!open || options || (!canEdit && !canPush)) return;
     let cancelled = false;
     optionsPromise ??= api({ action: "lead-options" });
     optionsPromise.then((data) => {
@@ -75,7 +89,7 @@ const LeadCard = ({ conversation: c, api, onUpdated, open, onOpenChange }) => {
     return () => {
       cancelled = true;
     };
-  }, [open, options, api]);
+  }, [open, options, api, canEdit, canPush]);
 
   const change = (key) => (e) => {
     setLead((prev) => ({ ...prev, [key]: e.target.value }));
@@ -162,6 +176,8 @@ const LeadCard = ({ conversation: c, api, onUpdated, open, onOpenChange }) => {
               fill in and save the details.
             </p>
           )}
+          {/* Read only for a login without the edit permission. */}
+          <fieldset className="chats-lead-fields" disabled={!canEdit}>
           <div className="chats-lead-grid">
             <label>
               Name
@@ -169,7 +185,13 @@ const LeadCard = ({ conversation: c, api, onUpdated, open, onOpenChange }) => {
             </label>
             <label>
               Phone
-              <input value={lead.phone} onChange={change("phone")} maxLength={30} />
+              <input
+                value={lead.phone}
+                onChange={change("phone")}
+                maxLength={30}
+                disabled={!canSeeContacts}
+                placeholder={!canSeeContacts && c.hasContact ? "Hidden for your login" : ""}
+              />
             </label>
             <label>
               Email
@@ -178,6 +200,8 @@ const LeadCard = ({ conversation: c, api, onUpdated, open, onOpenChange }) => {
                 value={lead.email}
                 onChange={change("email")}
                 maxLength={120}
+                disabled={!canSeeContacts}
+                placeholder={!canSeeContacts && c.hasContact ? "Hidden for your login" : ""}
               />
             </label>
             <label>
@@ -200,15 +224,17 @@ const LeadCard = ({ conversation: c, api, onUpdated, open, onOpenChange }) => {
           <label>
             <span className="chats-lead-label-row">
               Requirement
-              <button
-                type="button"
-                className="chats-link-btn"
-                onClick={draft}
-                disabled={busy !== null}
-              >
-                <Sparkles size={12} />
-                {busy === "draft" ? "Drafting…" : "Draft from chat"}
-              </button>
+              {canEdit && (
+                <button
+                  type="button"
+                  className="chats-link-btn"
+                  onClick={draft}
+                  disabled={busy !== null}
+                >
+                  <Sparkles size={12} />
+                  {busy === "draft" ? "Drafting…" : "Draft from chat"}
+                </button>
+              )}
             </span>
             <textarea
               value={lead.requirement}
@@ -226,15 +252,18 @@ const LeadCard = ({ conversation: c, api, onUpdated, open, onOpenChange }) => {
               maxLength={500}
             />
           </label>
+          </fieldset>
           <div className="chats-lead-actions">
-            <button
-              type="button"
-              className="chats-btn"
-              onClick={save}
-              disabled={busy !== null || !dirty}
-            >
-              {busy === "save" ? "Saving…" : "Save"}
-            </button>
+            {canEdit && (
+              <button
+                type="button"
+                className="chats-btn"
+                onClick={save}
+                disabled={busy !== null || !dirty}
+              >
+                {busy === "save" ? "Saving…" : "Save"}
+              </button>
+            )}
             {inZoho ? (
               <a
                 className="chats-btn"
@@ -244,7 +273,7 @@ const LeadCard = ({ conversation: c, api, onUpdated, open, onOpenChange }) => {
               >
                 Open in Zoho <ExternalLink size={13} />
               </a>
-            ) : (
+            ) : canPush && (
               <button
                 type="button"
                 className="chats-btn chats-btn-primary"

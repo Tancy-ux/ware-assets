@@ -168,13 +168,49 @@ Where FAQs come from:
   (not built into the bot yet; the gifting follow-up person is **Priyal**, not
   the name in that doc).
 
-### Chats (`/chats`, `ChatLogs.jsx`, `ChatResults.jsx`, `LeadCard.jsx`)
+### Chats (`/chats`, `ChatLogs.jsx`, `ChatResults.jsx`, `LeadCard.jsx`, `ChatTeam.jsx`, `ChatBot.jsx`)
 
-Its own login (username + password from the Supabase secrets
-`CHATS_USERNAME` / `CHATS_PASSWORD`), separate from the site login. A
-session lasts 12 hours (signed token checked by `chat-admin`); closing the
-browser logs out (sessionStorage). Login attempts are limited to 10 per 10
-minutes and 30 per day per connection.
+**Sign-in: "Continue with Google"**, separate from the site login. Only
+`@wareinnovations.com` Google Workspace accounts get in: `chat-admin` checks
+Google's signature (client ID in `src/lib/googleConfig.js` and the
+`GOOGLE_CLIENT_ID` secret), the verified email and the Workspace domain.
+The owner is `CHATS_OWNER_EMAIL` (shown as `CHATS_OWNER_NAME`, default
+"Tanushree"); everyone else must be on the Team list and switched on. No
+Supabase accounts are created (on this site any Supabase account counts as
+a team member, so Supabase's own Google sign-in is deliberately not used).
+**Owner backup login** (link under the button): `CHATS_USERNAME` /
+`CHATS_PASSWORD`, owner only; team members have no passwords. A session
+lasts 12 hours (signed token); closing the browser logs out
+(sessionStorage). Sign-in attempts: 10 per 10 minutes, 30 per day per
+connection.
+
+**Layout**: left menu (Conversations, Stats, Team, Bot, and who's signed in
+with Log out), a title bar with the search and **Refresh**, then the
+section. Phones work like WhatsApp Business: icons in a slim top bar,
+search + refresh, one swipeable row of filters, the list; a chat opens full
+screen with ← back.
+
+**Team** (needs "Manage team"): add a person with name, work email and
+ticks: see phone numbers & emails, take over & reply, edit details, send to
+Zoho, Stats, delete chats, manage team. Checked on the server on every
+action (contacts are masked server-side), so turning someone off or
+changing ticks applies straight away. Nobody can give a permission they
+don't have. Team replies show the sender's name ("Tani · Ware team") to the
+shopper and in Chats.
+
+**Bot** (owner only, not a permission): the bot's standing instructions
+(`ai_guidelines`, the same rules the FAQ page's Improve AI panel edits).
+Each instruction has On/Off, Edit, Delete; saving goes live on the bot's
+next answer. At least 5 words and 25 characters each, up to 60 of 400
+characters. **Try it** asks the bot with the instructions as written,
+including an unsaved edit (sent through `chat-admin` with the service key;
+not logged). **History** (folded) keeps every change in
+`ai_guidelines_versions`; any version can be brought back.
+
+**Internal chats**: chats started from this site's Ask AI (or a local test)
+are saved with `source = internal`, tagged **Internal** and shown only under
+the Internal filter (hidden when there are none), never in Needs reply /
+Leads / All; Stats counts them with the test chats.
 
 The page fits the screen: header, summary, search and the open chat's
 header stay put; the list, the transcript and the side panel scroll inside
@@ -644,7 +680,9 @@ would need a code change (`zohoLeadFields` in `chat-admin`).
 | Table | What | Written by |
 | --- | --- | --- |
 | `faqs` | question, answer, category, internal, doc_key, deleted, updated_at | FAQ page (team), build-faqs sync |
-| `ai_guidelines` | the bot's standing rules (rule, original note, enabled) | Improve AI panel |
+| `ai_guidelines` | the bot's standing rules (rule, original note, enabled) | Chats → Bot, Improve AI panel |
+| `ai_guidelines_versions` | every change to those rules (rules, note, by) | Chats → Bot |
+| `chat_users` | Chats team: name, email, permissions, active, last_login_at | Chats → Team |
 | `download_assets` | Home → Assets links (name, url) | Team |
 | `chat_conversations` | one per browser: visitor_id, visitor_name, company, visitor_phone, visitor_email, label, first/last_question, first/last_page, takeover_at, started_at, last_message_at, visitor_number, requirement, lead_products, client_type, zoho_lead_id, zoho_lead_at | ask-faq, chat-admin |
 | `chat_messages` | question, answer, products (title/url/available), sender (ai / agent / customer / system), page, created_at | ask-faq, chat-admin |
@@ -660,7 +698,8 @@ Storage bucket `assets` (folder `uploads/`) for the Downloads page.
 `supabase-security.sql`, `supabase-form-limits.sql` (after security),
 `supabase-visitor-numbers.sql`, `supabase-chat-pages.sql`,
 `supabase-zoho-leads.sql`, `supabase-chat-insights.sql` (topic, interest,
-device, cart). (`supabase-restock-requests-table.sql` exists but was never
+device, cart), `supabase-chat-users.sql` (team, email, agent_name),
+`supabase-bot-versions.sql`, `supabase-chat-source.sql` (internal chats). (`supabase-restock-requests-table.sql` exists but was never
 run.)
 
 ### Other scripts
@@ -675,7 +714,9 @@ run.)
 
 ### Supabase secrets
 
-`GEMINI_API_KEY`, `CHATS_USERNAME`, `CHATS_PASSWORD`, `SHOPIFY_ADMIN_TOKEN`
+`GEMINI_API_KEY`, `CHATS_USERNAME`, `CHATS_PASSWORD` (owner backup login),
+`GOOGLE_CLIENT_ID`, `CHATS_OWNER_EMAIL` (optional `CHATS_OWNER_NAME`),
+`SHOPIFY_ADMIN_TOKEN`
 (`SHOPIFY_CLIENT_ID` / `SHOPIFY_CLIENT_SECRET` also stored, unused while the
 token works), `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET`, `ZOHO_REFRESH_TOKEN`.
 `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` are provided

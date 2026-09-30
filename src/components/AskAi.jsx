@@ -1197,6 +1197,8 @@ const AskAi = ({
           id: nextId++,
           answer: r.answer,
           isAgent: true,
+          // First name only: "Tani · Ware team".
+          agentName: (r.agent_name ?? "").trim().split(/\s+/)[0] || null,
           isLocal: true,
           serverId: r.id,
           serverTime: r.created_at,
@@ -1552,7 +1554,13 @@ const AskAi = ({
               <div
                 className={`faq-chat-bubble faq-chat-ai${m.isAgent ? " faq-chat-team" : ""}`}
               >
-                {m.isAgent && <span className="faq-chat-team-label">Ware team</span>}
+                {m.isAgent && (
+                  <span className="faq-chat-team-label">
+                    {m.agentName
+                      ? fillText(TEXTS.teamMemberLabel, { name: m.agentName })
+                      : TEXTS.teamLabel}
+                  </span>
+                )}
                 {linkify(m.answer)}
                 {m.products?.length > 0 && (
                   <ProductRow arrows={customer}>
@@ -1695,29 +1703,23 @@ const AskAi = ({
                   </a>
                 )}
                 {m.productOptions && (
-                  // The details first; "Show me more like this" on its own
-                  // line under them.
+                  // The details first, "Show me more like this" last; they
+                  // wrap onto a new line only when they don't fit.
                   <div className="ware-chat-options">
-                    {[false, true].map((main) => {
-                      const row = optionsFor(
-                        m.productOptions.product,
-                        m.productOptions.used,
-                      ).filter((o) => (o.id === "similar") === main);
-                      return row.length > 0 && (
-                        <div key={String(main)} className="ware-chat-suggestions">
-                          {row.map((o) => (
-                            <button
-                              key={o.id}
-                              type="button"
-                              className="ware-chat-suggestion"
-                              onClick={() => chooseProductOption(m, o)}
-                            >
-                              {o.label()}
-                            </button>
-                          ))}
-                        </div>
-                      );
-                    })}
+                    <div className="ware-chat-suggestions">
+                      {optionsFor(m.productOptions.product, m.productOptions.used)
+                        .sort((a, b) => (a.id === "similar") - (b.id === "similar"))
+                        .map((o) => (
+                          <button
+                            key={o.id}
+                            type="button"
+                            className="ware-chat-suggestion"
+                            onClick={() => chooseProductOption(m, o)}
+                          >
+                            {o.label()}
+                          </button>
+                        ))}
+                    </div>
                   </div>
                 )}
                 {m.bespokeOffer && (

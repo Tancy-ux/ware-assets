@@ -115,6 +115,24 @@ async function formAllowed(req: Request, kind: "form" | "tap" = "form") {
   return data !== false;
 }
 
+// Developer / server-only calls (the shipping debug, and the Chats page's
+// Bot "Try it" coming through chat-admin): the service role key itself.
+// Supabase has already checked a JWT key's signature (verify_jwt), so its
+// role claim can be trusted.
+function isServiceRole(req: Request) {
+  const auth = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+  if (!auth) return false;
+  if (auth === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) return true;
+  try {
+    return JSON.parse(
+      atob(auth.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")),
+    ).role === "service_role";
+  } catch {
+    // Not a JWT: not allowed.
+    return false;
+  }
+}
+
 // Team-only actions (tidying a guideline) need a signed-in team account;
 // the public anon key alone doesn't count.
 async function isTeamMember(req: Request) {
@@ -1289,6 +1307,8 @@ const NEWER_COLUMNS = [
   "interest",
   "device",
   "cart",
+  // scripts/supabase-chat-source.sql
+  "source",
 ];
 
 // An email or an Indian mobile number typed into the chat (not a 6-digit
@@ -1428,8 +1448,15 @@ async function logCustomerMessage(
 // What the Chats page shows about the visitor "right now": their device
 // (from the browser's user agent) and, from the store widget, their cart.
 // Only what's known is included, so a missing value never blanks one.
+// Chats from the team's own site (the Ask AI button there) or a local
+// test, not the store: "internal", so the Chats page keeps them apart.
+const INTERNAL_ORIGIN = /^https:\/\/tancy-ux\.github\.io$|^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
 function visitorInfo(req: Request, payload: Record<string, unknown>) {
   const info: Record<string, string> = {};
+  info.source = INTERNAL_ORIGIN.test(req.headers.get("Origin") ?? "")
+    ? "internal"
+    : "store";
   const ua = req.headers.get("user-agent") ?? "";
   if (ua) {
     const type = /iPad|Tablet/i.test(ua)
@@ -1624,7 +1651,8 @@ Deno.serve(async (req) => {
       const admin = adminClient()!;
       let query = admin
         .from("chat_messages")
-        .select("id, answer, created_at")
+        // "*": works before and after agent_name exists.
+        .select("*")
         .eq("conversation_id", conversation.id)
         .eq("sender", "agent")
         .order("created_at", { ascending: true })
@@ -1636,7 +1664,13 @@ Deno.serve(async (req) => {
       if (error) console.error("Team replies lookup failed:", error);
       return json({
         takeover: takeoverActive(conversation),
-        messages: data ?? [],
+        messages: (data ?? []).map((m) => ({
+          id: m.id,
+          answer: m.answer,
+          created_at: m.created_at,
+          // The team member's name, for "Tani · Ware team".
+          agent_name: m.agent_name ?? null,
+        })),
       });
     }
 
@@ -1711,18 +1745,7 @@ Deno.serve(async (req) => {
     // and optionally one pincode). Needs the service role key, so only
     // someone with full access to the project can call it.
     if (payload.mode === "shipping-debug") {
-      // Supabase has already checked the key's signature (verify_jwt), so
-      // its role claim can be trusted.
-      const auth = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
-      let role = "";
-      try {
-        role = JSON.parse(
-          atob(auth.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")),
-        ).role;
-      } catch {
-        // Not a JWT: not allowed.
-      }
-      if (role !== "service_role") {
+      if (!isServiceRole(req)) {
         return json({ error: "Not allowed" }, 403);
       }
       // What the store's product feed answers from here (it can refuse
@@ -2097,16 +2120,26 @@ Deno.serve(async (req) => {
     if (error) throw error;
 
 
-    // Team-written rules from the "Improve AI" panel. If the table is
-    // missing or unreachable, answer without them rather than failing.
-    const { data: guidelineRows, error: guidelineError } = await supabase
-      .from("ai_guidelines")
-      .select("rule")
-      .eq("enabled", true)
-      .order("created_at");
+    // Team-written rules (the Chats page's Bot section, or the "Improve AI"
+    // panel). If the table is missing or unreachable, answer without them
+    // rather than failing. The Bot section's "Try it" sends its unsaved
+    // draft instead (through chat-admin, with the service role key).
+    const draft = Array.isArray(payload.draftGuidelines) && isServiceRole(req)
+      ? payload.draftGuidelines
+        .filter((r: unknown) => typeof r === "string" && r.trim())
+        .slice(0, 60)
+        .map((r: string) => ({ rule: r.trim() }))
+      : null;
+    const { data: guidelineRows, error: guidelineError } = draft
+      ? { data: draft, error: null }
+      : await supabase
+        .from("ai_guidelines")
+        .select("rule")
+        .eq("enabled", true)
+        .order("created_at");
     if (guidelineError) console.error("Guidelines failed:", guidelineError);
     const guidelines = (guidelineRows ?? [])
-      .map((g) => `- ${String(g.rule).slice(0, MAX_RULE_CHARS)}`)
+      .map((g: { rule: unknown }) => `- ${String(g.rule).slice(0, MAX_RULE_CHARS)}`)
       .join("\n");
 
     // If Shopify is down, still answer from the FAQs alone.

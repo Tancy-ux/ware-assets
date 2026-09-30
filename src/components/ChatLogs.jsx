@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  BarChart3,
   BellRing,
+  Building2,
+  CircleCheck,
+  UserPlus,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
-  CircleCheck,
   MessagesSquare,
-  UserPlus,
   ExternalLink,
   LogOut,
   MoreHorizontal,
@@ -26,7 +28,10 @@ import { toast } from "react-toastify";
 import { callFunction } from "../lib/askFaq";
 import ChatResults from "./ChatResults";
 import LeadCard from "./LeadCard";
+import ChatTeam from "./ChatTeam";
+import ChatBot from "./ChatBot";
 import { pageLabel, pageUrl } from "../lib/storePages";
+import { GOOGLE_CLIENT_ID } from "../lib/googleConfig";
 import "./Chats.css";
 
 // Session token from the chat-admin function. sessionStorage, not
@@ -139,7 +144,8 @@ const Avatar = ({ c, dot }) => (
 const visitorTag = (id) => `#${id.slice(0, 6)}`;
 
 // A lead: someone who left a way to reach them (or is in Zoho already).
-const hasContact = (c) => !!(c.visitorPhone || c.visitorEmail);
+// (hasContact comes from the server too, for logins that can't see them.)
+const hasContact = (c) => !!(c.hasContact || c.visitorPhone || c.visitorEmail);
 const isLead = (c) => hasContact(c) || !!c.zohoLeadId;
 
 // Hot / warm / cold: the AI's read of the chat (ask-faq's "interest"),
@@ -162,17 +168,24 @@ const thumb = (url) =>
     : url;
 
 // The list's quick filters.
+// Each with its icon and (muted) colour, see .chats-view-<id>.
+// Chats from the team's own site (Ask AI there) only show under
+// "Internal", so they're never mistaken for store visitors.
+const external = (test) => (c) => !c.internal && test(c);
 const VIEWS = [
-  { id: "needs", label: "Needs reply", test: (c) => c.needsReply },
-  { id: "leads", label: "Leads", test: isLead },
-  { id: "takeover", label: "Taken over", test: (c) => c.takeover },
-  { id: "zoho", label: "In Zoho", test: (c) => !!c.zohoLeadId },
-  { id: "all", label: "All", test: () => true },
+  { id: "needs", label: "Needs reply", icon: BellRing, test: external((c) => c.needsReply) },
+  { id: "leads", label: "Leads", icon: UserPlus, test: external(isLead) },
+  { id: "takeover", label: "Taken over", icon: UserRound, test: external((c) => c.takeover) },
+  { id: "zoho", label: "In Zoho", icon: CircleCheck, test: external((c) => !!c.zohoLeadId) },
+  { id: "all", label: "All", icon: MessagesSquare, test: external(() => true) },
+  { id: "internal", label: "Internal", icon: Building2, test: (c) => !!c.internal },
 ];
 
 // The date filter's choices; the list (and message search) only covers
 // conversations active in that window.
 const RANGES = [
+  { id: "today", label: "Today" },
+  { id: "yesterday", label: "Yesterday" },
   { id: "7d", label: "Last 7 days", days: 7 },
   { id: "30d", label: "Last 30 days", days: 30 },
   { id: "90d", label: "Last 90 days", days: 90 },
@@ -187,6 +200,15 @@ const rangeBounds = (range, from, to) => {
   const preset = RANGES.find((r) => r.id === range);
   if (preset?.days) {
     return { since: new Date(Date.now() - preset.days * DAY_MS).toISOString() };
+  }
+  // Whole days in the viewer's time zone.
+  if (range === "today" || range === "yesterday") {
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+    if (range === "today") return { since: midnight.toISOString() };
+    const dayBefore = new Date(midnight);
+    dayBefore.setDate(dayBefore.getDate() - 1);
+    return { since: dayBefore.toISOString(), until: midnight.toISOString() };
   }
   if (range !== "custom") return {};
   const bounds = {};
@@ -238,8 +260,13 @@ const ChatLogs = () => {
     const el = transcriptRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
-  // "conversations" or "stats" (the Results panel).
+  // "conversations", "stats" or "team".
   const [tab, setTab] = useState("conversations");
+  // The logged-in person: { name, username, owner, permissions }. Every
+  // action is also checked on the server; this only hides what they can't
+  // use.
+  const [me, setMe] = useState(null);
+  const can = (perm) => !!me?.permissions?.[perm];
   // Bumped by Refresh so the stats reload too.
   const [statsRefresh, setStatsRefresh] = useState(0);
 
@@ -250,6 +277,7 @@ const ChatLogs = () => {
       // Nothing stored to clear.
     }
     setToken(null);
+    setMe(null);
     setConversations([]);
     setSelectedId(null);
     setMessages([]);
@@ -308,6 +336,19 @@ const ChatLogs = () => {
       cancelled = true;
     };
   }, [token, handleResponse, range, customFrom, customTo]);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    callFunction("chat-admin", { action: "me", token }).then((res) => {
+      if (cancelled) return;
+      const data = handleResponse(res);
+      if (data) setMe(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, handleResponse]);
 
   // "Live": quietly re-checks the list while the page is in view. Errors
   // are left for the next manual Refresh to show.
@@ -481,15 +522,12 @@ const ChatLogs = () => {
     return counts;
   }, [conversations]);
 
-  // How many chats each quick filter has, and the summary cards' numbers.
+  // How many chats each quick filter has.
   const counts = useMemo(() => {
     const byView = Object.fromEntries(
       VIEWS.map((v) => [v.id, conversations.filter(v.test).length]),
     );
-    const newLeadsToday = conversations.filter(
-      (c) => isLead(c) && isToday(c.startedAt),
-    ).length;
-    return { ...byView, newLeadsToday };
+    return byView;
   }, [conversations]);
 
   // Searching message text happens on the server (the list only has each
@@ -605,17 +643,6 @@ const ChatLogs = () => {
     setStatsRefresh((n) => n + 1);
   };
 
-  // A summary card: shows that filter's chats.
-  const showView = (id) => {
-    setTab("conversations");
-    setView(id);
-  };
-
-  const rangeLabel = (RANGES.find((r) => r.id === range)?.label ?? "").replace(
-    /^Last/,
-    "last",
-  );
-
   // The date filter, shared by both tabs (same range in each).
   const dateFilter = (
     <>
@@ -669,87 +696,123 @@ const ChatLogs = () => {
     );
   }
 
-  const summary = [
-    { id: "needs", n: counts.needs, label: "need reply", icon: BellRing, tone: "alert" },
-    { id: "leads", n: counts.newLeadsToday, label: "new leads today", icon: UserPlus, tone: "lead" },
-    { id: "all", n: counts.all, label: `chats · ${rangeLabel}`, icon: MessagesSquare, tone: "chats" },
-    { id: "zoho", n: counts.zoho, label: "in Zoho", icon: CircleCheck, tone: "zoho" },
-  ];
-
   const warmth = selected && warmthOf(selected);
 
+  const NAV = [
+    { id: "conversations", label: "Conversations", icon: MessagesSquare, show: true },
+    { id: "stats", label: "Stats", icon: BarChart3, show: can("stats") },
+    { id: "team", label: "Team", icon: Users, show: can("users") },
+    // The bot's instructions: the owner login only.
+    { id: "bot", label: "Bot", icon: Bot, show: !!me?.owner },
+  ];
+
   return (
-    <div className="chats-page">
-      <div className="chats-header">
-        <div>
+    // On phones an open chat takes the whole screen (chats-chat-open).
+    <div
+      className={`chats-page chats-shell${
+        selected && tab === "conversations" ? " chats-chat-open" : ""
+      }`}
+    >
+      {/* Left menu: overview, sections, and who's logged in. */}
+      <nav className="chats-nav" aria-label="Chats">
+        <div className="chats-nav-head">
           <h1>Chats</h1>
-          <p>
-            Every conversation with Ask AI. Names and companies are picked up
-            when people mention them.
-          </p>
+          <div className="chats-nav-live">
+            <span className="chats-live" title="Checks for new chats every 30 seconds">
+              <span className="chats-live-dot" />
+              Live
+            </span>
+          </div>
         </div>
-        <div className="chats-header-actions">
-          <span className="chats-live" title="Checks for new chats every 30 seconds">
-            <span className="chats-live-dot" />
-            Live
-          </span>
-          <button
-            type="button"
-            className="chats-btn"
-            onClick={refresh}
-            disabled={loadingList}
-          >
-            <RefreshCw size={14} className={loadingList ? "chats-spin" : ""} />
-            Refresh
-          </button>
-          {/* Kept apart from Refresh so it isn't hit by mistake. */}
-          <span className="chats-header-divider" aria-hidden="true" />
+
+        <div className="chats-nav-section">
+          <span className="chats-nav-label">Sections</span>
+          {NAV.filter((n) => n.show).map((n) => (
+            <button
+              key={n.id}
+              type="button"
+              className={`chats-nav-item${tab === n.id ? " chats-nav-item-active" : ""}`}
+              aria-current={tab === n.id ? "page" : undefined}
+              title={n.label}
+              onClick={() => setTab(n.id)}
+            >
+              <n.icon size={16} />
+              {n.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="chats-nav-foot">
+          {me && (
+            <div className="chats-nav-me">
+              <span className="chats-avatar" style={{ "--avatar": "#3f7f86" }}>
+                {(me.name || "?").charAt(0).toUpperCase()}
+              </span>
+              <span>
+                <strong>{me.name}</strong>
+                <small>{me.owner ? "Owner" : me.username}</small>
+              </span>
+            </div>
+          )}
           <button type="button" className="chats-btn chats-logout" onClick={logout}>
             <LogOut size={14} />
             Log out
           </button>
         </div>
-      </div>
+      </nav>
 
-      <div className="chats-topbar">
-        <div className="chats-summary">
-          {summary.map((s) => (
-            <button
-              key={s.id + s.label}
-              type="button"
-              className={`chats-summary-card chats-summary-${s.tone}`}
-              onClick={() => showView(s.id)}
-            >
-              <span className="chats-summary-icon">
-                <s.icon size={15} />
-              </span>
-              <strong className={s.tone === "alert" && s.n > 0 ? "chats-summary-alert" : ""}>
-                {loadingList && !conversations.length ? "–" : s.n}
-              </strong>
-              {s.label}
-            </button>
-          ))}
+      <main className="chats-main">
+      {/* The section's title, and the search for conversations. */}
+      <header className="chats-titlebar">
+        <h2>
+          {(() => {
+            const current = NAV.find((n) => n.id === tab) ?? NAV[0];
+            return (
+              <>
+                <current.icon size={18} />
+                {current.label}
+              </>
+            );
+          })()}
+        </h2>
+        {tab === "conversations" && (
+          <div className="chats-search">
+            <Search size={15} />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search names, numbers or any message"
+            />
+            {search && (
+              <button type="button" onClick={() => setSearch("")} aria-label="Clear search">
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        )}
+        {(tab === "conversations" || tab === "stats") && (
+          <button
+            type="button"
+            className="chats-btn chats-titlebar-refresh"
+            onClick={refresh}
+            disabled={loadingList}
+            title="Refresh now"
+            aria-label="Refresh now"
+          >
+            <RefreshCw size={15} className={loadingList ? "chats-spin" : ""} />
+            <span>Refresh</span>
+          </button>
+        )}
+      </header>
+      {tab === "bot" && me?.owner ? (
+        <div className="chats-stats">
+          <ChatBot api={api} />
         </div>
-        <div className="chats-tabs" role="tablist">
-          {[
-            ["conversations", "Conversations"],
-            ["stats", "Stats"],
-          ].map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={tab === id}
-              className={`chats-tab${tab === id ? " chats-tab-active" : ""}`}
-              onClick={() => setTab(id)}
-            >
-              {label}
-            </button>
-          ))}
+      ) : tab === "team" && can("users") ? (
+        <div className="chats-stats">
+          <ChatTeam api={api} me={me} />
         </div>
-      </div>
-
-      {tab === "stats" ? (
+      ) :       tab === "stats" && can("stats") ? (
         <div className="chats-stats">
           <ChatResults
             toolbar={<div className="chats-stats-filter">{dateFilter}</div>}
@@ -767,35 +830,33 @@ const ChatLogs = () => {
         }`}
       >
         <aside className="chats-list">
-          <div className="chats-search">
-            <Search size={15} />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search names, numbers or any message"
-            />
-            {search && (
-              <button type="button" onClick={() => setSearch("")} aria-label="Clear search">
-                <X size={14} />
-              </button>
-            )}
+          <div className="chats-list-head">
+            {filtered.length} conversation{filtered.length === 1 ? "" : "s"}
           </div>
 
           <div className="chats-views">
-            {VIEWS.map((v) => (
+            {/* "Internal" only shows when there are some (or it's open). */}
+            {VIEWS.filter(
+              (v) => v.id !== "internal" || counts.internal > 0 || view === "internal",
+            ).map((v) => (
               <button
                 key={v.id}
                 type="button"
-                className={`chats-view${view === v.id ? " chats-view-active" : ""}`}
+                className={`chats-view chats-view-${v.id}${
+                  view === v.id ? " chats-view-active" : ""
+                }`}
                 onClick={() => setView(v.id)}
               >
+                <span className="chats-view-icon" aria-hidden="true">
+                  <v.icon size={12} />
+                </span>
                 {v.label}
                 {counts[v.id] > 0 && <span>{counts[v.id]}</span>}
               </button>
             ))}
+            {/* On the same line as the filters (wraps if it doesn't fit). */}
+            {dateFilter}
           </div>
-
-          {dateFilter}
 
           {visitorFilter && (
             <div className="chats-filter-chip">
@@ -867,6 +928,11 @@ const ChatLogs = () => {
                   c.preview && <div className="chats-item-preview">{c.preview}</div>
                 )}
                 <div className="chats-item-tags">
+                  {c.internal && (
+                    <span className="chats-tag chats-tag-internal" title="From the team's own site">
+                      Internal
+                    </span>
+                  )}
                   {c.needsReply && <span className="chats-tag chats-tag-alert">Needs reply</span>}
                   {isLead(c) && <span className="chats-tag chats-tag-lead">Lead</span>}
                   {c.zohoLeadId && (
@@ -934,15 +1000,22 @@ const ChatLogs = () => {
                   ) : (
                     <h2>
                       {titleOf(selected)}
-                      <button
-                        type="button"
-                        className="chats-icon-btn"
-                        onClick={() => setEditingLabel(selected.label ?? "")}
-                        aria-label="Rename chat"
-                        title="Rename"
-                      >
-                        <Pencil size={13} />
-                      </button>
+                      {can("edit") && (
+                        <button
+                          type="button"
+                          className="chats-icon-btn"
+                          onClick={() => setEditingLabel(selected.label ?? "")}
+                          aria-label="Rename chat"
+                          title="Rename"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                      )}
+                      {selected.internal && (
+                        <span className="chats-tag chats-tag-internal" title="From the team's own site">
+                          Internal
+                        </span>
+                      )}
                       {selected.needsReply && (
                         <span className="chats-tag chats-tag-alert">Needs reply</span>
                       )}
@@ -976,6 +1049,7 @@ const ChatLogs = () => {
                   </div>
                 </div>
                 <div className="chats-detail-actions">
+                  {can("reply") && (
                   <button
                     type="button"
                     className={`chats-btn${selected.takeover ? "" : " chats-btn-primary"}`}
@@ -989,6 +1063,7 @@ const ChatLogs = () => {
                     {selected.takeover ? <Bot size={14} /> : <UserRound size={14} />}
                     {selected.takeover ? "Hand back to AI" : "Take over"}
                   </button>
+                  )}
                   <button
                     type="button"
                     className="chats-btn chats-info-toggle"
@@ -1010,16 +1085,18 @@ const ChatLogs = () => {
                     </button>
                     {menuOpen && (
                       <div className="chats-menu-list" role="menu">
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => {
-                            setMenuOpen(false);
-                            setEditingLabel(selected.label ?? "");
-                          }}
-                        >
-                          <Pencil size={14} /> Rename chat
-                        </button>
+                        {can("edit") && (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setMenuOpen(false);
+                              setEditingLabel(selected.label ?? "");
+                            }}
+                          >
+                            <Pencil size={14} /> Rename chat
+                          </button>
+                        )}
                         <button
                           type="button"
                           role="menuitem"
@@ -1032,14 +1109,16 @@ const ChatLogs = () => {
                           {visitorCounts.get(selected.visitorId) > 1 &&
                             ` (${visitorCounts.get(selected.visitorId)})`}
                         </button>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="chats-menu-danger"
-                          onClick={deleteConversation}
-                        >
-                          <Trash2 size={14} /> Delete chat
-                        </button>
+                        {can("delete") && (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="chats-menu-danger"
+                            onClick={deleteConversation}
+                          >
+                            <Trash2 size={14} /> Delete chat
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1106,7 +1185,7 @@ const ChatLogs = () => {
                             <span
                               className={`chats-sender-chip${fromTeam ? " chats-sender-team" : ""}`}
                             >
-                              {fromTeam ? "Ware team" : "AI"}
+                              {fromTeam ? m.agentName || "Ware team" : "AI"}
                             </span>
                             {products.length > 0 &&
                               `Shown ${products.length} product${products.length === 1 ? "" : "s"}`}
@@ -1131,7 +1210,7 @@ const ChatLogs = () => {
                 })}
               </div>
 
-              {selected.takeover ? (
+              {selected.takeover && can("reply") ? (
                 <form className="chats-reply" onSubmit={sendReply}>
                   <textarea
                     value={reply}
@@ -1157,10 +1236,18 @@ const ChatLogs = () => {
                 </form>
               ) : (
                 <div className="chats-ai-note">
-                  <span>Ask AI is replying to this visitor. Take over to reply yourself.</span>
-                  <button type="button" className="chats-btn" onClick={toggleTakeover}>
-                    Take over
-                  </button>
+                  <span>
+                    {selected.takeover
+                      ? "The team has taken over this chat."
+                      : can("reply")
+                        ? "Ask AI is replying to this visitor. Take over to reply yourself."
+                        : "Ask AI is replying to this visitor."}
+                  </span>
+                  {can("reply") && (
+                    <button type="button" className="chats-btn" onClick={toggleTakeover}>
+                      Take over
+                    </button>
+                  )}
                 </div>
               )}
             </>
@@ -1200,6 +1287,9 @@ const ChatLogs = () => {
               key={selected.id}
               conversation={selected}
               api={api}
+              canEdit={can("edit")}
+              canPush={can("zoho")}
+              canSeeContacts={can("contacts")}
               open={leadOpen}
               onOpenChange={setLeadOpen}
               onUpdated={(patch) => patchConversation(selected.id, patch)}
@@ -1266,6 +1356,7 @@ const ChatLogs = () => {
         )}
       </div>
       )}
+      </main>
     </div>
   );
 };
@@ -1360,10 +1451,84 @@ const InfoRow = ({ label, value, missing, clamp }) => (
   </div>
 );
 
+// Google's sign-in script, loaded once when the login shows.
+const GOOGLE_SCRIPT = "https://accounts.google.com/gsi/client";
+let googleScript = null;
+const loadGoogle = () => {
+  googleScript ??= new Promise((resolve, reject) => {
+    const el = document.createElement("script");
+    el.src = GOOGLE_SCRIPT;
+    el.async = true;
+    el.onload = () => resolve(window.google);
+    el.onerror = () => {
+      googleScript = null;
+      reject(new Error("Google sign-in didn't load"));
+    };
+    document.head.appendChild(el);
+  });
+  return googleScript;
+};
+
 const ChatsLogin = ({ onLogin }) => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  // The owner's username / password, tucked away as a backup.
+  const [showBackup, setShowBackup] = useState(!GOOGLE_CLIENT_ID);
+  const [googleError, setGoogleError] = useState(null);
+  const googleButton = useRef(null);
+
+  const finish = useCallback(
+    (data) => {
+      if (!data?.token) {
+        toast.error(data?.error ?? "Couldn't log in just now.");
+        return;
+      }
+      try {
+        sessionStorage.setItem(TOKEN_KEY, data.token);
+      } catch {
+        // Still logged in for this page view.
+      }
+      onLogin(data.token);
+    },
+    [onLogin],
+  );
+
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID) return;
+    let cancelled = false;
+    loadGoogle()
+      .then((google) => {
+        if (cancelled || !googleButton.current) return;
+        google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          // Suggests the work account when several are signed in.
+          hd: "wareinnovations.com",
+          callback: async ({ credential }) => {
+            setBusy(true);
+            const { data } = await callFunction("chat-admin", {
+              action: "google-login",
+              credential,
+            });
+            setBusy(false);
+            finish(data);
+          },
+        });
+        google.accounts.id.renderButton(googleButton.current, {
+          theme: "outline",
+          size: "large",
+          text: "continue_with",
+          shape: "pill",
+          width: 280,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setGoogleError("Google sign-in didn't load. Check your connection and refresh.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [finish]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -1374,42 +1539,54 @@ const ChatsLogin = ({ onLogin }) => {
       password,
     });
     setBusy(false);
-    if (!data?.token) {
-      toast.error(data?.error ?? "Couldn't log in just now.");
-      return;
-    }
-    try {
-      sessionStorage.setItem(TOKEN_KEY, data.token);
-    } catch {
-      // Still logged in for this page view.
-    }
-    onLogin(data.token);
+    finish(data);
   };
 
   return (
     <div className="chats-page">
-      <form className="chats-login" onSubmit={submit}>
-        <h1>Chat history</h1>
-        <p>This has its own login, separate from the site's.</p>
-        <input
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          placeholder="Username"
-          autoComplete="username"
-          required
-        />
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Password"
-          autoComplete="current-password"
-          required
-        />
-        <button type="submit" className="chats-btn chats-btn-primary" disabled={busy}>
-          {busy ? "Checking..." : "Log in"}
-        </button>
-      </form>
+      <div className="chats-login">
+        <h1>Chats</h1>
+        {GOOGLE_CLIENT_ID ? (
+          <>
+            <p>Sign in with your @wareinnovations.com Google account.</p>
+            <div className="chats-login-google" ref={googleButton} />
+            {busy && !showBackup && <p className="chats-login-note">Checking…</p>}
+            {googleError && <p className="chats-login-note">{googleError}</p>}
+          </>
+        ) : (
+          <p>Google sign-in isn't set up yet: use the owner login.</p>
+        )}
+        {showBackup ? (
+          <form className="chats-login-backup" onSubmit={submit}>
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Owner username"
+              autoComplete="username"
+              required
+            />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              autoComplete="current-password"
+              required
+            />
+            <button type="submit" className="chats-btn chats-btn-primary" disabled={busy}>
+              {busy ? "Checking..." : "Log in"}
+            </button>
+          </form>
+        ) : (
+          <button
+            type="button"
+            className="chats-login-link"
+            onClick={() => setShowBackup(true)}
+          >
+            Owner backup login
+          </button>
+        )}
+      </div>
     </div>
   );
 };

@@ -10,12 +10,21 @@
 // Deploy: supabase functions deploy chat-admin
 // Requires the secrets:
 //   supabase secrets set CHATS_USERNAME=... CHATS_PASSWORD=...
+// (the owner's backup login, with every permission), and for "Sign in with
+// Google":
+//   supabase secrets set GOOGLE_CLIENT_ID=... CHATS_OWNER_EMAIL=you@wareinnovations.com
+// (CHATS_OWNER_EMAIL: the owner's Google email(s), comma-separated;
+// optional CHATS_OWNER_NAME, shown instead of "Owner").
+// Team members sign in with Google only: their name, email and permissions
+// live in chat_users (scripts/supabase-chat-users.sql), managed from the
+// Chats page's Team section. Only @wareinnovations.com emails get in.
 // (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided automatically
 // once deployed; for local runs they go in supabase/functions/.env.local.)
 //
 // Run locally: npm run dev:chats  (serves on http://localhost:8002)
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createRemoteJWKSet, jwtVerify } from "https://esm.sh/jose@5.9.6";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -46,9 +55,10 @@ function safeEqual(a: string, b: string) {
   return diff === 0;
 }
 
-// Session tokens are "<expiry ms>.<HMAC of expiry>", signed with a key
-// derived from the password + service key. Changing the password logs
-// everyone out.
+// Session tokens are "<expiry ms>.<user id or "owner">.<HMAC>", signed
+// with a key derived from the owner password + service key (+ a team
+// login's password hash). Changing the owner password logs everyone out;
+// changing a team login's password logs that login out.
 async function sign(value: string, secret: string) {
   const key = await crypto.subtle.importKey(
     "raw",
@@ -61,17 +71,92 @@ async function sign(value: string, secret: string) {
   return btoa(String.fromCharCode(...new Uint8Array(sig)));
 }
 
-async function makeToken(secret: string) {
+async function makeToken(secret: string, uid = OWNER) {
   const expires = String(Date.now() + SESSION_HOURS * 60 * 60 * 1000);
-  return `${expires}.${await sign(expires, secret)}`;
+  return `${expires}.${uid}.${await sign(`${expires}.${uid}`, secret)}`;
 }
 
-async function tokenIsValid(token: unknown, secret: string) {
-  if (typeof token !== "string") return false;
-  const [expires, sig] = token.split(".", 2);
-  if (!expires || !sig || Number(expires) < Date.now()) return false;
-  return safeEqual(sig, await sign(expires, secret));
+// { uid } if the token is one of ours, unexpired and signed with `secret`
+// (which depends on whose it is: see sessionFor).
+function readToken(token: unknown) {
+  if (typeof token !== "string") return null;
+  const [expires, uid, sig] = token.split(".");
+  if (!expires || !uid || !sig || Number(expires) < Date.now()) return null;
+  return { expires, uid, sig };
 }
+
+async function tokenSignedWith(
+  t: { expires: string; uid: string; sig: string },
+  secret: string,
+) {
+  return safeEqual(t.sig, await sign(`${t.expires}.${t.uid}`, secret));
+}
+
+// ---- Team logins and what each can do ----
+const OWNER = "owner";
+// Google sign-in: only work accounts, checked against Google's own keys.
+const ALLOWED_DOMAIN = "wareinnovations.com";
+const GOOGLE_KEYS = createRemoteJWKSet(
+  new URL("https://www.googleapis.com/oauth2/v3/certs"),
+);
+const ownerEmails = () =>
+  (Deno.env.get("CHATS_OWNER_EMAIL") ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+const ownerName = () => Deno.env.get("CHATS_OWNER_NAME")?.trim() || "Tanushree";
+const workEmail = (email: string) =>
+  /^[\w.+-]+@wareinnovations\.com$/i.test(email);
+// A signed-in team member's session is tied to their email: changing it
+// ends their sessions.
+const userSecret = (secret: string, email: string) =>
+  `${secret}:email:${email.toLowerCase()}`;
+// The Google ID token from "Sign in with Google": a verified work email,
+// or null.
+async function googleEmail(credential: unknown) {
+  const clientId = Deno.env.get("GOOGLE_CLIENT_ID");
+  if (!clientId || typeof credential !== "string") return null;
+  try {
+    const { payload } = await jwtVerify(credential, GOOGLE_KEYS, {
+      issuer: ["https://accounts.google.com", "accounts.google.com"],
+      audience: clientId,
+    });
+    const email = String(payload.email ?? "").toLowerCase();
+    if (payload.email_verified !== true || !workEmail(email)) return null;
+    // Google Workspace accounts carry their domain; a Gmail account
+    // renamed to look like one doesn't.
+    if (payload.hd !== ALLOWED_DOMAIN) return null;
+    return email;
+  } catch (err) {
+    console.error("Google sign-in check failed:", err);
+    return null;
+  }
+}
+// Everything a login can be allowed. Reading the conversations is always
+// allowed; these are on top.
+const PERMISSIONS = [
+  "contacts", // see phone numbers and emails
+  "reply", // take over chats and reply
+  "edit", // edit contact / lead details, rename chats, draft requirement
+  "zoho", // send leads to Zoho
+  "stats", // the Stats tab (orders, revenue)
+  "delete", // delete chats
+  "users", // manage team logins
+] as const;
+type Permission = typeof PERMISSIONS[number];
+type Perms = Record<Permission, boolean>;
+const ALL_PERMS = Object.fromEntries(PERMISSIONS.map((p) => [p, true])) as Perms;
+const cleanPerms = (raw: unknown) =>
+  Object.fromEntries(
+    // deno-lint-ignore no-explicit-any
+    PERMISSIONS.map((p) => [p, (raw as any)?.[p] === true]),
+  ) as Perms;
+
+// Phone numbers and emails in text, for logins that may not see them.
+const HIDE_PHONE_RE = /(?:\+?\d[\d\s-]{6,}\d)/g;
+const HIDE_EMAIL_RE = /[\w.+-]+@[\w-]+(\.[\w-]+)+/g;
+const hideContacts = (text: string | null | undefined): string =>
+  (text ?? "").replace(HIDE_EMAIL_RE, "•••@•••").replace(HIDE_PHONE_RE, "•••••");
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -254,7 +339,9 @@ function askedAbout(c: { topic?: string | null; first_question?: string | null; 
 
 // "Hide test and junk chats": ones the team named or labelled test / junk.
 const TEST_RE = /\b(test(ing)?|junk)\b/i;
-const isTestChat = (c: { label?: string | null; visitor_name?: string | null; company?: string | null }) =>
+// Chats from the team's own site count too (source "internal").
+const isTestChat = (c: { label?: string | null; visitor_name?: string | null; company?: string | null; source?: string | null }) =>
+  c.source === "internal" ||
   [c.label, c.visitor_name, c.company].some((s) => s && TEST_RE.test(s));
 
 const handleOf = (url: string) => url.match(/\/products\/([^/?#]+)/)?.[1] ?? "";
@@ -714,21 +801,434 @@ Deno.serve(async (req) => {
           429,
         );
       }
-      const ok = safeEqual(String(body.username ?? ""), username) &&
-        safeEqual(String(body.password ?? ""), password);
-      if (!ok) {
+      const typedName = String(body.username ?? "").trim();
+      const typedPassword = String(body.password ?? "");
+      const wrong = async () => {
         // Slows down password guessing.
         await new Promise((r) => setTimeout(r, 800));
         return json({ error: "Wrong username or password" }, 401);
+      };
+      // The owner's backup login; the team signs in with Google.
+      if (
+        typedName.toLowerCase() === username.toLowerCase() &&
+        safeEqual(typedPassword, password)
+      ) {
+        return json({ token: await makeToken(secret) });
       }
-      return json({ token: await makeToken(secret) });
+      return await wrong();
     }
 
-    if (!(await tokenIsValid(body.token, secret))) {
-      return json({ error: "Session expired, please log in again" }, 401);
+    // "Sign in with Google": the owner's email(s), or an active team
+    // member's. Same attempt limit as the password login.
+    if (body.action === "google-login") {
+      const ip = (
+        req.headers.get("cf-connecting-ip") ??
+          req.headers.get("x-forwarded-for")?.split(",")[0] ??
+          ""
+      ).trim().slice(0, 64);
+      const users = createClient(Deno.env.get("SUPABASE_URL") ?? "", serviceKey);
+      const { data: allowed, error: limitError } = await users.rpc("rate_limit", {
+        p_key: `login:${ip || "unknown"}`,
+        p_per_10m: LOGIN_ATTEMPTS_10M,
+        p_per_day: LOGIN_ATTEMPTS_DAY,
+      });
+      if (limitError) console.error("Login rate check failed:", limitError);
+      if (allowed === false) {
+        return json(
+          { error: "Too many attempts. Please wait a few minutes and try again." },
+          429,
+        );
+      }
+      if (!Deno.env.get("GOOGLE_CLIENT_ID")) {
+        return json({ error: "Google sign-in isn't set up yet." }, 500);
+      }
+      const email = await googleEmail(body.credential);
+      if (!email) {
+        return json({ error: "Please use your @wareinnovations.com Google account." }, 401);
+      }
+      if (ownerEmails().includes(email)) {
+        return json({ token: await makeToken(secret) });
+      }
+      const { data: user } = await users
+        .from("chat_users")
+        .select("id, email, active")
+        .ilike("email", email.replace(/[\\%_]/g, (c) => `\\${c}`))
+        .maybeSingle();
+      if (!user?.active) {
+        return json({
+          error: `${email} doesn't have access to Chats. Ask the owner to add you in Team.`,
+        }, 403);
+      }
+      await users
+        .from("chat_users")
+        .update({ last_login_at: new Date().toISOString() })
+        .eq("id", user.id);
+      return json({ token: await makeToken(userSecret(secret, user.email), user.id) });
     }
 
     const db = createClient(Deno.env.get("SUPABASE_URL") ?? "", serviceKey);
+
+    // Who's asking, and what they may do. A team login is looked up on
+    // every call, so turning it off or changing its permissions applies
+    // straight away.
+    const token = readToken(body.token);
+    let me: { id: string; name: string; username: string; owner: boolean; perms: Perms } | null = null;
+    if (token?.uid === OWNER) {
+      if (await tokenSignedWith(token, secret)) {
+        me = { id: OWNER, name: ownerName(), username, owner: true, perms: ALL_PERMS };
+      }
+    } else if (token && UUID_RE.test(token.uid)) {
+      const { data: user } = await db
+        .from("chat_users")
+        .select("*")
+        .eq("id", token.uid)
+        .maybeSingle();
+      if (
+        user?.active && user.email &&
+        (await tokenSignedWith(token, userSecret(secret, user.email)))
+      ) {
+        me = {
+          id: user.id,
+          name: user.name || user.email,
+          username: user.email,
+          owner: false,
+          perms: cleanPerms(user.permissions),
+        };
+      }
+    }
+    if (!me) {
+      return json({ error: "Session expired, please log in again" }, 401);
+    }
+    const perms = me.perms;
+    const notAllowed = () =>
+      json({ error: "Your login isn't allowed to do that." }, 403);
+
+    // Checked before each action below.
+    const ACTION_NEEDS: Record<string, Permission> = {
+      takeover: "reply",
+      reply: "reply",
+      label: "edit",
+      "lead-draft": "edit",
+      "lead-save": "edit",
+      "lead-push": "zoho",
+      results: "stats",
+      delete: "delete",
+      "users-list": "users",
+      "user-save": "users",
+      "user-delete": "users",
+    };
+    const needed = ACTION_NEEDS[String(body.action)];
+    if (needed && !perms[needed]) return notAllowed();
+    if (body.action === "lead-options" && !perms.edit && !perms.zoho) {
+      return notAllowed();
+    }
+
+    // The logged-in person and their permissions, for the page.
+    if (body.action === "me") {
+      return json({
+        name: me.name,
+        username: me.username,
+        owner: me.owner,
+        permissions: perms,
+      });
+    }
+
+    // ---- Team logins (the Team section) ----
+    if (body.action === "users-list") {
+      const { data, error } = await db
+        .from("chat_users")
+        .select("*")
+        .order("created_at", { ascending: true });
+      if (error) {
+        if (error.code === "42P01" || error.code === "PGRST205") {
+          return json({ error: "Run scripts/supabase-chat-users.sql in Supabase first." }, 400);
+        }
+        throw error;
+      }
+      return json({
+        owner: { name: ownerName(), emails: ownerEmails() },
+        permissionNames: PERMISSIONS,
+        users: (data ?? []).map((u) => ({
+          id: u.id,
+          email: u.email ?? "",
+          name: u.name ?? "",
+          permissions: cleanPerms(u.permissions),
+          active: u.active,
+          createdAt: u.created_at,
+          lastLoginAt: u.last_login_at,
+        })),
+      });
+    }
+
+    // Adds a login (no id) or changes one: name, username, permissions,
+    // on/off, and a new password if one is given.
+    if (body.action === "user-save") {
+      const u = body.user ?? {};
+      const id = typeof u.id === "string" && UUID_RE.test(u.id) ? u.id : null;
+      const email = String(u.email ?? "").trim().toLowerCase().slice(0, 120);
+      if (!workEmail(email)) {
+        return json({ error: `Use their @${ALLOWED_DOMAIN} Google email.` }, 400);
+      }
+      if (ownerEmails().includes(email)) {
+        return json({ error: "That's the owner's email." }, 400);
+      }
+      if (id === me.id && u.active === false) {
+        return json({ error: "You can't turn off your own login." }, 400);
+      }
+      const row: Record<string, unknown> = {
+        email,
+        // Kept filled for the table's older unique username column.
+        username: email,
+        name: String(u.name ?? "").trim().slice(0, 80) || null,
+        permissions: cleanPerms(u.permissions),
+        active: u.active !== false,
+      };
+      // Nobody hands out more than they have themselves.
+      if (!me.owner) {
+        for (const p of PERMISSIONS) {
+          if ((row.permissions as Perms)[p] && !perms[p]) {
+            return json({ error: "You can only give permissions you have yourself." }, 403);
+          }
+        }
+      }
+      const query = id
+        ? db.from("chat_users").update(row).eq("id", id).select("id").single()
+        : db.from("chat_users").insert(row).select("id").single();
+      const { data, error } = await query;
+      if (error) {
+        if (error.code === "23505") {
+          return json({ error: "That email is already on the team." }, 400);
+        }
+        if (error.code === "PGRST204" || error.code === "42703") {
+          return json({ error: "Run scripts/supabase-chat-users.sql in Supabase again (it adds the email column)." }, 400);
+        }
+        if (error.code === "42P01" || error.code === "PGRST205") {
+          return json({ error: "Run scripts/supabase-chat-users.sql in Supabase first." }, 400);
+        }
+        throw error;
+      }
+      return json({ ok: true, id: data.id });
+    }
+
+    if (body.action === "user-delete") {
+      const id = String(body.id ?? "");
+      if (!UUID_RE.test(id)) return json({ error: "Bad login id" }, 400);
+      if (id === me.id) return json({ error: "You can't delete your own login." }, 400);
+      const { error } = await db.from("chat_users").delete().eq("id", id);
+      if (error) throw error;
+      return json({ ok: true });
+    }
+
+    // ---- The bot's instructions (the Bot section): owner login only ----
+    // Not a permission: nobody else can be given it.
+    if (String(body.action).startsWith("bot-") && !me.owner) {
+      return notAllowed();
+    }
+    const MAX_RULES = 60;
+    const MAX_RULE_CHARS = 400;
+    const missingTable = (error: { code?: string } | null) =>
+      error?.code === "42P01" || error?.code === "PGRST205";
+    const liveRules = async () => {
+      const { data, error } = await db
+        .from("ai_guidelines")
+        .select("id, rule, enabled, created_at")
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    };
+    // Saves the whole set as a new version (the undo history).
+    const saveVersion = async (
+      rules: { rule: string; enabled: boolean }[],
+      note: string,
+    ) => {
+      const { error } = await db.from("ai_guidelines_versions").insert({
+        rules: rules.map((r) => ({ rule: r.rule, enabled: r.enabled })),
+        note,
+        created_by: me.name,
+      });
+      if (error && !missingTable(error)) throw error;
+      return !error;
+    };
+    // Makes the live rules exactly `incoming` (in that order): changed ones
+    // updated, new ones added, missing ones removed.
+    const publishRules = async (
+      incoming: { id?: string; rule: string; enabled: boolean }[],
+    ) => {
+      const current = await liveRules();
+      const byId = new Map(current.map((r) => [r.id, r]));
+      const keep = new Set<string>();
+      let added = 0, changed = 0;
+      const start = Date.now();
+      for (const [i, r] of incoming.entries()) {
+        // Spaced a millisecond apart so the order sticks.
+        const createdAt = new Date(start - (incoming.length - i)).toISOString();
+        const old = r.id ? byId.get(r.id) : undefined;
+        if (old) {
+          keep.add(old.id);
+          if (old.rule !== r.rule || old.enabled !== r.enabled) changed++;
+          const { error } = await db.from("ai_guidelines").update({
+            rule: r.rule,
+            enabled: r.enabled,
+            created_at: createdAt,
+            updated_at: new Date().toISOString(),
+          }).eq("id", old.id);
+          if (error) throw error;
+        } else {
+          added++;
+          const { error } = await db.from("ai_guidelines").insert({
+            rule: r.rule,
+            original: r.rule,
+            enabled: r.enabled,
+            created_at: createdAt,
+          });
+          if (error) throw error;
+        }
+      }
+      const gone = current.filter((r) => !keep.has(r.id)).map((r) => r.id);
+      if (gone.length) {
+        const { error } = await db.from("ai_guidelines").delete().in("id", gone);
+        if (error) throw error;
+      }
+      return { added, changed, removed: gone.length };
+    };
+    const cleanRules = (raw: unknown) =>
+      (Array.isArray(raw) ? raw : [])
+        .map((r) => ({
+          id: typeof r?.id === "string" && UUID_RE.test(r.id) ? r.id : undefined,
+          rule: String(r?.rule ?? "").trim().slice(0, MAX_RULE_CHARS),
+          enabled: r?.enabled !== false,
+        }))
+        .filter((r) => r.rule)
+        .slice(0, MAX_RULES);
+
+    if (body.action === "bot-get") {
+      const rules = await liveRules();
+      let { data: versions, error } = await db
+        .from("ai_guidelines_versions")
+        .select("id, note, created_by, created_at, rules")
+        .order("created_at", { ascending: false })
+        .limit(30);
+      if (error && !missingTable(error)) throw error;
+      // The first visit: today's rules become the starting version.
+      if (!error && !versions?.length && rules.length) {
+        await saveVersion(rules, "Starting point");
+        ({ data: versions } = await db
+          .from("ai_guidelines_versions")
+          .select("id, note, created_by, created_at, rules")
+          .order("created_at", { ascending: false })
+          .limit(30));
+      }
+      return json({
+        rules: rules.map((r) => ({ id: r.id, rule: r.rule, enabled: r.enabled })),
+        limits: { rules: MAX_RULES, chars: MAX_RULE_CHARS },
+        // Null: scripts/supabase-bot-versions.sql not run yet.
+        versions: error ? null : (versions ?? []).map((v) => ({
+          id: v.id,
+          note: v.note ?? "",
+          by: v.created_by ?? "",
+          at: v.created_at,
+          rules: Array.isArray(v.rules) ? v.rules : [],
+        })),
+      });
+    }
+
+    if (body.action === "bot-save") {
+      const incoming = cleanRules(body.rules);
+      // Each one said in full (at least 5 words and 25 characters), so the
+      // bot has something clear to follow. Only new or changed ones are
+      // checked; older ones can stay as they are.
+      const current = new Set((await liveRules()).map((r) => r.rule));
+      const short = incoming.find((r) =>
+        !current.has(r.rule) &&
+        (r.rule.length < 25 || r.rule.split(/\s+/).length < 5)
+      );
+      if (short) {
+        return json({
+          error: "Write each instruction in full: at least 5 words and 25 characters.",
+        }, 400);
+      }
+      const { added, changed, removed } = await publishRules(incoming);
+      const note = [
+        added && `added ${added}`,
+        changed && `changed ${changed}`,
+        removed && `removed ${removed}`,
+      ].filter(Boolean).join(", ") || "no changes";
+      await saveVersion(incoming, note[0].toUpperCase() + note.slice(1));
+      return json({ ok: true });
+    }
+
+    if (body.action === "bot-restore") {
+      const id = String(body.id ?? "");
+      if (!UUID_RE.test(id)) return json({ error: "Bad version id" }, 400);
+      const { data: version, error } = await db
+        .from("ai_guidelines_versions")
+        .select("rules, created_at")
+        .eq("id", id)
+        .maybeSingle();
+      if (error) throw error;
+      if (!version) return json({ error: "That version is gone." }, 404);
+      // Rules that are still live keep their row; the rest come back new.
+      const current = await liveRules();
+      const unused = [...current];
+      const incoming = cleanRules(version.rules).map((r) => {
+        const i = unused.findIndex((c) => c.rule === r.rule);
+        return i >= 0 ? { ...r, id: unused.splice(i, 1)[0].id } : r;
+      });
+      await publishRules(incoming);
+      const when = new Date(version.created_at).toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        day: "numeric",
+        month: "short",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+      await saveVersion(incoming, `Went back to the version from ${when}`);
+      return json({ ok: true });
+    }
+
+    // Asks the bot a question with the page's unsaved rules, without
+    // publishing them or logging a chat (through ask-faq, with the service
+    // role key so it accepts the draft).
+    if (body.action === "bot-try") {
+      const question = String(body.question ?? "").trim().slice(0, 500);
+      if (!question) return json({ error: "Type a question to try." }, 400);
+      const history = (Array.isArray(body.history) ? body.history : [])
+        .slice(-6)
+        .map((t: { question?: unknown; answer?: unknown }) => ({
+          question: String(t?.question ?? "").slice(0, 1000),
+          answer: String(t?.answer ?? "").slice(0, 1000),
+          products: [],
+        }));
+      const base = Deno.env.get("ASK_FAQ_URL") ??
+        `${Deno.env.get("SUPABASE_URL")}/functions/v1/ask-faq`;
+      const res = await fetch(base, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${serviceKey}`,
+          apikey: serviceKey,
+          // ask-faq only answers the store and this site.
+          Origin: "https://tancy-ux.github.io",
+        },
+        body: JSON.stringify({
+          question,
+          history,
+          draftGuidelines: cleanRules(body.rules)
+            .filter((r) => r.enabled)
+            .map((r) => r.rule),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.answer) {
+        return json({ error: data.error ?? "The bot didn't answer. Try again." }, 502);
+      }
+      return json({
+        answer: data.answer,
+        products: (Array.isArray(data.products) ? data.products : [])
+          .slice(0, 6)
+          .map((p: { title?: string; url?: string }) => ({ title: p.title, url: p.url })),
+      });
+    }
 
     // The Chats page's date filter: conversations active in [since, until)
     // (either end optional, ISO timestamps).
@@ -762,9 +1262,10 @@ Deno.serve(async (req) => {
           visitorId: c.visitor_id,
           visitorName: c.visitor_name ? nameCase(c.visitor_name) : null,
           company: c.company,
-          visitorPhone: c.visitor_phone ?? null,
+          // Only for logins allowed to see contact details.
+          visitorPhone: perms.contacts ? c.visitor_phone ?? null : null,
           // The "Lead" card (scripts/supabase-zoho-leads.sql).
-          visitorEmail: c.visitor_email ?? null,
+          visitorEmail: perms.contacts ? c.visitor_email ?? null : null,
           requirement: c.requirement ?? null,
           leadProducts: c.lead_products ?? null,
           clientType: c.client_type ?? null,
@@ -786,7 +1287,10 @@ Deno.serve(async (req) => {
           messageCount: (c.chat_messages as any)?.[0]?.count ?? 0,
           // Latest question; older chats from before that column existed
           // fall back to their first one.
-          preview: c.last_question ?? c.first_question ?? "",
+          preview: (perms.contacts ? (x: string) => x : hideContacts)(
+            c.last_question ?? c.first_question ?? "",
+          ),
+          hasContact: !!(c.visitor_phone || c.visitor_email),
           takeover: takeoverActive(c.takeover_at),
           needsReply: waiting.has(c.id),
           // scripts/supabase-chat-insights.sql; null before that's run.
@@ -794,6 +1298,8 @@ Deno.serve(async (req) => {
           interest: c.interest ?? null,
           device: c.device ?? null,
           cart: c.cart ?? null,
+          // From the team's own site, not a store visitor.
+          internal: c.source === "internal",
           visit: visits.get(c.id)?.visit ?? 1,
           visits: visits.get(c.id)?.of ?? 1,
         })),
@@ -842,9 +1348,10 @@ Deno.serve(async (req) => {
         if (seen.has(r.conversation_id)) continue;
         seen.add(r.conversation_id);
         const inQuestion = (r.question ?? "").toLowerCase().includes(needle);
+        const text = snippet(inQuestion ? r.question : r.answer ?? "");
         matches.push({
           conversationId: r.conversation_id,
-          text: snippet(inQuestion ? r.question : r.answer ?? ""),
+          text: perms.contacts ? text : hideContacts(text),
         });
       }
       return json({ matches });
@@ -877,8 +1384,8 @@ Deno.serve(async (req) => {
       return json({
         messages: (data ?? []).map((m) => ({
           id: m.id,
-          question: m.question,
-          answer: m.answer,
+          question: perms.contacts ? m.question : hideContacts(m.question),
+          answer: perms.contacts ? m.answer : hideContacts(m.answer),
           products: images
             // deno-lint-ignore no-explicit-any
             ? (m.products ?? []).map((p: any) =>
@@ -889,6 +1396,8 @@ Deno.serve(async (req) => {
             : m.products,
           created_at: m.created_at,
           sender: m.sender ?? "ai",
+          // The team member who sent a team reply.
+          agentName: m.agent_name ?? null,
           page: m.page ?? null,
         })),
         takeover: takeoverActive(convo?.takeover_at),
@@ -930,16 +1439,23 @@ Deno.serve(async (req) => {
       if (!takeoverActive(convo?.takeover_at)) {
         return json({ error: "Take over the chat first" }, 400);
       }
-      const { data, error } = await db
-        .from("chat_messages")
-        .insert({
-          conversation_id: body.conversationId,
-          question: "",
-          answer: text,
-          sender: "agent",
-        })
-        .select()
-        .single();
+      // Who's replying, shown to the shopper and in Chats.
+      const agentName = me.name;
+      const row = {
+        conversation_id: body.conversationId,
+        question: "",
+        answer: text,
+        sender: "agent",
+        agent_name: agentName,
+      };
+      const insertReply = (r: Record<string, unknown>) =>
+        db.from("chat_messages").insert(r).select().single();
+      let { data, error } = await insertReply(row);
+      // Before scripts/supabase-chat-users.sql added agent_name.
+      if (error?.code === "PGRST204") {
+        const { agent_name: _, ...rest } = row;
+        ({ data, error } = await insertReply(rest));
+      }
       if (error) throw error;
       await db
         .from("chat_conversations")
@@ -953,6 +1469,7 @@ Deno.serve(async (req) => {
           products: [],
           created_at: data.created_at,
           sender: "agent",
+          agentName: data.agent_name ?? null,
         },
       });
     }
@@ -1170,6 +1687,12 @@ Deno.serve(async (req) => {
         ["clientType", "client_type", 100],
       ];
       for (const [key, column, max] of fields) {
+        // A login that can't see phone numbers and emails gets them blank,
+        // so its blanks never replace the saved ones (Send to Zoho still
+        // uses the saved ones).
+        if (!perms.contacts && (key === "phone" || key === "email")) continue;
+        // Sending to Zoho without the edit permission sends what's saved.
+        if (!perms.edit) continue;
         const v = clean(body.lead?.[key], max);
         if (v !== undefined) {
           edits[column] = (column === "visitor_name" ? nameCase(v) : v) || null;

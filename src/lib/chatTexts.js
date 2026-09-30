@@ -126,6 +126,9 @@ export const TEXTS = {
 
   // Team takeover
   teamJoined: "A member of the Ware team has joined the chat.",
+  // Above a team reply: with the team member's first name, or without.
+  teamLabel: "Ware team",
+  teamMemberLabel: "{name} · Ware team",
   teamLeft: "You're chatting with the Ware assistant again.",
   sentToTeam: "Sent to the Ware team ·",
 };
