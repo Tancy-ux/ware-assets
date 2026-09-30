@@ -3362,3 +3362,19 @@
 .chats-quick-emoji button:hover {
   background: #f1f1ec;
 }
+
+/* Lead card: a note under a field. */
+.chats-lead-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: #a4503a;
+}
+
+/* Phones: the date filter leads the row of filters. */
+@media (max-width: 760px) {
+  .chats-views .chats-range {
+    order: -1;
+  }
+}

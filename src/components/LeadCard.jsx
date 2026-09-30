@@ -26,7 +26,8 @@ let optionsPromise = null;
 // The side panel's contact details too: Save keeps them in the admin
 // only; Send to Zoho is the separate push. `open` / `onOpenChange` are the
 // panel's (open when a chat opens). What the login may do (checked on the
-// server too): canEdit (fields, Draft, Save), canPush (Send to Zoho),
+// server too): canEdit (fields, Save), canDraft ("Draft from chat", with
+// canEdit), canPush (Send to Zoho),
 // canSeeContacts (phone and email; hidden otherwise).
 const LeadCard = ({
   conversation: c,
@@ -36,6 +37,7 @@ const LeadCard = ({
   onOpenChange,
   canEdit = true,
   canPush = true,
+  canDraft = true,
   canSeeContacts = true,
 }) => {
   const [lead, setLead] = useState(() => ({
@@ -220,11 +222,22 @@ const LeadCard = ({
                   )}
               </select>
             </label>
+            {/* Every lead from here goes to Zoho with this source. */}
+            <label>
+              Lead source
+              <input value={options?.leadSource ?? "Website Bot"} readOnly disabled />
+              {options?.connected && options.leadSourceListed === false && (
+                <small className="chats-lead-hint">
+                  Add "Website Bot" to Lead Source in Zoho (Setup → Modules →
+                  Leads → Lead Source) before sending.
+                </small>
+              )}
+            </label>
           </div>
           <label>
             <span className="chats-lead-label-row">
               Requirement
-              {canEdit && (
+              {canEdit && canDraft && (
                 <button
                   type="button"
                   className="chats-link-btn"

@@ -245,6 +245,57 @@ const ChatResults = ({
         </section>
       )}
 
+      {/* Only for logins allowed to see carts (the server leaves it out). */}
+      {Array.isArray(data?.carts) && (
+        <section className="chats-card chats-orders-card">
+          <h3>Items in their cart</h3>
+          <p className="chats-card-sub">
+            People who had something in their cart when they last chatted, newest
+            first. The cart is as it was then.
+          </p>
+          {data.carts.length === 0 ? (
+            <p className="chats-results-note">Nobody in this period.</p>
+          ) : (
+            <table className="chats-results-orders">
+              <thead>
+                <tr>
+                  <th>Chat</th>
+                  <th>Cart</th>
+                  <th>Last chatted</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.carts.map((c) => (
+                  <tr key={c.conversationId}>
+                    <td>
+                      <button
+                        type="button"
+                        className="chats-results-chat"
+                        onClick={() => onOpenChat(c.conversationId)}
+                      >
+                        {c.title}
+                      </button>
+                    </td>
+                    <td>{c.cart}</td>
+                    <td>{formatDate(c.lastAt)}</td>
+                    <td>
+                      {c.ordered ? (
+                        <span className="chats-tag chats-tag-lead">Ordered</span>
+                      ) : c.lead ? (
+                        <span className="chats-tag">Left details</span>
+                      ) : (
+                        <span className="chats-tag">Not ordered yet</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+      )}
+
       <div className="chats-stats-pair chats-stats-pair-wide">
         <ChatPages pages={data?.pages} loading={loading} />
         <section className="chats-card">

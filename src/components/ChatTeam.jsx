@@ -12,8 +12,10 @@ const PERMISSION_LABELS = {
   contacts: "See phone numbers & emails",
   reply: "Take over & reply to chats",
   edit: "Edit contact & lead details, rename chats",
+  draft: "Draft the requirement with AI (\"Draft from chat\")",
   zoho: "Send leads to Zoho",
   stats: "See Stats (orders, revenue)",
+  carts: "See who has items in their cart (in Stats)",
   delete: "Delete chats",
   users: "Manage team logins",
 };
@@ -24,7 +26,7 @@ const PRESETS = [
   { label: "Sales", perms: ["contacts", "reply", "edit"] },
   {
     label: "Manager",
-    perms: ["contacts", "reply", "edit", "zoho", "stats", "delete"],
+    perms: ["contacts", "reply", "edit", "draft", "zoho", "stats", "delete"],
   },
   { label: "View only", perms: [] },
 ];

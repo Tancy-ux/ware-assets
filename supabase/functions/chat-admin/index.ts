@@ -138,9 +138,11 @@ async function googleEmail(credential: unknown) {
 const PERMISSIONS = [
   "contacts", // see phone numbers and emails
   "reply", // take over chats and reply
-  "edit", // edit contact / lead details, rename chats, draft requirement
+  "edit", // edit contact / lead details, rename chats
+  "draft", // "Draft from chat": the AI writes the requirement (with edit)
   "zoho", // send leads to Zoho
   "stats", // the Stats tab (orders, revenue)
+  "carts", // Stats: who has things in their cart (with stats)
   "delete", // delete chats
   "users", // manage team logins
 ] as const;
@@ -540,7 +542,8 @@ const ZOHO_ACCOUNTS = "https://accounts.zoho.in";
 const ZOHO_API = "https://www.zohoapis.in/crm/v5";
 const ZOHO_CRM = "https://crm.zoho.in/crm";
 const LEAD_TAG = "ware-ai-chat";
-const LEAD_SOURCE = "Website";
+// Every lead sent from the Chats page (Zoho's Lead Source picklist).
+const LEAD_SOURCE = "Website Bot";
 let zohoToken: { value: string; expires: number } | null = null;
 
 async function zohoAccessToken() {
@@ -598,6 +601,8 @@ type LeadFields = {
   clientType: string | null;
   clientTypes: string[];
   leadSource: string;
+  // Whether "Website Bot" is in Zoho's Lead Source list.
+  leadSourceListed: boolean;
 };
 let leadFields: { at: number; value: LeadFields } | null = null;
 
@@ -624,9 +629,10 @@ async function zohoLeadFields(): Promise<LeadFields> {
     products: find(/^\s*products? enquired/i)?.api_name ?? null,
     clientType: clientType?.api_name ?? null,
     clientTypes: picklist(clientType),
-    // "Website" as Zoho spells it, if it's in the Lead Source list.
-    leadSource: sources.find((s) => /^website$/i.test(s)) ??
-      sources.find((s) => /web/i.test(s)) ?? LEAD_SOURCE,
+    // "Website Bot" as Zoho spells it.
+    leadSource: sources.find((s) => s.toLowerCase() === LEAD_SOURCE.toLowerCase()) ??
+      LEAD_SOURCE,
+    leadSourceListed: sources.some((s) => s.toLowerCase() === LEAD_SOURCE.toLowerCase()),
   };
   leadFields = { at: Date.now(), value };
   return value;
@@ -909,7 +915,7 @@ Deno.serve(async (req) => {
       takeover: "reply",
       reply: "reply",
       label: "edit",
-      "lead-draft": "edit",
+      "lead-draft": "draft",
       "lead-save": "edit",
       "lead-push": "zoho",
       results: "stats",
@@ -923,6 +929,8 @@ Deno.serve(async (req) => {
     };
     const needed = ACTION_NEEDS[String(body.action)];
     if (needed && !perms[needed]) return notAllowed();
+    // Drafting fills the requirement box, so it needs edit too.
+    if (body.action === "lead-draft" && !perms.edit) return notAllowed();
     if (body.action === "lead-options" && !perms.edit && !perms.zoho) {
       return notAllowed();
     }
@@ -1615,7 +1623,36 @@ Deno.serve(async (req) => {
         askCounts.set(label, (askCounts.get(label) ?? 0) + 1);
       }
 
+      // Who had something in their cart when they last chatted (the
+      // chat reads the shopper's cart), newest first. Only for logins
+      // allowed to see carts; left out otherwise.
+      let carts: unknown[] | undefined;
+      if (perms.carts) {
+        const withCart = chats
+          .filter((c) => c.cart && !/^empty$/i.test(c.cart))
+          .sort((a, b) => String(b.last_message_at).localeCompare(String(a.last_message_at)));
+        const numbers = await dailyNumbers(db, withCart);
+        const orderedBy = new Set(counted.map((o) => o.visitorId).filter(Boolean));
+        carts = withCart.map((c) => ({
+          conversationId: c.id,
+          title: c.label || (c.visitor_name && nameCase(c.visitor_name)) ||
+            `Visitor ${numbers.get(c.id) ?? ""} · ${
+              new Date(c.started_at).toLocaleDateString("en-IN", {
+                day: "numeric",
+                month: "short",
+                timeZone: "Asia/Kolkata",
+              })
+            }`,
+          cart: c.cart,
+          lastAt: c.last_message_at,
+          page: c.last_page ?? null,
+          lead: !!(c.visitor_phone || c.visitor_email),
+          ordered: orderedBy.has(c.visitor_id),
+        }));
+      }
+
       const value = {
+        carts,
         chats: chats.length,
         realChats: chats.filter((c) => turns(c) >= 2).length,
         leads: chats.filter((c) => c.visitor_phone).length,
@@ -1678,6 +1715,8 @@ Deno.serve(async (req) => {
             clientType: fields.clientType,
             leadSource: fields.leadSource,
           },
+          leadSource: fields.leadSource,
+          leadSourceListed: fields.leadSourceListed,
         });
       } catch (err) {
         return json({
@@ -1813,6 +1852,8 @@ Deno.serve(async (req) => {
             Email: "Email",
             Company: "Company",
             Description: "Description",
+            // An existing lead keeps its own source; only an empty one is set.
+            Lead_Source: "Lead Source",
             ...(f.requirement ? { [f.requirement]: "Requirement" } : {}),
             ...(f.products ? { [f.products]: "Products enquired for" } : {}),
             ...(f.clientType ? { [f.clientType]: "Type of client" } : {}),

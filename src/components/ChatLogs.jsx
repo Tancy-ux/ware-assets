@@ -51,7 +51,7 @@ const TRANSCRIPT_REFRESH_MS = 5000;
 // How often the list checks for new chats and messages ("Live").
 const LIST_REFRESH_MS = 30000;
 // "Products seen" takes this many from each reply's cards.
-const SEEN_PER_REPLY = 2;
+const SEEN_PER_REPLY = 1;
 
 const readToken = () => {
   try {
@@ -1325,6 +1325,7 @@ const ChatLogs = () => {
               api={api}
               canEdit={can("edit")}
               canPush={can("zoho")}
+              canDraft={can("draft")}
               canSeeContacts={can("contacts")}
               open={leadOpen}
               onOpenChange={setLeadOpen}

@@ -192,8 +192,11 @@ search + refresh, one swipeable row of filters, the list; a chat opens full
 screen with ← back.
 
 **Team** (needs "Manage team"): add a person with name, work email and
-ticks: see phone numbers & emails, take over & reply, edit details, send to
-Zoho, Stats, delete chats, manage team. Checked on the server on every
+ticks: see phone numbers & emails, take over & reply, edit details, draft
+the requirement with AI ("Draft from chat", off unless ticked), send to
+Zoho, Stats, see carts (Stats' "Items in their cart": everyone who had
+something in their cart when they last chatted, with Ordered / Left details
+/ Not ordered yet; off unless ticked), delete chats, manage team. Checked on the server on every
 action (contacts are masked server-side), so turning someone off or
 changing ticks applies straight away. Nobody can give a permission they
 don't have. Team replies show the sender's name ("Tani · Ware team") to the
@@ -279,7 +282,8 @@ phones it's list *or* chat.
     ("interest"), and leaving a phone or email bumps it up a step. Under it
     the topic and whether contact details were shared.
   - **Contact & Zoho lead**: the lead form (open by default): name,
-    phone, email, type of client, requirement, products. **Save** keeps
+    phone, email, type of client, lead source (always "Website Bot"),
+    requirement, products. **Save** keeps
     them in the admin only; **Send to Zoho** is the separate push, see §8.
   - **Right now**: last page, **cart** (items and total when they last
     wrote, read by the store widget from `/cart.js`), **device** (e.g.
@@ -621,9 +625,9 @@ Nothing goes to Zoho automatically. In an open chat, the **Lead** bar shows
 see:
 
 - **Name, Phone, Email** (filled from the chat), **Type of client**
-  (dropdown loaded from Zoho: Retail, Horeca, Reseller, Corporate, Ware
-  Atelier - Early Bird, Ware Atelier, Bulk Gift, Retail Gift,
-  Not-qualified), **Requirement** (type it, or **Draft from chat**: one AI
+  (dropdown loaded from Zoho), **Lead source** (fixed:
+  "Website Bot"; the card warns if Zoho's Lead Source list doesn't have
+  it), **Requirement** (type it, or **Draft from chat**: one AI
   call writes a WhatsApp-style summary, even for small interests),
   **Products enquired for**.
 - **Save** keeps the details on the chat. **Send to Zoho** needs a name, a
@@ -635,10 +639,10 @@ What **Send to Zoho** does:
    Phone and Mobile fields) or email.
 2. **Found** → changes nothing that's filled in; fills only its **empty**
    fields (Phone, Email, Company, Requirement, Products enquired for, Type
-   of client), **appends** the tag `ware-ai-chat` (`over_write: false`),
+   of client, Lead Source), **appends** the tag `ware-ai-chat` (`over_write: false`),
    and links the chat to it.
 3. **Not found** → creates a lead: First/Last name (a one-word name becomes
-   Last name "."), Phone/Email, **Lead Source "Website"**, Requirement
+   Last name "."), Phone/Email, **Lead Source "Website Bot"**, Requirement
    (Zoho field `Additional_Notes`, labelled "Requirement"),
    `Products_enquired_for`, `Type_of_Client1`, tag `ware-ai-chat`. If Zoho
    insists on another field (e.g. Company) it gets "-".
