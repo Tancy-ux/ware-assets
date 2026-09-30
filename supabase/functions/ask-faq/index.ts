@@ -1019,6 +1019,99 @@ function weightedTerms(question: string, searchQuery: string) {
   return { now, before };
 }
 
+// The team's go-to gifts per occasion (from the WI-Techmonk KB doc), as
+// pieces of product titles. When the chat mentions the occasion, these
+// come first in the shortlist and the model is told they're the favourites.
+const OCCASION_GIFTS: { occasion: string; words: RegExp; picks: string[] }[] = [
+  {
+    occasion: "a birthday",
+    words: /\b(birthday|b'?day)\b/i,
+    picks: ["breakfast in bed", "brew and bite", "poha and chai", "chaat table setting"],
+  },
+  {
+    occasion: "bridesmaids",
+    words: /\bbridesmaids?\b/i,
+    picks: ["flare coffee cup", "snuggle", "crunchy coffee", "eve trinket", "small flare cup", "pod 90"],
+  },
+  {
+    occasion: "a wedding or engagement",
+    words: /\b(wedding|engagement|shaadi|return gifts?|wedding favou?rs?)\b/i,
+    picks: [
+      "morya table setting", "raya table setting", "bites and delights", "sushi dimsum",
+      "heart beat table setting", "jasmine table setting", "rangoli table setting",
+      "aster dessert plate", "merenda dessert plate", "nosh starter plate",
+      "kuch meetha ho jaye", "palais statuario",
+    ],
+  },
+  {
+    occasion: "an anniversary",
+    words: /\banniversar(y|ies)\b/i,
+    picks: ["pause and sip", "pivot cement candle", "skive candle", "skive slim candle"],
+  },
+  {
+    occasion: "Christmas",
+    words: /\b(christmas|xmas)\b/i,
+    picks: ["morya table setting", "tic tac toe"],
+  },
+  {
+    occasion: "Diwali or a festival",
+    words: /\b(diwali|deepavali|festive|festival|rakhi|raksha bandhan)\b/i,
+    picks: [
+      "morya table setting", "raya table setting", "rangoli table setting", "skive diya",
+      "aster dessert plate", "merenda dessert plate", "bites and delights", "sushi dimsum",
+      "heart beat table setting", "jasmine table setting", "lilo",
+    ],
+  },
+  {
+    occasion: "a housewarming",
+    words: /\b(house ?warming|griha ?pravesh|new home)\b/i,
+    picks: [
+      "skive slim candle", "nosh starter plate", "aster dessert plate", "kuch meetha ho jaye",
+      "lilo espresso cup and saucer set of 4", "peblo vase", "sushi dimsum",
+    ],
+  },
+  {
+    occasion: "a baby or birth announcement",
+    words: /\b(birth announcement|new ?born|baby)\b/i,
+    picks: ["morya table setting", "sushi dimsum", "bites and delights", "heart beat table setting", "lilo espresso cup and saucer set of 4", "aster dessert plate"],
+  },
+  {
+    occasion: "corporate gifting",
+    words: /\b(corporate|clients?|employees?|office gifts?)\b/i,
+    picks: [
+      "poha and chai", "brew and bite", "crunchy coffee", "lilo espresso cup and saucer set of 4", "breakfast in bed",
+      "skive slim candle", "pivot cement candle", "chaat table setting", "pod ", "orbit ",
+      "tic tac toe",
+    ],
+  },
+];
+const titleKey = (title: string) =>
+  ` ${title.toLowerCase().replace(/[^a-z0-9]+/g, " ")} `;
+// The occasions the chat mentions (the latest message first).
+function occasionsIn(question: string, searchQuery: string) {
+  const found = OCCASION_GIFTS.filter((o) => o.words.test(question));
+  for (const o of OCCASION_GIFTS) {
+    if (!found.includes(o) && o.words.test(searchQuery)) found.push(o);
+  }
+  return found.slice(0, 2);
+}
+const matchesPick = (p: Product, pick: string) =>
+  titleKey(p.title).includes(` ${pick.trim()} `);
+const isOccasionPick = (occasions: typeof OCCASION_GIFTS, p: Product) =>
+  occasions.some((o) => o.picks.some((pick) => matchesPick(p, pick)));
+// One product per pick (the best-ranked in stock), in the list's order,
+// so a broad pick ("pod ") can't crowd out the rest.
+function occasionFavourites(occasions: typeof OCCASION_GIFTS, ranked: Product[]) {
+  const out: Product[] = [];
+  for (const o of occasions) {
+    for (const pick of o.picks) {
+      const p = ranked.find((x) => x.available && !out.includes(x) && matchesPick(x, pick));
+      if (p) out.push(p);
+    }
+  }
+  return out;
+}
+
 // The products the model gets to see and recommend from, best first, and
 // how many of them are real keyword matches (those get full details).
 function shortlistProducts(
@@ -1027,6 +1120,7 @@ function shortlistProducts(
   searchQuery: string,
   shownTitles: string[],
   inBudget: (p: Product) => boolean,
+  occasions: typeof OCCASION_GIFTS = [],
 ) {
   const { now, before } = weightedTerms(question, searchQuery);
   // "around 1500": roughly Rs 1100 to 2000 comes first.
@@ -1036,8 +1130,11 @@ function shortlistProducts(
   const matched = limitPerDesign(
     products
       .map((p) => {
+        // The team's favourites for the occasion count as a match.
+        const favourite = occasions.length > 0 && isOccasionPick(occasions, p);
         const hits = 3 * keywordScore(p, now) +
-          Math.min(keywordScore(p, before), EARLIER_MAX);
+          Math.min(keywordScore(p, before), EARLIER_MAX) +
+          (favourite ? 4 : 0);
         return {
           p,
           hits,
@@ -1246,6 +1343,9 @@ const BESPOKE_WORDS =
 // A reply mentioning the store's address, or a question about getting
 // there, gets the Google Maps link.
 const STORE_ADDRESS_WORDS = /\b(raghuvanshi|lower parel)\b/i;
+// A business buying for a hotel, restaurant, café, bar or kitchen.
+const HORECA_WORDS =
+  /\b(horeca|hotels?|restaurants?|caf[eé]s?|coffee shops?|bistros?|cloud kitchens?|caterers?|catering|bakery|bakeries)\b/i;
 const DIRECTIONS_WORDS =
   /\b(directions?|showroom|google maps?|how (do i|to|can i) (get|reach|come))\b/i;
 
@@ -2168,13 +2268,29 @@ Deno.serve(async (req) => {
     const context = shortlistFaqs(faqs ?? [], question, searchQuery)
       .map((f) => `Category: ${f.category}\nQ: ${f.question}\nA: ${f.answer}`)
       .join("\n\n");
+    const occasions = occasionsIn(question, searchQuery);
     const shortlist = shortlistProducts(
       products,
       question,
       searchQuery,
       history.flatMap((t) => t.products),
       inBudget,
+      occasions,
     );
+    // Named for the model, so it leads with them (from the whole
+    // catalogue, within budget).
+    const occasionPicks = occasions.length
+      ? occasionFavourites(occasions, [...shortlist.list, ...products.filter(inBudget)])
+      : [];
+    // The model can only recommend what's in its list.
+    for (const p of occasionPicks.slice(0, 8)) {
+      if (!shortlist.list.includes(p)) shortlist.list.push(p);
+    }
+    const occasionNote = occasionPicks.length
+      ? `\n\nFor ${occasions.map((o) => o.occasion).join(" and ")}, the team's favourite gifts are: ${
+        occasionPicks.slice(0, 8).map((p) => p.title).join("; ")
+      }. When recommending, choose from these first (within their budget).`
+      : "";
 
     // The model refers to products by handle only; links, images and
     // prices for the cards are filled in from Shopify afterwards.
@@ -2278,6 +2394,10 @@ Bulk and corporate gifting (for example "gifting options around 1500, 125-150 pi
 1. Qualify first. If you don't yet know by when they need it and the delivery city, ask for both in one short line before suggesting anything, responding to what they told you (for example "Diwali gifts for 100, let's find you the right ones. When do you need them by, and which city are they going to?"); it decides ready stock vs custom branding. Don't recommend products or explain services in this reply.
 2. Then suggest. Recommend 3 or 4 giftable pieces, all different products (not the same set in several colours), priced close to their per-piece budget: "around 1500" means roughly Rs 1200 to 1900, so favour pieces near it over much cheaper ones. The cards show each piece, so introduce them in one short line (at most one phrase about the standout, like "the starter and dip set is a crowd-pleaser") rather than describing each. If their date is too tight for custom branding, say so in a few words.
 3. Answer their questions about the pieces (material, weight, care, packaging) briefly and honestly from the catalog and FAQ, answering the point they're worried about (for "is this all heavy stoneware?": "It's stoneware, but not heavy, and very durable.").
+A big number with no purpose given (for example "I need 80 mugs" or "100 plates"): before suggesting anything, ask in one short line whether it's for gifting, reselling, or their café or restaurant.
+
+Reselling (they want to stock or resell Ware in their shop or business): ask them to send their business profile so our sales head can reach out, or to email hello@wareinnovations.com. Don't quote trade prices.
+
 4. Ask for a call. In the same reply where you first suggest options for a bulk enquiry (by then they've shared quantity or budget, plus timeline or city), end by asking if our team could give them a quick call to take it forward, and set "askForCall". If you didn't ask then, ask in your next reply. The app shows a short name and number form right under your reply, so don't ask them to type their number in the chat. Ask this only once in a chat; if they skip it, carry on helping without asking again.
 
 How you sound. You're someone from the Ware studio who knows the pieces well and genuinely cares that each person finds the right thing. Your warmth comes from paying attention, not from pleasantries:
@@ -2317,7 +2437,7 @@ Respond as JSON with these fields:
 
 Only products that are directly relevant get shown, so don't attach products to replies that aren't about them. For "recommend" and "product", each product you list is shown under your reply as a card with its photo, name, live price, stock status, and an add to cart button, so don't write links or prices in the reply and don't list the products out again. Just talk about them naturally, for example why they suit this person, referring to them by name where it helps. Recommend 3 or 4 products unless they ask for more. Prices are in Indian Rupees. Treat budgets strictly: "under 2000" means below Rs 2000, so a Rs 2000 item doesn't qualify, and for sets use the set price as listed. Prefer products that are in stock. Only recommend products that appear in the catalog.
 
-If someone asks about a specific product that's sold out, still include it in "products" and lead with the positive, then the stock status, for example: "The Bites and Delights Lime Green is a lovely pick for corporate gifting, but it's currently sold out." Don't suggest alternatives to it yourself and don't ask whether they'd like to see similar items; the app automatically offers similar in-stock products under a sold-out card. Pre-orders aren't available, and never promise a restock or a date; if they ask when it'll be back, suggest contacting the team.
+If someone asks about a specific product that's sold out, still include it in "products" and lead with the positive, then the stock status, for example: "The Bites and Delights Lime Green is a lovely pick for corporate gifting, but it's currently sold out." Don't suggest alternatives to it yourself and don't ask whether they'd like to see similar items; the app automatically offers similar in-stock products under a sold-out card. Mention that our team can reconfirm whether any stock is left. Pre-orders aren't available, and never promise a restock or a date; if they ask when it'll be back, suggest contacting the team.
 
 Team hours: the Ware team replies on WhatsApp and returns calls Monday to Saturday, 10 am to 7 pm (India time). When you hand them to the team on WhatsApp, or ask whether the team can call them, mention the hours briefly and naturally in the same reply (for example "The team's around Monday to Saturday, 10 to 7."), and never promise a reply outside those hours.
 
@@ -2355,7 +2475,7 @@ ${details || "(none)"}${
       minBudget
         ? `\n\nThey want pieces priced at Rs ${minBudget} or more. Only suggest products priced at Rs ${minBudget} and above; anything cheaper doesn't qualify.`
         : ""
-    }${giftPackingNote}${deliveryInfo ? `\n\n${deliveryInfo}` : ""}${
+    }${giftPackingNote}${occasionNote}${deliveryInfo ? `\n\n${deliveryInfo}` : ""}${
       bigOrder
         ? `\n\nThey've mentioned a quantity of ${bigOrder.toLocaleString("en-IN")}, which is over 20: follow "Large quantities" above. Don't confirm stock, availability or their date; the team confirms those.`
         : ""
@@ -2672,6 +2792,11 @@ ${details || "(none)"}${
       // link (atelierCatalogUrl in chatTexts).
       catalog: !bespoke &&
         (aboutAtelier || BESPOKE_WORDS.test(`${question} ${answer}`)),
+      // A hotel / restaurant / café enquiry: the chat adds the HoReCa
+      // catalogue's link (horecaCatalogUrl in chatTexts).
+      horecaCatalog: !bespoke && HORECA_WORDS.test(
+        [...history.slice(-3).map((t) => t.question), question].join(" "),
+      ),
       // The reply gives the store's address (or they asked how to get
       // there): the chat adds a Google Maps link (storeMapUrl in chatTexts).
       storeMap: STORE_ADDRESS_WORDS.test(answer) ||

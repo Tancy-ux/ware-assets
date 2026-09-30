@@ -20,6 +20,9 @@ const SKIP_FILES = new Set([
   "Custom Gifting Process.docx",
   "Ware Gift Studio.xlsx",
   "conversation flow & faq for whatsapp chatbot.docx",
+  // The Techmonk bot's notes (flows, gift lists), not Q&A: the bot uses
+  // the parts it needs directly.
+  "WI-Techmonk KB (1).docx",
 ]);
 
 // Fallback category for docs that have no internal section headers of

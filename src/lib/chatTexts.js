@@ -86,6 +86,10 @@ export const TEXTS = {
   bespokeIntroMany:
     "These are some of our bespoke pieces, and we're so glad they caught your eye! Each one is made to order, so one of our designers would love to hear what you have in mind and create something just for you. Shall we give you a call?",
   bespokeCatalog: "Browse our bespoke catalogue",
+  // Under replies to hotel / restaurant / café enquiries.
+  horecaCatalog: "Browse our HoReCa catalogue",
+  horecaCatalogUrl:
+    "https://cdn.shopify.com/s/files/1/0039/8498/2051/files/Ware_HORECA_Catalog_2026_30th_Sept.pdf?v=1790746449",
   atelierCatalogUrl:
     "https://cdn.shopify.com/s/files/1/0039/8498/2051/files/Ware_Atelier_Bespoke_Furniture_Catalog.pdf?v=1790597905",
   // On a product page with details (metafields): the pill opens the chat

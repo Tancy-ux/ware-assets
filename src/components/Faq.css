@@ -710,7 +710,9 @@
 }
 /* "Browse our bespoke catalogue" on the designer-call offer */
 .faq-chat-catalog-link {
-  display: inline-flex;
+  /* Its own line under the reply, not tacked onto the last word. */
+  display: flex;
+  width: fit-content;
   align-items: center;
   gap: 6px;
   margin-top: 10px;

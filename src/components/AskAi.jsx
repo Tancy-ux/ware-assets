@@ -779,6 +779,7 @@ const AskAi = ({
       images: data.images ?? [],
       whatsappUrl: data.whatsappUrl ?? null,
       showCatalog: !!data.catalog,
+      showHorecaCatalog: !!data.horecaCatalog,
       showStoreMap: !!data.storeMap,
       askForDetails: !!data.askForDetails,
       detailsOpen: !!data.detailsOpen,
@@ -1687,6 +1688,18 @@ const AskAi = ({
                   >
                     <BookOpen size={14} />
                     {TEXTS.bespokeCatalog}
+                    <ArrowUpRight size={13} />
+                  </a>
+                )}
+                {m.showHorecaCatalog && TEXTS.horecaCatalogUrl && (
+                  <a
+                    href={TEXTS.horecaCatalogUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="faq-chat-catalog-link"
+                  >
+                    <BookOpen size={14} />
+                    {TEXTS.horecaCatalog}
                     <ArrowUpRight size={13} />
                   </a>
                 )}
