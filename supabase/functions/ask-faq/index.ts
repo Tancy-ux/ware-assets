@@ -1409,6 +1409,11 @@ const NEWER_COLUMNS = [
   "cart",
   // scripts/supabase-chat-source.sql
   "source",
+  // scripts/supabase-chat-account.sql
+  "account_name",
+  "account_phone",
+  "account_email",
+  "shopify_customer_id",
 ];
 
 // An email or an Indian mobile number typed into the chat (not a 6-digit
@@ -1552,11 +1557,29 @@ async function logCustomerMessage(
 // test, not the store: "internal", so the Chats page keeps them apart.
 const INTERNAL_ORIGIN = /^https:\/\/tancy-ux\.github\.io$|^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
+// A logged-in store customer's account, as the snippet put it on the page
+// (so as trustworthy as anything typed): tidied, for the team only.
+function accountFields(raw: unknown): Record<string, string> {
+  // deno-lint-ignore no-explicit-any
+  const a = raw as any;
+  if (!a || typeof a !== "object") return {};
+  const out: Record<string, string> = {};
+  const name = typeof a.name === "string" ? a.name.trim().slice(0, 60) : "";
+  if (name && /^[\p{L} .'-]+$/u.test(name)) out.account_name = nameCase(name);
+  const phone = typeof a.phone === "string" ? a.phone.trim() : "";
+  if (/^\+?[\d\s-]{7,20}$/.test(phone)) out.account_phone = phone;
+  const email = typeof a.email === "string" ? a.email.trim().toLowerCase() : "";
+  if (email.length <= 120 && EMAIL_RE.test(email)) out.account_email = email;
+  if (/^\d{1,20}$/.test(String(a.id ?? ""))) out.shopify_customer_id = String(a.id);
+  return out;
+}
+
 function visitorInfo(req: Request, payload: Record<string, unknown>) {
   const info: Record<string, string> = {};
   info.source = INTERNAL_ORIGIN.test(req.headers.get("Origin") ?? "")
     ? "internal"
     : "store";
+  Object.assign(info, accountFields(payload.account));
   const ua = req.headers.get("user-agent") ?? "";
   if (ua) {
     const type = /iPad|Tablet/i.test(ua)
@@ -1711,6 +1734,8 @@ async function logTurn(turn: {
   // the page it started on, and an email / mobile number typed in the
   // chat, for the Chats page's Zoho lead.
   const fillIfEmpty: Record<string, string> = { ...turn.ifEmpty };
+  // A logged-in customer: their account name, unless they gave one.
+  if (turn.extra?.account_name) fillIfEmpty.visitor_name = turn.extra.account_name;
   if (turn.page) fillIfEmpty.first_page = turn.page;
   const email = turn.question.match(EMAIL_RE)?.[0];
   if (email) fillIfEmpty.visitor_email = email.toLowerCase();
@@ -2323,7 +2348,11 @@ Deno.serve(async (req) => {
 
     // Did one of the assistant's last few replies already use their name?
     // Then this one mustn't (the model otherwise says it every time).
-    const knownFirstName = (conversation?.visitor_name ?? "").split(/\s+/)[0];
+    // A logged-in customer's account name counts as known (never their
+    // phone or email: the model isn't told those).
+    const accountName = accountFields(payload.account).account_name ?? "";
+    const knownName = conversation?.visitor_name || accountName;
+    const knownFirstName = knownName.split(/\s+/)[0];
     const nameUsedRecently = knownFirstName.length > 1 &&
       history
         .slice(-NAME_EVERY_REPLIES)
@@ -2499,8 +2528,8 @@ ${details || "(none)"}${
         ? `\n\nThey've mentioned a quantity of ${bigOrder.toLocaleString("en-IN")}, which is over 20: follow "Large quantities" above. Don't confirm stock, availability or their date; the team confirms those.`
         : ""
     }${
-      conversation?.visitor_name
-        ? `\n\nTheir name is ${conversation.visitor_name}; don't ask for it. ${
+      knownName
+        ? `\n\nTheir name is ${knownName}; don't ask for it. ${
           nameUsedRecently
             ? "You've used their name in a recent reply, so don't use it in this one."
             : "Use it only if this reply greets or thanks them."
@@ -2732,7 +2761,7 @@ ${details || "(none)"}${
       });
 
     // What they typed in the details card beats what the model inferred.
-    const name = conversation?.visitor_name || visitorName;
+    const name = conversation?.visitor_name || visitorName || accountName;
 
 
     // "Talk to a human": a WhatsApp link whose pre-filled message carries

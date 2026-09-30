@@ -1326,6 +1326,11 @@ Deno.serve(async (req) => {
           company: c.company,
           // Only for logins allowed to see contact details.
           visitorPhone: perms.contacts ? c.visitor_phone ?? null : null,
+          // A logged-in store customer's account (scripts/supabase-chat-account.sql).
+          accountName: c.account_name ?? null,
+          accountPhone: perms.contacts ? c.account_phone ?? null : null,
+          accountEmail: perms.contacts ? c.account_email ?? null : null,
+          shopifyCustomerId: c.shopify_customer_id ?? null,
           // The "Lead" card (scripts/supabase-zoho-leads.sql).
           visitorEmail: perms.contacts ? c.visitor_email ?? null : null,
           requirement: c.requirement ?? null,

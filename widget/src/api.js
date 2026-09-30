@@ -47,11 +47,20 @@ const LOGGED_MODES = [undefined, "similar", "bespoke", "info"];
 
 // Every chat call says which store page it came from (just the path), so
 // the Chats page can show where conversations start.
+// A logged-in shopper's account (the snippet puts it on the page): saved
+// on their chat for the team.
+const account = () => {
+  const c = window.WareChatConfig?.customer;
+  return c && (c.name || c.phone || c.email) ? c : null;
+};
+
 export const callAskFaq = async (body) => {
   const cart = LOGGED_MODES.includes(body.mode) ? await readCart() : null;
+  const customer = account();
   return callFunction("ask-faq", {
     ...body,
     page: location.pathname,
     ...(cart ? { cart } : {}),
+    ...(customer ? { account: customer } : {}),
   });
 };

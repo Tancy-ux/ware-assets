@@ -3401,3 +3401,25 @@
 .chats-transcript::-webkit-scrollbar-thumb:hover, .chats-info::-webkit-scrollbar-thumb:hover, .chats-stats::-webkit-scrollbar-thumb:hover, .chats-quick-list::-webkit-scrollbar-thumb:hover {
   background: #c4c4ba;
 }
+
+/* Desktop title bar: section name left, search in the middle, refresh
+   right. */
+@media (min-width: 761px) {
+  .chats-titlebar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+  }
+  .chats-titlebar h2 {
+    grid-column: 1;
+    margin-right: 0;
+  }
+  .chats-titlebar .chats-search {
+    grid-column: 2;
+    width: min(460px, 40vw);
+  }
+  .chats-titlebar-refresh {
+    grid-column: 3;
+    justify-self: end;
+  }
+}

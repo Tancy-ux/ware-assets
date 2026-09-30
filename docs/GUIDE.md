@@ -223,6 +223,15 @@ offer), and each AI reply keeps what else was shown under it (catalogue
 and map links, WhatsApp card, name / number form or prompt, designer-call
 buttons, gift photos; `chat_messages.extras`), drawn under the reply.
 
+**Logged-in store customers**: the snippet reads (never writes) the
+customer's first name, phone, email and ID from Shopify and passes them
+along. The chat knows their name (no name box; the bot uses it sparingly)
+and pre-fills their number in the details form, but never mentions having
+their phone or email. They're saved on the chat (`account_*`,
+`shopify_customer_id`), shown as "Store account" in the side panel (link
+to the customer in Shopify admin) and fill empty phone / email in the lead
+card. Masked like other contacts for logins without "contacts".
+
 **Internal chats**: chats started from this site's Ask AI (or a local test)
 are saved with `source = internal`, tagged **Internal** and shown only under
 the Internal filter (hidden when there are none), never in Needs reply /
@@ -718,7 +727,8 @@ Storage bucket `assets` (folder `uploads/`) for the Downloads page.
 device, cart), `supabase-chat-users.sql` (team, email, agent_name),
 `supabase-bot-versions.sql`, `supabase-chat-source.sql` (internal chats),
 `supabase-chat-extras.sql` (what was shown under each reply),
-`supabase-quick-replies.sql` (saved messages). (`supabase-restock-requests-table.sql` exists but was never
+`supabase-quick-replies.sql` (saved messages),
+`supabase-chat-account.sql` (logged-in customer's account). (`supabase-restock-requests-table.sql` exists but was never
 run.)
 
 ### Other scripts

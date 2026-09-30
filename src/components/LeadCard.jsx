@@ -42,8 +42,9 @@ const LeadCard = ({
 }) => {
   const [lead, setLead] = useState(() => ({
     name: c.visitorName ?? "",
-    phone: c.visitorPhone ?? "",
-    email: c.visitorEmail ?? "",
+    // A logged-in customer's account details fill in when the chat has none.
+    phone: c.visitorPhone ?? c.accountPhone ?? "",
+    email: c.visitorEmail ?? c.accountEmail ?? "",
     requirement: c.requirement ?? "",
     products: c.leadProducts ?? "",
     clientType: c.clientType ?? "",
@@ -55,8 +56,9 @@ const LeadCard = ({
   // the team has typed is never replaced.
   const fromChat = {
     name: c.visitorName ?? "",
-    phone: c.visitorPhone ?? "",
-    email: c.visitorEmail ?? "",
+    // A logged-in customer's account details fill in when the chat has none.
+    phone: c.visitorPhone ?? c.accountPhone ?? "",
+    email: c.visitorEmail ?? c.accountEmail ?? "",
   };
   const [seen, setSeen] = useState(fromChat);
   if (

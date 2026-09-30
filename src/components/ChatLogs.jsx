@@ -1350,6 +1350,22 @@ const ChatLogs = () => {
                     )
                   }
                 />
+                {selected.shopifyCustomerId && (
+                  <InfoRow
+                    label="Store account"
+                    value={
+                      <a
+                        href={`https://admin.shopify.com/store/ware-innovations-mumbai/customers/${selected.shopifyCustomerId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {[selected.accountName, selected.accountEmail, selected.accountPhone]
+                          .filter(Boolean)
+                          .join(" · ") || "Logged in"}
+                      </a>
+                    }
+                  />
+                )}
                 <InfoRow label="Cart" value={selected.cart} />
                 <InfoRow label="Device" value={selected.device} />
                 <InfoRow

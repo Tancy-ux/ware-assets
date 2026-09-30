@@ -158,6 +158,18 @@
   };
 </script>
 <script>
+  /* The logged-in shopper (nothing when logged out): the chat knows their
+     name and saves their phone / email for the team, without saying so. */
+  {%- if customer -%}
+  window.WareChatConfig.customer = {
+    id: {{ customer.id | json }},
+    name: {{ customer.first_name | default: customer.name | json }},
+    phone: {{ customer.phone | json }},
+    email: {{ customer.email | json }}
+  };
+  {%- endif -%}
+</script>
+<script>
   /* The product's details for the chat's options (product pages only;
      empty ones are left out by the chat). */
   {%- if product -%}

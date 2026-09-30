@@ -100,6 +100,18 @@ const snippet = `{% comment %}
   };
 </script>
 <script>
+  /* The logged-in shopper (nothing when logged out): the chat knows their
+     name and saves their phone / email for the team, without saying so. */
+  {%- if customer -%}
+  window.WareChatConfig.customer = {
+    id: {{ customer.id | json }},
+    name: {{ customer.first_name | default: customer.name | json }},
+    phone: {{ customer.phone | json }},
+    email: {{ customer.email | json }}
+  };
+  {%- endif -%}
+</script>
+<script>
   /* The product's details for the chat's options (product pages only;
      empty ones are left out by the chat). */
   {%- if product -%}
@@ -170,6 +182,8 @@ const rendered = (storeCopy ?? snippet)
   // The product details come from Liquid, which a plain page can't run:
   // test.html sets them from its address instead.
   .replace(/[ \t]*\/\* The product's details[\s\S]*?\{%- endif -%\}\n/, "")
+  // Same for the logged-in shopper (test.html?customer=… stands in).
+  .replace(/[ \t]*\/\* The logged-in shopper[\s\S]*?\{%- endif -%\}\n/, "")
   .replace(/\{\{\s*'ware-chat\.js'\s*\|\s*asset_url\s*\}\}/, "ware-chat.js");
 const page = (await read("widget/test.html")).replace(
   "<!-- WARE_CHAT_SNIPPET -->",

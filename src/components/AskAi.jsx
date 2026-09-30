@@ -1096,7 +1096,10 @@ const AskAi = ({
   // their first few (since the last reset), until the name is known or
   // they close it. Never at the same time as the details form.
   // Their name as the server knows it, to pre-fill the details form.
-  const knownName = namePrefs.name;
+  // A logged-in store customer's first name counts as known too.
+  const accountInfo =
+    typeof window !== "undefined" ? window.WareChatConfig?.customer : null;
+  const knownName = namePrefs.name || (accountInfo?.name ?? "").trim();
   const updateNamePrefs = (patch) =>
     setNamePrefs((prev) => {
       const next = { ...prev, ...patch };
@@ -1112,6 +1115,7 @@ const AskAi = ({
   })();
   const showNameCard =
     !namePrefs.known &&
+    !knownName &&
     !namePrefs.dismissed &&
     !showContactCard &&
     !messages.some((m) => m.loading || m.bespokeOffer || m.bespokeForm) &&
@@ -1806,6 +1810,7 @@ const AskAi = ({
               <ContactCard
                 startOpen
                 initialName={knownName}
+                initialPhone={accountInfo?.phone ?? ""}
                 title={TEXTS.bespokeFormTitle}
                 titleNamed={TEXTS.bespokeFormTitleNamed}
                 onSave={(details) => saveBespoke(m, details)}
@@ -1862,6 +1867,7 @@ const AskAi = ({
             key={callAsked ? "call" : "prompt"}
             startOpen={callAsked}
             initialName={knownName}
+            initialPhone={accountInfo?.phone ?? ""}
             onSave={saveContact}
             onDismiss={dismissContact}
           />

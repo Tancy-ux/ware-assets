@@ -47,6 +47,20 @@
          result as dist/test.html (open that one). -->
     <!-- WARE_CHAT_SNIPPET -->
     <script>
+      // Pretend to be logged in: test.html?customer=<first name>&phone=…&email=…
+      (function () {
+        var q = new URLSearchParams(location.search);
+        if (!q.get("customer")) return;
+        window.WareChatConfig = window.WareChatConfig || {};
+        window.WareChatConfig.customer = {
+          id: 1,
+          name: q.get("customer"),
+          phone: q.get("phone") || null,
+          email: q.get("email") || null,
+        };
+      })();
+    </script>
+    <script>
       // Pretend to be a product page: test.html?product=<handle>&title=<name>
       // (add &bespoke=1 for a Ware Atelier piece, and &includes=…,
       // &dimensions=…, &volume=…, &weight=… for its details).

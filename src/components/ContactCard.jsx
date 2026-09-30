@@ -21,6 +21,8 @@ const ContactCard = ({
   onDismiss,
   startOpen = false,
   initialName = "",
+  // A logged-in customer's number, to confirm or change.
+  initialPhone = "",
   title,
   // The title when the name's known ({name} is filled in).
   titleNamed,
@@ -37,7 +39,7 @@ const ContactCard = ({
     if (initialName && !name.trim()) setName(initialName);
   }
   const askName = !knownName.trim();
-  const [phone, setPhone] = useState("");
+  const [phone, setPhone] = useState(initialPhone);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
