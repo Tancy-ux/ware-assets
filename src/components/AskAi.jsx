@@ -817,9 +817,9 @@ const AskAi = ({
   };
 
   // ---- The store pill on a product page (widget/src/main.jsx) ----
-  // A piece with details (its metafields): options about it, answered
-  // from those details (no AI). A piece without: "Show me more products
-  // like this", answered with the similar-products picks (no AI). A Ware
+  // Any piece: options about it ("Show me more like this", answered with
+  // the similar-products picks, plus one per detail it has, answered from
+  // its metafields; no AI). A Ware
   // Atelier piece: an offer of a call from a designer, with Yes, call me /
   // Not now.
   const productTap = (product) => {
@@ -828,10 +828,10 @@ const AskAi = ({
     const last = messages[messages.length - 1];
     if (last?.tapHandle === product.handle) return;
     setContactThanks(null);
+    // Every other piece opens with options (never sends anything by
+    // itself): "Show me more like this", plus its details when it has any.
     if (product.bespoke) startBespoke(product);
-    else if (product.info) {
-      showProductOptions(product, askedAbout(product.handle), true);
-    } else showMoreLikeThis(product);
+    else showProductOptions(product, askedAbout(product.handle), true);
   };
 
   // The options already answered for a piece in this chat (since the
@@ -1069,6 +1069,8 @@ const AskAi = ({
   // The conversation the details card attaches to: the latest one the
   // function has logged (since the last "reset").
   const lastResetIndex = messages.findLastIndex((m) => m.isReset);
+  // "Sent to the Ware team" shows under the latest of these only.
+  const lastAwaitingId = messages.findLast((m) => m.awaitingTeam)?.id;
   const currentConversationId = messages
     .slice(lastResetIndex + 1)
     .findLast((m) => m.conversationId && m.answer)?.conversationId;
@@ -1503,7 +1505,7 @@ const AskAi = ({
           </p>
         )}
 
-        {messages.map((m) => m.isSystem ? (
+        {messages.map((m, i) => m.isSystem ? (
           <div key={m.id} className="faq-chat-system">{m.text}</div>
         ) : (
           <div key={m.id} className="faq-chat-turn">
@@ -1511,7 +1513,8 @@ const AskAi = ({
             <>
             <div className="faq-chat-bubble faq-chat-user">{m.question}</div>
             <div className="faq-chat-meta faq-chat-meta-user">
-              {m.awaitingTeam && (
+              {/* Only under the latest one waiting for the team. */}
+              {m.awaitingTeam && m.id === lastAwaitingId && (
                 <span className="faq-chat-sent-team">{TEXTS.sentToTeam}</span>
               )}
               {!customer && (
@@ -1553,7 +1556,16 @@ const AskAi = ({
 
             {m.answer && !m.correcting && (
               <div
-                className={`faq-chat-bubble faq-chat-ai${m.isAgent ? " faq-chat-team" : ""}`}
+                className={`faq-chat-bubble faq-chat-ai${m.isAgent ? " faq-chat-team" : ""}${
+                  // A second team reply in a row: no name or avatar again.
+                  m.isAgent && messages[i - 1]?.isAgent && !m.question
+                    ? " faq-chat-team-cont"
+                    : ""
+                }`}
+                // The round avatar beside a team reply (CSS draws it).
+                data-initial={
+                  m.isAgent ? (m.agentName || "Ware").charAt(0).toUpperCase() : undefined
+                }
               >
                 {m.isAgent && (
                   <span className="faq-chat-team-label">

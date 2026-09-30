@@ -3378,3 +3378,26 @@
     order: -1;
   }
 }
+
+/* Slim, soft scrollbars (they show only where there's something to scroll). */
+.chats-transcript,
+.chats-info,
+.chats-stats,
+.chats-quick-list {
+  scrollbar-width: thin;
+  scrollbar-color: #dcdcd4 transparent;
+}
+.chats-transcript::-webkit-scrollbar, .chats-info::-webkit-scrollbar, .chats-stats::-webkit-scrollbar, .chats-quick-list::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.chats-transcript::-webkit-scrollbar-track, .chats-info::-webkit-scrollbar-track, .chats-stats::-webkit-scrollbar-track, .chats-quick-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chats-transcript::-webkit-scrollbar-thumb, .chats-info::-webkit-scrollbar-thumb, .chats-stats::-webkit-scrollbar-thumb, .chats-quick-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #dcdcd4;
+}
+.chats-transcript::-webkit-scrollbar-thumb:hover, .chats-info::-webkit-scrollbar-thumb:hover, .chats-stats::-webkit-scrollbar-thumb:hover, .chats-quick-list::-webkit-scrollbar-thumb:hover {
+  background: #c4c4ba;
+}

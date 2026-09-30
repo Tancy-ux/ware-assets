@@ -62,9 +62,11 @@ const WareChat = () => {
   // Always starts closed, on every page: shoppers open it themselves. (The
   // conversation itself is kept by AskAi, so it's all there when they do.)
   const [open, setOpen] = useState(false);
-  // On a product page the pill opens the chat with options about the
-  // piece (when it has details), or asks for more like it straight away
-  // (when it has none), or for a bespoke piece offers a designer's call.
+  // On a product page the pill reads "I want to know more about this" (a
+  // piece with details) or "Show me more products like this" (without);
+  // either way it only opens the chat with options about the piece, and
+  // nothing is sent until they tap one. A bespoke piece offers a
+  // designer's call.
   const [product, setProduct] = useState(null);
   const chat = useRef(null);
   useEffect(() => {

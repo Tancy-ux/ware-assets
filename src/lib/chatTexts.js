@@ -129,12 +129,12 @@ export const TEXTS = {
   storeMapUrl: "https://maps.app.goo.gl/xvfFKjgKcb9agCtc6",
 
   // Team takeover
-  teamJoined: "A member of the Ware team has joined the chat.",
+  teamJoined: "Ware team joined",
   // Above a team reply: with the team member's first name, or without.
   teamLabel: "Ware team",
   teamMemberLabel: "{name} · Ware team",
-  teamLeft: "You're chatting with the Ware assistant again.",
-  sentToTeam: "Sent to the Ware team ·",
+  teamLeft: "Back with the Ware assistant",
+  sentToTeam: "Sent to the Ware team ✓",
 };
 
 // Applies the store's wording over the defaults: only known keys, and only

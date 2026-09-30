@@ -149,11 +149,11 @@
       storeMapUrl: "https://maps.app.goo.gl/xvfFKjgKcb9agCtc6",
 
       // Team takeover
-      teamJoined: "A member of the Ware team has joined the chat.",
+      teamJoined: "Ware team joined",
       teamLabel: "Ware team",
       teamMemberLabel: "{name} · Ware team",
-      teamLeft: "You're chatting with the Ware assistant again.",
-      sentToTeam: "Sent to the Ware team ·",
+      teamLeft: "Back with the Ware assistant",
+      sentToTeam: "Sent to the Ware team ✓",
     }
   };
 </script>
@@ -511,26 +511,60 @@
       color: var(--faq-text);
       border-bottom-left-radius: 4px;
     }
+    /* A team reply: a warm bubble with the sender's initial beside it and
+       their name above ("Tanisha · Ware team"). */
     .faq-chat-bubble.faq-chat-team {
-      background: #eef4fb;
-      border-color: #cfdcec;
+      position: relative;
+      margin: 18px 0 0 34px;
+      background: #f3ece4;
+      border-color: #f3ece4;
+      border-bottom-left-radius: 4px;
+    }
+    .faq-chat-bubble.faq-chat-team::before {
+      content: attr(data-initial);
+      position: absolute;
+      left: -34px;
+      bottom: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: #bf5e35;
+      color: #fff;
+      font-size: 11.5px;
+      font-weight: 700;
+      font-family: inherit;
     }
     .faq-chat-team-label {
-      display: block;
-      margin-bottom: 2px;
+      position: absolute;
+      top: -19px;
+      left: 0;
+      white-space: nowrap;
       font-size: 11px;
-      font-weight: 600;
-      color: #3d5a80;
+      font-weight: 500;
+      color: #8a7f76;
     }
+    /* Team joined / back with the assistant: a quiet divider. */
     .faq-chat-system {
-      align-self: center;
-      max-width: 90%;
-      padding: 4px 10px;
-      border-radius: 999px;
-      background: var(--faq-accent-soft);
-      color: var(--faq-text-secondary);
+      align-self: stretch;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      max-width: none;
+      padding: 0;
+      background: none;
+      color: #8a7f76;
       font-size: 11.5px;
       text-align: center;
+    }
+    .faq-chat-system::before,
+    .faq-chat-system::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: #e6ddd3;
     }
     .faq-chat-sent-team {
       color: var(--faq-text-muted);
@@ -1416,13 +1450,53 @@
     .ware-chat-root .faq-chat-bubble.faq-chat-typing {
       padding: 6px 0;
     }
+    /* Slim, soft scrollbars (they show only where there's something to scroll). */
+    .ware-chat-root .faq-chat-messages {
+      scrollbar-width: thin;
+      scrollbar-color: #e3d7cb transparent;
+    }
+    .ware-chat-root .faq-chat-messages::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .ware-chat-root .faq-chat-messages::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .ware-chat-root .faq-chat-messages::-webkit-scrollbar-thumb {
+      border-radius: 999px;
+      background: #e3d7cb;
+    }
+    .ware-chat-root .faq-chat-messages::-webkit-scrollbar-thumb:hover {
+      background: #cdbcab;
+    }
+
+    /* Back-to-back team replies: the name and avatar once, on the first. */
+    .faq-chat-bubble.faq-chat-team.faq-chat-team-cont {
+      margin-top: -12px;
+    }
+    .faq-chat-bubble.faq-chat-team.faq-chat-team-cont::before,
+    .faq-chat-team-cont .faq-chat-team-label {
+      display: none;
+    }
+    /* Team replies in the same serif as the concierge's own. */
+    .ware-chat-root .faq-chat-bubble.faq-chat-team {
+      font-family: var(--ware-serif);
+      font-size: var(--ware-reply-size);
+      line-height: 1.5;
+      color: var(--ware-ink);
+    }
+    .ware-chat-root .faq-chat-team-label {
+      font-family: var(--ware-sans);
+    }
+
     .ware-chat-root .faq-chat-user {
       padding: 7px 13px;
       border-radius: 16px;
-      background: var(--ware-peach);
-      color: var(--ware-brown);
+      border-bottom-right-radius: 4px;
+      background: var(--faq-accent);
+      color: #fff;
       font-size: var(--ware-message-size);
-      font-weight: 500;
+      font-weight: 400;
     }
     .ware-chat-root .faq-chat-time,
     .ware-chat-root .faq-chat-bubble-actions,
