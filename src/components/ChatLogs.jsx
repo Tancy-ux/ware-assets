@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  ArrowUpRight,
+  BookOpen,
+  Image as ImageIcon,
+  MapPin,
+  MessageCircle,
   BarChart3,
   BellRing,
   Building2,
@@ -30,12 +35,15 @@ import ChatResults from "./ChatResults";
 import LeadCard from "./LeadCard";
 import ChatTeam from "./ChatTeam";
 import ChatBot from "./ChatBot";
+import ChatQuickReplies from "./ChatQuickReplies";
 import { pageLabel, pageUrl } from "../lib/storePages";
 import { GOOGLE_CLIENT_ID } from "../lib/googleConfig";
+import { TEXTS, fillText } from "../lib/chatTexts";
 import "./Chats.css";
 
-// Session token from the chat-admin function. sessionStorage, not
-// localStorage: closing the browser logs you out of chat history.
+// Session token from the chat-admin function, kept in localStorage so
+// closing the tab doesn't sign you out; the token itself expires after 7
+// days (chat-admin's SESSION_HOURS), and Log out clears it.
 const TOKEN_KEY = "chatsToken";
 
 // How often an open, taken-over chat re-fetches its transcript.
@@ -47,7 +55,7 @@ const SEEN_PER_REPLY = 2;
 
 const readToken = () => {
   try {
-    return sessionStorage.getItem(TOKEN_KEY);
+    return localStorage.getItem(TOKEN_KEY) ?? sessionStorage.getItem(TOKEN_KEY);
   } catch {
     return null;
   }
@@ -272,6 +280,7 @@ const ChatLogs = () => {
 
   const logout = useCallback(() => {
     try {
+      localStorage.removeItem(TOKEN_KEY);
       sessionStorage.removeItem(TOKEN_KEY);
     } catch {
       // Nothing stored to clear.
@@ -416,6 +425,26 @@ const ChatLogs = () => {
         ? "You've taken over. The AI won't reply until you hand back."
         : "Handed back to the AI.",
     );
+  };
+
+  // Saved messages replace the box (or go at the end if something's
+  // typed); emojis go in at the cursor.
+  const replyBox = useRef(null);
+  const insertReply = (text, atCursor = false) => {
+    const el = replyBox.current;
+    if (atCursor && el) {
+      const start = el.selectionStart ?? reply.length;
+      const end = el.selectionEnd ?? reply.length;
+      const next = reply.slice(0, start) + text + reply.slice(end);
+      setReply(next);
+      requestAnimationFrame(() => {
+        el.focus();
+        el.setSelectionRange(start + text.length, start + text.length);
+      });
+      return;
+    }
+    setReply((prev) => (prev.trim() ? `${prev.trimEnd()} ${text}` : text));
+    requestAnimationFrame(() => el?.focus());
   };
 
   const sendReply = async (e) => {
@@ -1197,12 +1226,13 @@ const ChatLogs = () => {
                             <div
                               className={`chats-bubble ${fromTeam ? "chats-bubble-team" : "chats-bubble-ai"}`}
                             >
-                              {m.answer}
+                              {linkify(m.answer)}
                             </div>
                           )}
                           {products.length > 0 && (
                             <ProductRow products={products} />
                           )}
+                          <ReplyExtras extras={m.extras} />
                         </div>
                       )}
                     </div>
@@ -1212,7 +1242,13 @@ const ChatLogs = () => {
 
               {selected.takeover && can("reply") ? (
                 <form className="chats-reply" onSubmit={sendReply}>
+                  <ChatQuickReplies
+                    api={api}
+                    visitorName={selected.visitorName}
+                    onInsert={insertReply}
+                  />
                   <textarea
+                    ref={replyBox}
                     value={reply}
                     onChange={(e) => setReply(e.target.value)}
                     onKeyDown={(e) => {
@@ -1469,6 +1505,85 @@ const loadGoogle = () => {
   return googleScript;
 };
 
+// Links in a reply, clickable (the store chat does the same).
+const URL_PATTERN = /(https?:\/\/[^\s)]+)/g;
+const linkify = (text) =>
+  text.split(URL_PATTERN).map((part, i) =>
+    i % 2 === 1 ? (
+      <a key={i} href={part} target="_blank" rel="noopener noreferrer">
+        {part}
+      </a>
+    ) : (
+      part
+    ),
+  );
+
+// What the store chat showed under an AI reply besides its text and
+// cards, drawn the way the shopper saw it (links work; buttons and forms
+// are only pictures of them). Saved since scripts/supabase-chat-extras.sql.
+const ReplyExtras = ({ extras }) => {
+  if (!extras?.length) return null;
+  const has = (x) => extras.includes(x);
+  const link = (href, label) => (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="chats-extra-link">
+      <BookOpen size={13} />
+      {label}
+      <ArrowUpRight size={12} />
+    </a>
+  );
+  return (
+    <div className="chats-extras" aria-label="Also shown to the shopper">
+      {has("atelier_catalog") && link(TEXTS.atelierCatalogUrl, TEXTS.bespokeCatalog)}
+      {has("horeca_catalog") && link(TEXTS.horecaCatalogUrl, TEXTS.horecaCatalog)}
+      {has("store_map") && (
+        <a href={TEXTS.storeMapUrl} target="_blank" rel="noopener noreferrer" className="chats-extra-link">
+          <MapPin size={13} />
+          {TEXTS.storeMapLabel}
+          <ArrowUpRight size={12} />
+        </a>
+      )}
+      {has("bespoke_call") && (
+        <div className="chats-extra-buttons">
+          <span className="chats-extra-pill chats-extra-pill-main">{TEXTS.bespokeYes}</span>
+          <span className="chats-extra-pill">Not now</span>
+        </div>
+      )}
+      {has("whatsapp") && (
+        <div className="chats-extra-card">
+          <MessageCircle size={15} />
+          <span>
+            <strong>{TEXTS.whatsappTitle}</strong>
+            <small>{fillText(TEXTS.whatsappSubtitle, { hours: TEXTS.teamHours })}</small>
+          </span>
+        </div>
+      )}
+      {has("details_form") && (
+        <div className="chats-extra-card">
+          <UserPlus size={15} />
+          <span>
+            <strong>Name &amp; number form</strong>
+            <small>{TEXTS.contactFormTitleCall}</small>
+          </span>
+        </div>
+      )}
+      {has("details_prompt") && (
+        <div className="chats-extra-card">
+          <UserPlus size={15} />
+          <span>
+            <strong>{TEXTS.contactPrompt}</strong>
+            <small>{TEXTS.contactPromptButton}</small>
+          </span>
+        </div>
+      )}
+      {has("gift_photos") && (
+        <div className="chats-extra-note">
+          <ImageIcon size={13} /> Gift packaging photos
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ChatsLogin = ({ onLogin }) => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -1485,7 +1600,7 @@ const ChatsLogin = ({ onLogin }) => {
         return;
       }
       try {
-        sessionStorage.setItem(TOKEN_KEY, data.token);
+        localStorage.setItem(TOKEN_KEY, data.token);
       } catch {
         // Still logged in for this page view.
       }

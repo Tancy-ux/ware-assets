@@ -32,7 +32,8 @@ const CORS_HEADERS = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const SESSION_HOURS = 12;
+// Signed in for 7 days (the page keeps the token across tabs).
+const SESSION_HOURS = 7 * 24;
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -914,6 +915,9 @@ Deno.serve(async (req) => {
       results: "stats",
       delete: "delete",
       "users-list": "users",
+      "quick-list": "reply",
+      "quick-save": "reply",
+      "quick-delete": "reply",
       "user-save": "users",
       "user-delete": "users",
     };
@@ -1015,6 +1019,56 @@ Deno.serve(async (req) => {
       if (!UUID_RE.test(id)) return json({ error: "Bad login id" }, 400);
       if (id === me.id) return json({ error: "You can't delete your own login." }, 400);
       const { error } = await db.from("chat_users").delete().eq("id", id);
+      if (error) throw error;
+      return json({ ok: true });
+    }
+
+    // ---- Saved messages for the reply box: each login's own list ----
+    const MAX_QUICK = 50;
+    const quickMissing = () =>
+      json({ error: "Run scripts/supabase-quick-replies.sql in Supabase first." }, 400);
+    if (body.action === "quick-list") {
+      const { data, error } = await db
+        .from("chat_quick_replies")
+        .select("id, text")
+        .eq("owner_key", me.id)
+        .order("created_at", { ascending: true });
+      if (error) {
+        if (error.code === "42P01" || error.code === "PGRST205") return quickMissing();
+        throw error;
+      }
+      return json({ replies: data ?? [] });
+    }
+    if (body.action === "quick-save") {
+      const text = String(body.text ?? "").trim().slice(0, 1000);
+      if (!text) return json({ error: "Type the message to save." }, 400);
+      const { count } = await db
+        .from("chat_quick_replies")
+        .select("id", { count: "exact", head: true })
+        .eq("owner_key", me.id);
+      if ((count ?? 0) >= MAX_QUICK) {
+        return json({ error: `You can save up to ${MAX_QUICK} messages.` }, 400);
+      }
+      const { data, error } = await db
+        .from("chat_quick_replies")
+        .insert({ owner_key: me.id, text })
+        .select("id, text")
+        .single();
+      if (error) {
+        if (error.code === "42P01" || error.code === "PGRST205") return quickMissing();
+        throw error;
+      }
+      return json({ reply: data });
+    }
+    if (body.action === "quick-delete") {
+      const id = String(body.id ?? "");
+      if (!UUID_RE.test(id)) return json({ error: "Bad id" }, 400);
+      // Only ever one's own.
+      const { error } = await db
+        .from("chat_quick_replies")
+        .delete()
+        .eq("id", id)
+        .eq("owner_key", me.id);
       if (error) throw error;
       return json({ ok: true });
     }
@@ -1399,6 +1453,8 @@ Deno.serve(async (req) => {
           // The team member who sent a team reply.
           agentName: m.agent_name ?? null,
           page: m.page ?? null,
+          // What the chat showed under the reply (links, buttons, forms).
+          extras: Array.isArray(m.extras) ? m.extras : [],
         })),
         takeover: takeoverActive(convo?.takeover_at),
       });

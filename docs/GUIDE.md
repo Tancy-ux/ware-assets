@@ -180,8 +180,9 @@ Supabase accounts are created (on this site any Supabase account counts as
 a team member, so Supabase's own Google sign-in is deliberately not used).
 **Owner backup login** (link under the button): `CHATS_USERNAME` /
 `CHATS_PASSWORD`, owner only; team members have no passwords. A session
-lasts 12 hours (signed token); closing the browser logs out
-(sessionStorage). Sign-in attempts: 10 per 10 minutes, 30 per day per
+lasts 7 days (signed token, kept in the browser's localStorage, so closing
+the tab doesn't sign you out; Log out clears it). A team member who is
+turned off or removed is locked out at once regardless. Sign-in attempts: 10 per 10 minutes, 30 per day per
 connection.
 
 **Layout**: left menu (Conversations, Stats, Team, Bot, and who's signed in
@@ -206,6 +207,18 @@ characters. **Try it** asks the bot with the instructions as written,
 including an unsaved edit (sent through `chat-admin` with the service key;
 not logged). **History** (folded) keeps every change in
 `ai_guidelines_versions`; any version can be brought back.
+
+**Saved messages and emojis** (reply box, needs "Take over & reply"): each
+login keeps its own saved messages (`chat_quick_replies`, up to 50);
+picking one puts it in the box to edit or send, with `{name}` filled in as
+the visitor's first name ("there" if unknown). The smiley adds an emoji at
+the cursor.
+
+**Transcript = what the shopper saw**: taps are saved in the chat's own
+words ("Show me more products like this", "Dimensions", the designer-call
+offer), and each AI reply keeps what else was shown under it (catalogue
+and map links, WhatsApp card, name / number form or prompt, designer-call
+buttons, gift photos; `chat_messages.extras`), drawn under the reply.
 
 **Internal chats**: chats started from this site's Ask AI (or a local test)
 are saved with `source = internal`, tagged **Internal** and shown only under
@@ -699,7 +712,9 @@ Storage bucket `assets` (folder `uploads/`) for the Downloads page.
 `supabase-visitor-numbers.sql`, `supabase-chat-pages.sql`,
 `supabase-zoho-leads.sql`, `supabase-chat-insights.sql` (topic, interest,
 device, cart), `supabase-chat-users.sql` (team, email, agent_name),
-`supabase-bot-versions.sql`, `supabase-chat-source.sql` (internal chats). (`supabase-restock-requests-table.sql` exists but was never
+`supabase-bot-versions.sql`, `supabase-chat-source.sql` (internal chats),
+`supabase-chat-extras.sql` (what was shown under each reply),
+`supabase-quick-replies.sql` (saved messages). (`supabase-restock-requests-table.sql` exists but was never
 run.)
 
 ### Other scripts

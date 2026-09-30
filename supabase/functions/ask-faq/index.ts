@@ -1621,12 +1621,16 @@ function readPage(raw: unknown) {
 // without it, save the message anyway.
 // deno-lint-ignore no-explicit-any
 async function insertMessage(admin: any, row: Record<string, unknown>) {
-  const { page, ...rest } = row;
-  let { error } = await admin
-    .from("chat_messages")
-    .insert(page ? row : rest);
-  if (error?.code === "PGRST204" && page) {
-    ({ error } = await admin.from("chat_messages").insert(rest));
+  // page (scripts/supabase-chat-pages.sql) and extras
+  // (scripts/supabase-chat-extras.sql): dropped if the column isn't there.
+  const trimmed = { ...row };
+  if (!trimmed.page) delete trimmed.page;
+  let { error } = await admin.from("chat_messages").insert(trimmed);
+  for (let tries = 0; error?.code === "PGRST204" && tries < 2; tries++) {
+    const missing = String(error.message ?? "").match(/'(\w+)' column/)?.[1];
+    if (missing !== "page" && missing !== "extras") break;
+    delete trimmed[missing];
+    ({ error } = await admin.from("chat_messages").insert(trimmed));
   }
   if (error) throw error;
 }
@@ -1672,6 +1676,9 @@ async function logTurn(turn: {
   extra?: Record<string, string>;
   // Saved only if the chat has none yet, e.g. a topic for a no-AI tap.
   ifEmpty?: Record<string, string>;
+  // What the chat showed under the reply besides text and cards (links,
+  // buttons, forms), so the Chats page can show the same.
+  extras?: string[];
 }) {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const { conversationId, visitorId } = turn;
@@ -1725,6 +1732,7 @@ async function logTurn(turn: {
       price: c.price,
     })),
     page: turn.page,
+    ...(turn.extras?.length ? { extras: turn.extras } : {}),
   });
 }
 
@@ -1963,10 +1971,12 @@ Deno.serve(async (req) => {
         await logTurn({
           conversationId: payload.conversationId,
           visitorId: payload.visitorId,
-          question: `Show me more products like the ${target.title}`,
+          // The chat's own words (chatTexts moreLikeThis*), so the Chats
+          // page reads like what the shopper saw.
+          question: "Show me more products like this",
           answer: cards.length
-            ? `Pieces similar to the ${target.title}:`
-            : `No similar pieces in stock for the ${target.title}.`,
+            ? `If the ${target.title} caught your eye, you might love these too:`
+            : `I couldn't find anything close to the ${target.title} in stock right now. Our team would be glad to suggest something, just tap below.`,
           cards,
           visitorName: "",
           company: "",
@@ -2001,7 +2011,10 @@ Deno.serve(async (req) => {
       const { conversationId, visitorId } = payload;
       const text = (v: unknown, max: number) =>
         typeof v === "string" ? v.trim().slice(0, max) : "";
-      const question = text(payload.question, 200);
+      // The chat sends "Dimensions (Lilo …)"; the shopper saw "Dimensions"
+      // (the answer names the piece).
+      const question = text(payload.question, 200)
+        .replace(` (${target?.title ?? ""})`, "");
       const answer = text(payload.answer, 800);
       if (!target) return json({ error: "Unknown product" }, 404);
       if (!question || !answer || !validIds(conversationId, visitorId)) {
@@ -2051,19 +2064,25 @@ Deno.serve(async (req) => {
       }
       const conversation = await ownConversation(conversationId, visitorId);
       const turn = {
+        // The chat's own words (chatTexts bespoke*), so the Chats page
+        // reads like what the shopper saw.
         start: {
-          question: `Interested in the ${target.title} (Ware Atelier)`,
-          answer: "Offered a call from one of our designers.",
+          question: `I'd love to know more about the ${target.title}`,
+          answer: `The ${
+            target.title.replace(/^the\s+/i, "")
+          } is one of our bespoke pieces, and we're so glad it caught your eye! Each one is made to order, so one of our designers would love to hear what you have in mind and create something just for you. Shall we give you a call?`,
+          extras: ["atelier_catalog", "bespoke_call"],
         },
         call: {
           question: "Yes, call me",
-          answer: `Call requested about the ${target.title}` +
-            (contact.name ? ` by ${contact.name}` : "") +
-            ` on ${contact.phone}.`,
+          answer: `Wonderful, thank you${
+            contact.name ? ` ${contact.name}` : ""
+          }! One of our designers will call you shortly on ${contact.phone}.`,
         },
         later: {
           question: "Not now",
-          answer: "Declined the call for now.",
+          answer:
+            "Of course, no rush at all. Take your time with it, and whenever you'd like to talk it through, I'm right here.",
         },
       }[step as "start" | "call" | "later"];
       try {
@@ -2716,33 +2735,6 @@ ${details || "(none)"}${
     const name = conversation?.visitor_name || visitorName;
 
 
-    // Logging must never cost the visitor their answer.
-    try {
-      await logTurn({
-        conversationId: payload.conversationId,
-        visitorId: payload.visitorId,
-        question,
-        answer,
-        cards,
-        // Never overwrite a name they typed into the details card.
-        visitorName: conversation?.visitor_phone ? "" : visitorName,
-        company,
-        isFirst: !conversation?.first_question,
-        page: readPage(payload.page),
-        extra: {
-          ...visitorInfo(req, payload),
-          ...(bespoke
-            ? { topic: `Ware Atelier: ${bespoke.title}`.slice(0, 80) }
-            : topic
-            ? { topic }
-            : {}),
-          ...(interest ? { interest } : {}),
-        },
-      });
-    } catch (err) {
-      console.error("Chat log failed:", err);
-    }
-
     // "Talk to a human": a WhatsApp link whose pre-filled message carries
     // what we know (name, company, products looked at), so the team has
     // context the moment the chat opens.
@@ -2779,6 +2771,58 @@ ${details || "(none)"}${
     const askForDetails = detailsOpen || (!bespoke && intent !== "human" &&
       (followUp || aboutAtelier || FOLLOW_UP_WORDS.test(question)));
 
+    // About Ware Atelier / bespoke pieces: the chat adds the catalogue's
+    // link (atelierCatalogUrl in chatTexts).
+    const atelierCatalog = !bespoke &&
+      (aboutAtelier || BESPOKE_WORDS.test(`${question} ${answer}`));
+    // A hotel / restaurant / café enquiry: the chat adds the HoReCa
+    // catalogue's link (horecaCatalogUrl in chatTexts).
+    const horecaCatalog = !bespoke && HORECA_WORDS.test(
+      [...history.slice(-3).map((t) => t.question), question].join(" "),
+    );
+    // The reply gives the store's address (or they asked how to get
+    // there): the chat adds a Google Maps link (storeMapUrl in chatTexts).
+    const storeMap = STORE_ADDRESS_WORDS.test(answer) ||
+      DIRECTIONS_WORDS.test(question);
+    // The same, for the Chats page.
+    const shownExtras = [
+      bespoke && "bespoke_call",
+      (bespoke || atelierCatalog) && "atelier_catalog",
+      horecaCatalog && "horeca_catalog",
+      storeMap && "store_map",
+      whatsappUrl && "whatsapp",
+      detailsOpen ? "details_form" : askForDetails && !contactSaved && "details_prompt",
+      images.length > 0 && "gift_photos",
+    ].filter((x): x is string => typeof x === "string");
+
+    // Logging must never cost the visitor their answer.
+    try {
+      await logTurn({
+        conversationId: payload.conversationId,
+        visitorId: payload.visitorId,
+        question,
+        answer,
+        cards,
+        // Never overwrite a name they typed into the details card.
+        visitorName: conversation?.visitor_phone ? "" : visitorName,
+        company,
+        isFirst: !conversation?.first_question,
+        page: readPage(payload.page),
+        extra: {
+          ...visitorInfo(req, payload),
+          ...(bespoke
+            ? { topic: `Ware Atelier: ${bespoke.title}`.slice(0, 80) }
+            : topic
+            ? { topic }
+            : {}),
+          ...(interest ? { interest } : {}),
+        },
+        extras: shownExtras,
+      });
+    } catch (err) {
+      console.error("Chat log failed:", err);
+    }
+
     return json({
       answer,
       products: cards,
@@ -2788,19 +2832,9 @@ ${details || "(none)"}${
       askForDetails,
       detailsOpen,
       bespoke,
-      // About Ware Atelier / bespoke pieces: the chat adds the catalogue's
-      // link (atelierCatalogUrl in chatTexts).
-      catalog: !bespoke &&
-        (aboutAtelier || BESPOKE_WORDS.test(`${question} ${answer}`)),
-      // A hotel / restaurant / café enquiry: the chat adds the HoReCa
-      // catalogue's link (horecaCatalogUrl in chatTexts).
-      horecaCatalog: !bespoke && HORECA_WORDS.test(
-        [...history.slice(-3).map((t) => t.question), question].join(" "),
-      ),
-      // The reply gives the store's address (or they asked how to get
-      // there): the chat adds a Google Maps link (storeMapUrl in chatTexts).
-      storeMap: STORE_ADDRESS_WORDS.test(answer) ||
-        DIRECTIONS_WORDS.test(question),
+      catalog: atelierCatalog,
+      horecaCatalog,
+      storeMap,
       // Whether we know what to call them (typed in the chat, the name box
       // or the details form): the chat stops offering the name box.
       nameKnown: !!name,
