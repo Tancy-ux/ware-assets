@@ -610,8 +610,10 @@ While the team has taken a chat over, the shopper's messages go to the team
 ("Sent to the Ware team") and team replies appear in the chat (checked every
 4 s while the team is active, every 20 s otherwise, and not at all after 10
 minutes of quiet or in a background tab).
-Team replies can carry product cards (from AI reply or + Product in
-Chats), shown like the bot's, with Add to cart.
+Team replies look like the bot's (no box), with the team member's name
+above and their initial beside them, and can carry product cards (from AI
+reply or + Product in Chats) with Add to cart. The look is in
+`widget/ware-chat.liquid` (upload it to the store after changing it).
 
 ### 5.12 Starting over
 

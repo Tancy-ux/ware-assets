@@ -1490,8 +1490,13 @@
     .faq-chat-team-cont .faq-chat-team-label {
       display: none;
     }
-    /* Team replies in the same serif as the concierge's own. */
+    /* Team replies look like the concierge's own (no box, same serif); the
+       name above and the round initial beside them say who wrote them. */
     .ware-chat-root .faq-chat-bubble.faq-chat-team {
+      max-width: calc(100% - 34px);
+      padding: 0;
+      border: none;
+      background: none;
       font-family: var(--ware-serif);
       font-size: var(--ware-reply-size);
       line-height: 1.5;
@@ -1499,6 +1504,11 @@
     }
     .ware-chat-root .faq-chat-team-label {
       font-family: var(--ware-sans);
+    }
+    /* Without a box, the initial sits by the first line. */
+    .ware-chat-root .faq-chat-bubble.faq-chat-team::before {
+      top: 0;
+      bottom: auto;
     }
 
     .ware-chat-root .faq-chat-user {
