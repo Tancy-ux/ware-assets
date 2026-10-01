@@ -103,15 +103,20 @@ const ChatTeam = ({ api, me }) => {
     load();
   };
 
+  // From the Edit form only (away from the row's buttons), with a confirm.
   const remove = async (u) => {
     if (!window.confirm(`Remove ${u.name || u.email} from the team? They won't be able to sign in.`)) {
       return;
     }
     const res = await api({ action: "user-delete", id: u.id });
     if (!res) return;
-    toast.success("Login deleted");
+    toast.success(`${u.name || u.email} removed from the team`);
+    setForm(null);
     load();
   };
+
+  // A small circle with their initial, like the rest of the page.
+  const initial = (name) => (name || "?").trim().charAt(0).toUpperCase();
 
   // Only what the person managing has themselves can be handed out.
   const canGive = (key) => me.owner || me.permissions[key];
@@ -120,14 +125,10 @@ const ChatTeam = ({ api, me }) => {
     <div className="chats-team">
       <section className="chats-card">
         <div className="chats-team-head">
-          <div>
-            <h3>Team</h3>
-            <p className="chats-card-sub">
-              Add someone's name and @wareinnovations.com email: they sign in
-              with that Google account and only see and do what you tick.
-              Changes apply straight away, even if they're signed in.
-            </p>
-          </div>
+          <p className="chats-card-sub">
+            People with a @wareinnovations.com Google account. They only see
+            what you tick. Changes apply right away.
+          </p>
           {!form && (
             <button
               type="button"
@@ -207,6 +208,15 @@ const ChatTeam = ({ api, me }) => {
             </div>
 
             <div className="chats-lead-actions">
+              {form.id && form.id !== me.id && (
+                <button
+                  type="button"
+                  className="chats-btn chats-team-remove"
+                  onClick={() => remove(form)}
+                >
+                  <Trash2 size={13} /> Remove from team
+                </button>
+              )}
               <button type="button" className="chats-btn" onClick={() => setForm(null)}>
                 Cancel
               </button>
@@ -223,24 +233,34 @@ const ChatTeam = ({ api, me }) => {
         {data && (
           <ul className="chats-team-list">
             <li>
+              <span className="chats-avatar" style={{ "--avatar": "#3f7f86" }}>
+                {initial(data.owner.name)}
+              </span>
               <div className="chats-team-who">
                 <strong>{data.owner.name}</strong>
                 <small>{data.owner.emails.join(", ") || "Owner"}</small>
+                <small>Owner · can't be removed</small>
               </div>
               <div className="chats-team-tags">
                 <span className="chats-tag chats-tag-lead">Everything</span>
               </div>
-              <div className="chats-team-meta">Owner · set in Supabase secrets</div>
               <div />
             </li>
             {data.users.map((u) => (
               <li key={u.id} className={u.active ? "" : "chats-team-off"}>
+                <span className="chats-avatar" style={{ "--avatar": "#8a5a8f" }}>
+                  {initial(u.name || u.email)}
+                </span>
                 <div className="chats-team-who">
-                  <strong>{u.name || u.email}</strong>
+                  <strong>
+                    {u.name || u.email}
+                    {/* Their status, apart from what they may do. */}
+                    {!u.active && <span className="chats-team-status">Off</span>}
+                  </strong>
                   <small>{u.email || "No email yet: edit to add one"}</small>
+                  <small>Last login: {formatWhen(u.lastLoginAt)}</small>
                 </div>
                 <div className="chats-team-tags">
-                  {!u.active && <span className="chats-tag chats-tag-alert">Turned off</span>}
                   {PERMISSION_KEYS.filter((k) => u.permissions[k]).map((k) => (
                     <span key={k} className="chats-tag">
                       {PERMISSION_LABELS[k]}
@@ -250,7 +270,6 @@ const ChatTeam = ({ api, me }) => {
                     <span className="chats-tag">Read only</span>
                   )}
                 </div>
-                <div className="chats-team-meta">Last login: {formatWhen(u.lastLoginAt)}</div>
                 <div className="chats-team-actions">
                   <button
                     type="button"
@@ -260,24 +279,13 @@ const ChatTeam = ({ api, me }) => {
                     <Pencil size={13} /> Edit
                   </button>
                   {u.id !== me.id && (
-                    <>
-                      <button
-                        type="button"
-                        className="chats-btn"
-                        onClick={() => setActive(u, !u.active)}
-                      >
-                        {u.active ? "Turn off" : "Turn on"}
-                      </button>
-                      <button
-                        type="button"
-                        className="chats-icon-btn chats-delete"
-                        onClick={() => remove(u)}
-                        aria-label={`Remove ${u.name || u.email}`}
-                        title="Remove from team"
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </>
+                    <button
+                      type="button"
+                      className="chats-btn"
+                      onClick={() => setActive(u, !u.active)}
+                    >
+                      {u.active ? "Turn off" : "Turn on"}
+                    </button>
                   )}
                 </div>
               </li>

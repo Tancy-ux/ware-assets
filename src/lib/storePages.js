@@ -38,12 +38,25 @@ export const pageKind = (path) => {
 
 export const pageKindLabel = (path) => LABELS[pageKind(path)];
 
+// "kuch meetha ho jaye dessert set" -> "Kuch Meetha Ho Jaye Dessert Set",
+// the way the store names its pieces (small joining words stay small).
+const SMALL_WORDS = new Set(["a", "an", "and", "of", "the", "with", "in", "for", "or", "to"]);
+const titleCase = (text) =>
+  text
+    .split(" ")
+    .map((w, i) =>
+      i > 0 && SMALL_WORDS.has(w) ? w : w.charAt(0).toUpperCase() + w.slice(1),
+    )
+    .join(" ");
+
 export const pageLabel = (path) => {
   const kind = pageKind(path);
   if (kind === "home") return "Home";
   if (kind === "other") return decodeURIComponent(path);
   const parts = partsOf(path);
   const at = kind === "products" ? parts.lastIndexOf("products") : 0;
-  const name = decodeURIComponent(parts[at + 1] ?? "").replace(/[-_]+/g, " ");
+  const name = titleCase(
+    decodeURIComponent(parts[at + 1] ?? "").replace(/[-_]+/g, " "),
+  );
   return name ? `${LABELS[kind]} · ${name}` : LABELS[kind];
 };

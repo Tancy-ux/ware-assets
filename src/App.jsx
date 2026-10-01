@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useLocation } from "react-router-dom";
 import { supabase } from "./components/supabase";
 import { ToastContainer } from "react-toastify";
 import HomePage from "./Pages/HomePage";
@@ -28,6 +28,27 @@ function App() {
     });
     return () => data.subscription.unsubscribe();
   }, []);
+
+  // WareBot (the Chats admin) is its own page: no site header, its own
+  // tab title.
+  const { pathname } = useLocation();
+  const standalone = pathname.replace(/\/+$/, "") === "/chats";
+  useEffect(() => {
+    if (!standalone) return;
+    const before = document.title;
+    document.title = "WareBot";
+    return () => {
+      document.title = before;
+    };
+  }, [standalone]);
+  if (standalone) {
+    return (
+      <>
+        <ChatLogs />
+        <ToastContainer />
+      </>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#eef2e8] flex flex-col">

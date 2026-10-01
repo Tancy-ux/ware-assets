@@ -18,6 +18,44 @@ const tooShort = (text) => {
 // History shows the latest few; the rest behind "Show all".
 const HISTORY_SHOWN = 5;
 
+// What the bot always does (written into ask-faq itself), so nobody has to
+// add these as instructions. Keep in step with ask-faq's prompt.
+const BUILT_IN = [
+  "Only suggests real products from the store, at their real prices.",
+  "Never promises stock or delivery dates for orders over 20 pieces: the team confirms those.",
+  "Asks for the pincode before giving delivery times or charges.",
+  "Ware Atelier pieces: no prices, it offers a call with a designer instead.",
+  "Doesn't quote trade prices; resellers are sent to the sales team.",
+  "Short, plain replies, using the shopper's name only now and then.",
+];
+
+// Starting points for the first instructions: a tap puts one in the box to
+// change and save.
+const IDEAS = [
+  "Only suggest gift wrapping if the customer asks about it.",
+  "Mention free shipping on orders of ₹5,000 and above when it helps them decide.",
+  "For wedding gifts, suggest pieces that work well as a set for a couple.",
+];
+
+// Try it: one tap asks these.
+const SAMPLE_QUESTIONS = [
+  "Do you ship to Pune?",
+  "Gift ideas under ₹2,000",
+  "Bulk or corporate gifting",
+  "Is it microwave safe?",
+];
+
+// "2 days ago", "3 hr ago", "just now".
+const ago = (iso) => {
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+};
+
 const formatWhen = (iso) =>
   new Date(iso).toLocaleString([], {
     day: "numeric",
@@ -37,6 +75,7 @@ const ChatBot = ({ api }) => {
   const [openVersion, setOpenVersion] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyAll, setHistoryAll] = useState(false);
+  const [builtInOpen, setBuiltInOpen] = useState(false);
 
   // "Try it": a throwaway chat with the draft.
   const [tryTurns, setTryTurns] = useState([]);
@@ -132,9 +171,10 @@ const ChatBot = ({ api }) => {
     load();
   };
 
-  const ask = async (e) => {
-    e.preventDefault();
-    const question = tryText.trim();
+  // From the box, or a sample question's chip.
+  const ask = async (e, sample) => {
+    e?.preventDefault();
+    const question = (sample ?? tryText).trim();
     if (!question || trying) return;
     setTryText("");
     setTryTurns((prev) => [...prev, { question, answer: null }]);
@@ -197,14 +237,33 @@ const ChatBot = ({ api }) => {
           <div>
             <h3>Instructions</h3>
             <p className="chats-card-sub">
-              What the store bot should do or say, one point each. They sit on
-              top of its built-in rules (only real products and prices, no
-              promises about stock, the team handles Zoho), which these can't
-              switch off. Changes go live when you save. Only your login sees
-              this.
+              Tell the bot what to do or say, one point at a time. Changes go
+              live when you save.
             </p>
           </div>
         </div>
+
+        {/* What it does anyway, so it needn't be written here. */}
+        <div className="chats-bot-builtin">
+          <button
+            type="button"
+            onClick={() => setBuiltInOpen((o) => !o)}
+            aria-expanded={builtInOpen}
+          >
+            {builtInOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            Always on
+            <small>{BUILT_IN.length} built-in rules you don't need to write</small>
+          </button>
+          {builtInOpen && (
+            <ul>
+              {BUILT_IN.map((r) => (
+                <li key={r}>{r}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="chats-bot-scroll">
 
         <ol className="chats-bot-list">
           {rules.map((r, i) => (
@@ -257,10 +316,21 @@ const ChatBot = ({ api }) => {
           )}
         </ol>
         {rules.length === 0 && !editing && (
-          <p className="chats-results-note">
-            No instructions yet: the bot follows only its built-in rules.
-          </p>
+          <div className="chats-bot-ideas">
+            <p>No instructions yet. Some ideas to start from (tap one to edit it):</p>
+            {IDEAS.map((idea) => (
+              <button
+                key={idea}
+                type="button"
+                className="chats-bot-chip"
+                onClick={() => setEditing({ text: idea })}
+              >
+                <Plus size={13} /> {idea}
+              </button>
+            ))}
+          </div>
         )}
+        </div>
 
         {!editing && (
           <div className="chats-bot-foot">
@@ -281,9 +351,7 @@ const ChatBot = ({ api }) => {
           <div>
             <h3>Try it</h3>
             <p className="chats-card-sub">
-              Ask like a shopper would. Uses your instructions, including one
-              you're writing and haven't saved yet. Not saved, not in Chats;
-              each answer is one AI reply.
+              Test the bot as a shopper would. Includes unsaved changes.
             </p>
           </div>
           {tryTurns.length > 0 && (
@@ -294,7 +362,22 @@ const ChatBot = ({ api }) => {
         </div>
         <div className="chats-bot-chat" ref={tryBox}>
           {tryTurns.length === 0 && (
-            <p className="chats-results-note">e.g. "Do you ship to Pune?" or "Gift ideas under 2000"</p>
+            <div className="chats-bot-samples">
+              <p>Try one:</p>
+              <div>
+                {SAMPLE_QUESTIONS.map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    className="chats-bot-chip"
+                    onClick={() => ask(null, q)}
+                    disabled={trying}
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
           {tryTurns.map((t, i) => (
             <div key={i} className="chats-bot-turn">
@@ -339,12 +422,13 @@ const ChatBot = ({ api }) => {
         >
           {historyOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
           <h3>History</h3>
-          {versions?.length > 0 && (
-            <small>
-              {versions.length} change{versions.length === 1 ? "" : "s"} · last{" "}
-              {formatWhen(versions[0].at)}
-            </small>
-          )}
+          <small>
+            {versions?.length > 0
+              ? `Last changed ${ago(versions[0].at)}${
+                  versions[0].by ? ` by ${versions[0].by}` : ""
+                } · ${versions.length} change${versions.length === 1 ? "" : "s"}`
+              : "No changes yet"}
+          </small>
         </button>
         {!historyOpen ? null : versions === null ? (
           <p className="chats-results-note chats-results-warn">

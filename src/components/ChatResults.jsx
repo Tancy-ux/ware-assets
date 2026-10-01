@@ -1,5 +1,13 @@
-import { useEffect, useState } from "react";
-import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
+import { Fragment, useEffect, useState } from "react";
+import {
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  ArrowUpDown,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+} from "lucide-react";
 import { callFunction } from "../lib/askFaq";
 import { pageKind, pageKindLabel, pageLabel, pageUrl } from "../lib/storePages";
 
@@ -47,7 +55,14 @@ const ChatResults = ({
   handleResponse,
   onOpenChat,
   toolbar,
+  // What this login may see: the Overview tab, the Carts tab, or both.
+  canStats = true,
+  canCarts = false,
 }) => {
+  const [view, setView] = useState(canStats ? "stats" : "carts");
+  // Carts table order: by cart value or last chatted, either way (newest
+  // first to start with).
+  const [cartSort, setCartSort] = useState({ by: "date", desc: true });
   const [hideTest, setHideTest] = useState(readHideTest);
   // Keyed by what it's for, so a new choice shows "…" until it loads.
   const [result, setResult] = useState({ key: null, data: null });
@@ -106,6 +121,8 @@ const ChatResults = ({
   const data = loading ? null : result.data;
   const show = (v) => (loading ? "…" : data ? v(data) : "–");
 
+  // Each step is a share of the one before. "Ordered" sits apart: people
+  // can order without leaving a number, so it isn't a fourth step.
   const steps = [
     { label: "Chatted", n: (d) => d.chats },
     {
@@ -114,11 +131,62 @@ const ChatResults = ({
       title: "Two or more messages",
     },
     { label: "Left their number", n: (d) => d.leads },
-    { label: "Ordered", n: (d) => d.ordered, good: true },
   ];
+  // What's sitting in carts that hasn't been ordered (from the carts list).
+  const openCarts = Array.isArray(data?.carts)
+    ? data.carts.filter((c) => !c.ordered)
+    : [];
+  const openCartsValue = openCarts.reduce((s, c) => s + (c.value ?? 0), 0);
+  const sortedCarts = Array.isArray(data?.carts)
+    ? [...data.carts].sort((a, b) => {
+        const diff =
+          cartSort.by === "value"
+            ? (a.value ?? 0) - (b.value ?? 0)
+            : String(a.lastAt).localeCompare(String(b.lastAt));
+        return cartSort.desc ? -diff : diff;
+      })
+    : [];
+  // A column heading that sorts the carts table (tap again to flip).
+  const sortHead = (by, label) => {
+    const on = cartSort.by === by;
+    const Icon = on ? (cartSort.desc ? ArrowDown : ArrowUp) : ArrowUpDown;
+    return (
+      <th aria-sort={on ? (cartSort.desc ? "descending" : "ascending") : "none"}>
+        <button
+          type="button"
+          className={`chats-sort${on ? " chats-sort-on" : ""}`}
+          onClick={() =>
+            setCartSort({ by, desc: on ? !cartSort.desc : true })
+          }
+        >
+          {label}
+          <Icon size={13} />
+        </button>
+      </th>
+    );
+  };
 
   return (
     <div className="chats-stats-body">
+      {canStats && canCarts && (
+        <div className="chats-stats-tabs" role="tablist">
+          {[
+            ["stats", "Overview"],
+            ["carts", "Carts"],
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={view === id}
+              className={`chats-stats-tab${view === id ? " chats-stats-tab-active" : ""}`}
+              onClick={() => setView(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="chats-stats-toolbar">
         {toolbar}
         <label className="chats-switch">
@@ -135,17 +203,22 @@ const ChatResults = ({
         <p className="chats-results-note chats-results-warn">{result.error}</p>
       )}
 
+      {view === "stats" && (
+      <>
       <section className="chats-card">
         <h3>
           From chat to order
           <span> · how many people make it to each step</span>
         </h3>
         <div className="chats-funnel">
-          {steps.map((s, i) => {
-            const n = data ? s.n(data) : 0;
-            const tone = s.good && n > 0 ? " chats-funnel-good" : "";
-            return (
-              <div key={s.label} className={`chats-funnel-step${tone}`} title={s.title}>
+          {steps.map((s, i) => (
+            <Fragment key={s.label}>
+              {i > 0 && (
+                <span className="chats-funnel-arrow" aria-hidden="true">
+                  <ArrowRight size={16} />
+                </span>
+              )}
+              <div className="chats-funnel-step" title={s.title}>
                 <span className="chats-funnel-label">{s.label}</span>
                 <strong>{show(s.n)}</strong>
                 {i > 0 && (
@@ -154,8 +227,19 @@ const ChatResults = ({
                   </span>
                 )}
               </div>
-            );
-          })}
+            </Fragment>
+          ))}
+          <div
+            className={`chats-funnel-step chats-funnel-apart${
+              data?.ordered > 0 ? " chats-funnel-good" : ""
+            }`}
+          >
+            <span className="chats-funnel-label">Ordered</span>
+            <strong>{show((d) => d.ordered)}</strong>
+            <span className="chats-funnel-sub">
+              {show((d) => `${percent(d.ordered, d.chats)} of chats, at any step`)}
+            </span>
+          </div>
         </div>
       </section>
 
@@ -245,13 +329,26 @@ const ChatResults = ({
         </section>
       )}
 
-      {/* Only for logins allowed to see carts (the server leaves it out). */}
-      {Array.isArray(data?.carts) && (
+      </>
+      )}
+
+      {/* The Carts tab; only for logins allowed to see carts (the server
+          leaves it out otherwise). */}
+      {view === "carts" && Array.isArray(data?.carts) && (
         <section className="chats-card chats-orders-card">
-          <h3>Items in their cart</h3>
+          {openCarts.length > 0 && (
+            <p className="chats-carts-headline">
+              <strong>{rupees(openCartsValue)}</strong> in{" "}
+              {openCarts.length} cart{openCarts.length === 1 ? "" : "s"}, no
+              order since
+            </p>
+          )}
           <p className="chats-card-sub">
-            People who had something in their cart when they last chatted, newest
-            first. The cart is as it was then.
+            What was in their cart the last time they chatted, newest first
+            (sort by cart value or date from the column headings).
+            The chat only sees the cart while they're chatting, so they may
+            have changed or emptied it since. <strong>Ordered</strong> means
+            Shopify has an order from the same browser after they chatted.
           </p>
           {data.carts.length === 0 ? (
             <p className="chats-results-note">Nobody in this period.</p>
@@ -260,13 +357,13 @@ const ChatResults = ({
               <thead>
                 <tr>
                   <th>Chat</th>
-                  <th>Cart</th>
-                  <th>Last chatted</th>
-                  <th>Status</th>
+                  {sortHead("value", "Cart when they last chatted")}
+                  {sortHead("date", "Last chatted")}
+                  <th>Since then</th>
                 </tr>
               </thead>
               <tbody>
-                {data.carts.map((c) => (
+                {sortedCarts.map((c) => (
                   <tr key={c.conversationId}>
                     <td>
                       <button
@@ -276,16 +373,22 @@ const ChatResults = ({
                       >
                         {c.title}
                       </button>
+                      {/^Visitor /.test(c.title) && (
+                        <small className="chats-carts-tag">{c.tag}</small>
+                      )}
+                      {/* They left a phone or email: someone to follow up. */}
+                      {c.lead && (
+                        <span className="chats-tag chats-tag-lead chats-carts-lead">
+                          Lead
+                        </span>
+                      )}
                     </td>
                     <td>{c.cart}</td>
                     <td>{formatDate(c.lastAt)}</td>
                     <td>
-                      {c.ordered ? (
+                      {/* Blank: no order from them yet. */}
+                      {c.ordered && (
                         <span className="chats-tag chats-tag-lead">Ordered</span>
-                      ) : c.lead ? (
-                        <span className="chats-tag">Left details</span>
-                      ) : (
-                        <span className="chats-tag">Not ordered yet</span>
                       )}
                     </td>
                   </tr>
@@ -296,6 +399,7 @@ const ChatResults = ({
         </section>
       )}
 
+      {view === "stats" && (
       <div className="chats-stats-pair chats-stats-pair-wide">
         <ChatPages pages={data?.pages} loading={loading} />
         <section className="chats-card">
@@ -316,8 +420,9 @@ const ChatResults = ({
           )}
         </section>
       </div>
+      )}
 
-      {data && (
+      {data && view === "stats" && (
         <p className="chats-results-note chats-stats-foot">
           Orders counted from{" "}
           {new Date(data.trackingFrom).toLocaleDateString([], {

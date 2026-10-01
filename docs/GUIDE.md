@@ -194,13 +194,16 @@ screen with ← back.
 **Team** (needs "Manage team"): add a person with name, work email and
 ticks: see phone numbers & emails, take over & reply, edit details, draft
 the requirement with AI ("Draft from chat", off unless ticked), send to
-Zoho, Stats, see carts (Stats' "Items in their cart": everyone who had
-something in their cart when they last chatted, with Ordered / Left details
-/ Not ordered yet; off unless ticked), delete chats, manage team. Checked on the server on every
+Zoho, Stats, see carts (the Stats **Carts** tab; off unless ticked; with
+only this tick, Stats opens straight on Carts), delete chats, manage team. Checked on the server on every
 action (contacts are masked server-side), so turning someone off or
 changing ticks applies straight away. Nobody can give a permission they
 don't have. Team replies show the sender's name ("Tani · Ware team") to the
-shopper and in Chats.
+shopper and in Chats. Each row: initial, name (with an **Off** pill when turned
+off), email, last login, what they may do, then **Edit** and **Turn
+off/on**. **Remove from team** is inside Edit (with a confirm), away from
+the row's buttons. The owner's row says "Owner · can't be removed" (the
+owner's sign-ins aren't recorded).
 
 **Bot** (owner only, not a permission): the bot's standing instructions
 (`ai_guidelines`, the same rules the FAQ page's Improve AI panel edits).
@@ -208,8 +211,14 @@ Each instruction has On/Off, Edit, Delete; saving goes live on the bot's
 next answer. At least 5 words and 25 characters each, up to 60 of 400
 characters. **Try it** asks the bot with the instructions as written,
 including an unsaved edit (sent through `chat-admin` with the service key;
-not logged). **History** (folded) keeps every change in
-`ai_guidelines_versions`; any version can be brought back.
+not logged); with nothing asked yet it offers sample questions to tap.
+**Always on** (folded) lists the rules built into ask-faq that never need
+writing (`BUILT_IN` in ChatBot.jsx; keep it in step with ask-faq's
+prompt). With no instructions yet, a few **ideas** can be tapped to start
+one. **History** (folded) shows "Last changed … by …" and keeps every
+change in `ai_guidelines_versions`; any version can be brought back. On
+computers the Instructions and Try it cards are the same height, each
+scrolling inside.
 
 **Saved messages and emojis** (reply box, needs "Take over & reply"): each
 login keeps its own saved messages (`chat_quick_replies`, up to 50);
@@ -247,23 +256,39 @@ reloads the list and the stats.
 leads today*, *chats · <date range>*, *in Zoho*. **Conversations | Stats**
 switch on the right.
 
-**Conversations tab**: three columns (list · chat · visitor panel). Below
-1180 px wide the panel opens from the chat header's panel button; on
-phones it's list *or* chat.
+**A page of its own**: /chats has no site header (App.jsx renders it on its own, tab title "WareBot") and fills the screen. **Ware assets home**, above your name in the menu (a house icon on phones), goes back to the rest of the site.
 
-- **List**: newest activity first. Quick filters **Needs reply · Leads ·
-  Taken over · In Zoho · All** (with counts) and the date filter (Last 7
-  days default / 30 / 90 / All time / Custom dates). Each row: a dot if it
-  needs a reply, the title, time (today) or date, the **topic** in bold
-  ("Asking how to order"), the latest question (or the matched line while
-  searching), and tags: **Needs reply**, **Lead** (left a phone or email),
-  **Zoho ✓**, **Team** (taken over) or **AI handled**, and the message
-  count.
+**Left menu**: titled **WareBot** (the sign-in page too) with a green
+**Live** pill, then Conversations (with a red count of chats needing a
+reply, hidden at 0), Stats, Team, Bot. The open section is dark green
+with a thin bar on its left; on phones the menu is icons only.
+
+**Conversations tab**: three columns (list · chat · visitor panel), with a
+slim 180 px menu on the left. Below 1180 px wide the panel opens from the
+chat header's panel button; on phones it's list *or* chat. The side panel
+runs **Lead** (warmth) → **Right now** (page, cart in bold, device, days chatted)
+→ **Contact & Zoho lead**, collapsed until the chat has contact details →
+**Products seen** last (first 6, then **Show all**). Store page names show in proper case ("Kuch
+Meetha Ho Jaye Dessert Set").
+
+- **List**: newest activity first. At its top: the **search**, then "31
+  conversations" with the date filter on its right (Last 7 days default /
+  30 / 90 / All time / Custom dates), then the quick filters **All · Needs
+  reply · Leads · Taken over · In Zoho** (Internal when there are some),
+  each with its count (hidden at 0). Filters are soft filled chips, the selected
+  one dark green. The title bar above holds just the section's name and
+  **Refresh** on the right (on phones the Conversations title bar is
+  hidden and Refresh sits beside the search). Each row is three lines: (1) the title, the day and
+  browser tag for "Visitor N" chats (so two "Visitor 3"s are easy to tell
+  apart), small **Needs reply / Lead / Zoho ✓ / Internal** tags, and the
+  time; (2) the **topic** ("Asking how to order", regular weight so the name stands out); (3) the latest question
+  (or the matched line while searching) with "AI handled · 1 msg" (or
+  "Team · …") in small print.
 - **Needs reply** = the chat is taken over by the team *and* its latest
   message is the customer's (the AI isn't answering it). AI-handled chats
   never need a reply.
 - **Titles**: the team's label → the visitor's name → their company →
-  **"Visitor N"** (with its day underneath if not today). Visitor numbers
+  **"Visitor N"** (with its day beside it if not today). Visitor numbers
   **restart every day** (India time): Visitor 3 = the 3rd chat started that
   day, counting the chats still there (deleting one renumbers the later
   ones that day).
@@ -296,26 +321,40 @@ phones it's list *or* chat.
     them in the admin only; **Send to Zoho** is the separate push, see §8.
   - **Right now**: last page, **cart** (items and total when they last
     wrote, read by the store widget from `/cart.js`), **device** (e.g.
-    "Mobile · Chrome · Android", from the browser), **visits** ("2nd of 3"
-    chats from this browser, all time), last active.
-  - **Products seen**: the first two products of each reply (the bot's
-    top picks), with photo and price. In the transcript, each reply's
+    "Mobile · Chrome · Android", from the browser), **days chatted** (how many
+    different days they've messaged: "1 day", or "3 days (first 29 Sep)"
+    for someone who keeps coming back), last active.
+  - **Products seen** (below the lead card): the first product of each
+    reply (the bot's top pick), with photo and price; 6 shown, then
+    **Show all**. In the transcript, each reply's
     products are one scrollable row of small tiles.
 - **Topic and interest** come from the same Gemini reply the shopper gets
   (two extra fields, no extra AI call). Pill taps (similar / bespoke) set
   them without AI. Chats from before 29 Sep 2026 have neither.
 
-**Stats tab** (same date filter)
+**Stats tab** (same date filter), with two tabs, **Overview** and
+**Carts**:
 
 - **Hide test and junk chats** (on by default, remembered per browser):
   leaves out chats named or labelled "test", "testing" or "junk" (rename
   a chat to mark it), and orders from only such chats.
 - **From chat to order**: Chatted → Had a real conversation (2+ messages)
-  → Left their number → Ordered (browsers that ordered), each as a % of
-  chats. When nobody has left a number, a hint links to the FAQ page.
+  → Left their number, with arrows, each as a % of chats. **Ordered**
+  (browsers that ordered) sits apart, as "% of chats, at any step":
+  people can order without ever leaving a number. When nobody has left a
+  number, a hint links to the FAQ page.
 - **Orders from people who chatted** (value, count, **See orders**: order
   number opening Shopify admin, date, total, amount added from the chat,
   link to the chat) and **Orders from items added in chat**.
+- **Carts tab** (needs the carts tick): a headline "₹X in N carts, no
+  order since", then everyone who had something in their cart when they
+  last chatted, **newest first** (tap the **Cart** or **Last chatted**
+  heading to sort by it; tap again to flip the order): the chat (with its browser tag for
+  "Visitor N", and a **Lead** tag if they left a phone or email), the cart
+  *as it was when they last chatted*, last chatted, and **Since then**:
+  **Ordered** when Shopify has an order from the same browser after the
+  chat, blank otherwise. The chat only reads the cart while they're
+  chatting, so it can't tell if they emptied it later.
 - **Where chats start**: chats per store page they started on, with the
   product's or collection's real name and photo (from the store's public
   products.json / collections.json, cached 1 h), a bar, filters (All,
@@ -465,9 +504,12 @@ block at the top of `delivery.ts`.
 
 - Budgets: "under/below/within ₹X" and "above/over ₹X" (also "5k");
   "around ₹1,500" means roughly ₹1,200–1,900.
-- Bulk flow: first ask timeline and delivery city (one line), then suggest
-  3–4 different pieces near the per-piece budget, then offer a call with the
-  form.
+- Bulk flow: first a warm line ("We'd love to help you with your corporate
+  gifting! Could you share a few details?") and a short numbered list of
+  whatever they haven't said yet: 1. Budget per gift, 2. How many gifts,
+  3. When they need them by. Then suggest 3–4 different pieces near the
+  per-piece budget, then offer a call with the form. (A numbered list the
+  AI writes on one line is put one item per line before it's shown.)
 - **Quantities over 20** are never confirmed (stock, dates): the team
   confirms.
 - **Gift packaging** is only discussed when asked; per piece, from the
@@ -489,8 +531,21 @@ block at the top of `delivery.ts`.
 ### 5.10 When the AI can't answer
 
 Gemini down, out of quota or too slow (25 s deadline) → a warm message and
-the WhatsApp button, with their question pre-filled. The same happens for
-messages over 500 characters or too many messages (limits in §9).
+the WhatsApp button. The same happens for too many messages (limits in §9).
+The WhatsApp message is pre-filled with who they are (if known) and their
+last few questions:
+
+    Hi! I'm Priya. I was chatting with the assistant on your website and
+    would love some help.
+
+    What I asked:
+    - Bulk or corporate gifting
+    - 100 gifts, around 1500 each by 20th Oct
+
+(Without a name it starts "Hi! I was chatting…"; one question reads "I
+asked: …".) Written in two places that must match: `fallbackWhatsAppUrl` in
+AskAi.jsx (the chat can't reach the bot) and `handoffText` in ask-faq. A
+message over 500 characters gets its own text sent as it is.
 
 ### 5.11 Team takeover (seen from the shopper's side)
 

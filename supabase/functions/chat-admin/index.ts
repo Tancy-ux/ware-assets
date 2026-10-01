@@ -58,8 +58,8 @@ function safeEqual(a: string, b: string) {
 
 // Session tokens are "<expiry ms>.<user id or "owner">.<HMAC>", signed
 // with a key derived from the owner password + service key (+ a team
-// login's password hash). Changing the owner password logs everyone out;
-// changing a team login's password logs that login out.
+// member's email). Changing the owner password logs everyone out;
+// changing a team member's email logs them out.
 async function sign(value: string, secret: string) {
   const key = await crypto.subtle.importKey(
     "raw",
@@ -142,7 +142,7 @@ const PERMISSIONS = [
   "draft", // "Draft from chat": the AI writes the requirement (with edit)
   "zoho", // send leads to Zoho
   "stats", // the Stats tab (orders, revenue)
-  "carts", // Stats: who has things in their cart (with stats)
+  "carts", // Stats' Carts tab: who has things in their cart
   "delete", // delete chats
   "users", // manage team logins
 ] as const;
@@ -501,36 +501,6 @@ async function awaitingTeam(db: any, ids: string[]) {
     }
   }
   return waiting;
-}
-
-// "2nd visit": each chat's place among all chats from the same browser
-// (all time, not just the dates shown), and how many there are.
-async function visitCounts(
-  // deno-lint-ignore no-explicit-any
-  db: any,
-  conversations: { visitor_id: string }[],
-) {
-  const visits = new Map<string, { visit: number; of: number }>();
-  const visitors = [...new Set(conversations.map((c) => c.visitor_id))];
-  const byVisitor = new Map<string, string[]>();
-  for (let i = 0; i < visitors.length; i += 100) {
-    const { data, error } = await db
-      .from("chat_conversations")
-      .select("id, visitor_id, started_at")
-      .in("visitor_id", visitors.slice(i, i + 100))
-      .order("started_at", { ascending: true })
-      .limit(5000);
-    if (error) throw error;
-    for (const c of data ?? []) {
-      const list = byVisitor.get(c.visitor_id) ?? [];
-      list.push(c.id);
-      byVisitor.set(c.visitor_id, list);
-    }
-  }
-  for (const list of byVisitor.values()) {
-    list.forEach((id, i) => visits.set(id, { visit: i + 1, of: list.length }));
-  }
-  return visits;
 }
 
 // ---- Zoho CRM leads (the Chats page's "Lead" card) ----
@@ -918,7 +888,6 @@ Deno.serve(async (req) => {
       "lead-draft": "draft",
       "lead-save": "edit",
       "lead-push": "zoho",
-      results: "stats",
       delete: "delete",
       "users-list": "users",
       "quick-list": "reply",
@@ -929,6 +898,10 @@ Deno.serve(async (req) => {
     };
     const needed = ACTION_NEEDS[String(body.action)];
     if (needed && !perms[needed]) return notAllowed();
+    // Stats, or the Carts section (which only gets the carts, below).
+    if (body.action === "results" && !perms.stats && !perms.carts) {
+      return notAllowed();
+    }
     // Drafting fills the requirement box, so it needs edit too.
     if (body.action === "lead-draft" && !perms.edit) return notAllowed();
     if (body.action === "lead-options" && !perms.edit && !perms.zoho) {
@@ -1309,13 +1282,12 @@ Deno.serve(async (req) => {
       if (until) query = query.lt("last_message_at", until);
       const { data, error } = await query;
       if (error) throw error;
-      const [numbers, waiting, visits] = await Promise.all([
+      const [numbers, waiting] = await Promise.all([
         dailyNumbers(db, data ?? []),
         awaitingTeam(
           db,
           (data ?? []).filter((c) => takeoverActive(c.takeover_at)).map((c) => c.id),
         ),
-        visitCounts(db, data ?? []),
       ]);
 
       return json({
@@ -1367,8 +1339,6 @@ Deno.serve(async (req) => {
           cart: c.cart ?? null,
           // From the team's own site, not a store visitor.
           internal: c.source === "internal",
-          visit: visits.get(c.id)?.visit ?? 1,
-          visits: visits.get(c.id)?.of ?? 1,
         })),
       });
     }
@@ -1629,26 +1599,30 @@ Deno.serve(async (req) => {
       }
 
       // Who had something in their cart when they last chatted (the
-      // chat reads the shopper's cart), newest first. Only for logins
-      // allowed to see carts; left out otherwise.
+      // chat reads the shopper's cart), biggest cart first. Only for
+      // logins allowed to see carts; left out otherwise.
       let carts: unknown[] | undefined;
       if (perms.carts) {
+        // "2 items · ₹12,407" -> 12407
+        const cartValue = (cart: string) =>
+          Number(cart.match(/₹\s*([\d,]+)/)?.[1]?.replace(/,/g, "") ?? 0);
         const withCart = chats
           .filter((c) => c.cart && !/^empty$/i.test(c.cart))
-          .sort((a, b) => String(b.last_message_at).localeCompare(String(a.last_message_at)));
+          .sort((a, b) =>
+            cartValue(b.cart) - cartValue(a.cart) ||
+            String(b.last_message_at).localeCompare(String(a.last_message_at))
+          );
         const numbers = await dailyNumbers(db, withCart);
         const orderedBy = new Set(counted.map((o) => o.visitorId).filter(Boolean));
         carts = withCart.map((c) => ({
           conversationId: c.id,
+          // The date is in "Last chatted"; the browser's short id tells
+          // same-numbered visitors apart.
           title: c.label || (c.visitor_name && nameCase(c.visitor_name)) ||
-            `Visitor ${numbers.get(c.id) ?? ""} · ${
-              new Date(c.started_at).toLocaleDateString("en-IN", {
-                day: "numeric",
-                month: "short",
-                timeZone: "Asia/Kolkata",
-              })
-            }`,
+            `Visitor ${numbers.get(c.id) ?? ""}`,
+          tag: `#${String(c.visitor_id ?? "").slice(0, 6)}`,
           cart: c.cart,
+          value: cartValue(c.cart),
           lastAt: c.last_message_at,
           page: c.last_page ?? null,
           lead: !!(c.visitor_phone || c.visitor_email),
@@ -1701,6 +1675,10 @@ Deno.serve(async (req) => {
           };
         }),
       };
+      // A carts-only login gets just the carts.
+      if (!perms.stats) {
+        return json({ carts: value.carts, hiddenTest: value.hiddenTest });
+      }
       return json(value);
     }
 

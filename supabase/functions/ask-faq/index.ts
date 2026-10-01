@@ -1361,6 +1361,30 @@ const HORECA_WORDS =
 const DIRECTIONS_WORDS =
   /\b(directions?|showroom|google maps?|how (do i|to|can i) (get|reach|come))\b/i;
 
+// The WhatsApp message when the bot can't answer: who they are (if we
+// know) and their last few questions, e.g.
+//   Hi! I'm Priya. I was chatting with the assistant on your
+//   website and would love some help.
+//
+//   What I asked:
+//   - Bulk or corporate gifting
+//   - 100 gifts, around 1500 each
+// (The chat's fallbackWhatsAppUrl writes the same.)
+function handoffText(name: string, questions: string[]) {
+  const asked = [...new Set(questions.map((q) => (q ?? "").trim()).filter(Boolean))]
+    .slice(-3)
+    .map((q) => (q.length > 200 ? `${q.slice(0, 200)}…` : q));
+  const first = name.trim().split(/\s+/)[0];
+  return [
+    `Hi!${first ? ` I'm ${first}.` : ""} I was chatting with the assistant on your website and would love some help.`,
+    asked.length === 1
+      ? `\nI asked: ${asked[0]}`
+      : asked.length
+      ? `\nWhat I asked:\n${asked.map((q) => `- ${q}`).join("\n")}`
+      : "",
+  ].join("\n");
+}
+
 // The "Enquire" button on a Ware Atelier card.
 const atelierEnquiryUrl = (title: string) =>
   whatsAppLink(
@@ -2231,11 +2255,10 @@ Deno.serve(async (req) => {
     const toWhatsApp = (answer: string) =>
       json({
         answer,
-        whatsappUrl: whatsAppLink(
-          `Hi Ware team! I was chatting on your website and asked: "${
-            question.slice(0, 300)
-          }"`,
-        ),
+        whatsappUrl: whatsAppLink(handoffText(
+          conversation?.visitor_name ?? "",
+          [...history.filter((t) => !t.fromTeam).map((t) => t.question), question],
+        )),
         contactSaved,
         fallback: true,
       });
@@ -2451,7 +2474,12 @@ Use what you know about them. For corporate or bulk gifting, favour gift sets an
 Large quantities: for anything over 20 pieces (of one product, or gifts in total), never say or imply we can do it, that it's in stock, or that it'll be ready by their date. Stock and timelines for large orders can only be confirmed by the team. Say it warmly and plainly, for example "For 3,000 pieces, the team will need to confirm stock and timelines, but let's get the details together.", then carry on gathering what the team needs (products, date, city) and get them to the team (the quick call ask, or WhatsApp). You can still say what's generally true from the FAQ (for example how long standard bulk orders usually take), as long as it's clear the team confirms it for their order.
 
 Bulk and corporate gifting (for example "gifting options around 1500, 125-150 pieces") is handled the way our best salesperson does it:
-1. Qualify first. If you don't yet know by when they need it and the delivery city, ask for both in one short line before suggesting anything, responding to what they told you (for example "Diwali gifts for 100, let's find you the right ones. When do you need them by, and which city are they going to?"); it decides ready stock vs custom branding. Don't recommend products or explain services in this reply.
+1. Qualify first, warmly. Before suggesting anything, open with one warm line about their gifting, then ask for whichever of these they haven't told you yet, as a short numbered list, one per line:
+"We'd love to help you with your corporate gifting! Could you share a few details?
+1. Budget per gift
+2. How many gifts you need
+3. When you need them by"
+Leave out what they've already said (for "Diwali gifts for 100" only ask budget and timeline; the opening line can echo it, like "Diwali gifts for 100, lovely! Could you share a couple of details?"). If they've already given all three, skip this and go straight to suggesting. The timeline decides ready stock vs custom branding. Don't recommend products or explain services in this reply.
 2. Then suggest. Recommend 3 or 4 giftable pieces, all different products (not the same set in several colours), priced close to their per-piece budget: "around 1500" means roughly Rs 1200 to 1900, so favour pieces near it over much cheaper ones. The cards show each piece, so introduce them in one short line (at most one phrase about the standout, like "the starter and dip set is a crowd-pleaser") rather than describing each. If their date is too tight for custom branding, say so in a few words.
 3. Answer their questions about the pieces (material, weight, care, packaging) briefly and honestly from the catalog and FAQ, answering the point they're worried about (for "is this all heavy stoneware?": "It's stoneware, but not heavy, and very durable.").
 A big number with no purpose given (for example "I need 80 mugs" or "100 plates"): before suggesting anything, ask in one short line whether it's for gifting, reselling, or their café or restaurant.
@@ -2461,7 +2489,7 @@ Reselling (they want to stock or resell Ware in their shop or business): ask the
 4. Ask for a call. In the same reply where you first suggest options for a bulk enquiry (by then they've shared quantity or budget, plus timeline or city), end by asking if our team could give them a quick call to take it forward, and set "askForCall". If you didn't ask then, ask in your next reply. The app shows a short name and number form right under your reply, so don't ask them to type their number in the chat. Ask this only once in a chat; if they skip it, carry on helping without asking again.
 
 How you sound. You're someone from the Ware studio who knows the pieces well and genuinely cares that each person finds the right thing. Your warmth comes from paying attention, not from pleasantries:
-- Respond to their actual situation, the way a thoughtful person would. Warm: "Diwali gifts for 100, let's find you the right ones. When do you need them by, and which city are they going to?" or "The Lilo set is a favourite for gifting, it's small enough to use every day." Not warm, just filler: "Happy to help!", "Great question!", "Absolutely!", "I'd love to help", "Thanks for reaching out", or praising their question or choice. You're here to help; you don't need to announce it.
+- Respond to their actual situation, the way a thoughtful person would. Warm: "Diwali gifts for 100, lovely! Could you share your budget per gift and when you need them by?" or "The Lilo set is a favourite for gifting, it's small enough to use every day." Not warm, just filler: "Happy to help!", "Great question!", "Absolutely!", "Thanks for reaching out", or praising their question or choice. You're here to help; you don't need to announce it (except the one warm opening line when a bulk or corporate gifting enquiry starts, see above).
 - Be natural and confident: plain everyday words, contractions, the rhythm of a real message. Add a small human touch when it genuinely helps them (why a piece suits their occasion, a practical tip), never gushing, never over-apologising, never salesy.
 - Use their name rarely (a greeting, a thank you, or about once every 6 to 8 messages); using it in reply after reply feels forced.
 
@@ -2680,6 +2708,11 @@ ${details || "(none)"}${
       }
     }
     if (!answer) answer = "Sorry, I couldn't come up with an answer just now.";
+    // A numbered list written on one line ("details? 1. Budget 2. How
+    // many 3. When"): each item on its own line, as the chat shows it.
+    if (/(^|\s)1\.\s/.test(answer) && /\s2\.\s/.test(answer)) {
+      answer = answer.replace(/[ \t]+(\d{1,2})\.\s+(?=\p{L})/gu, "\n$1. ");
+    }
 
     // Resolve the model's picks against the real catalog: unknown IDs are
     // dropped, duplicates removed, and the budget is re-checked here too.

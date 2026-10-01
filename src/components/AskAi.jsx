@@ -128,10 +128,32 @@ const whatsAppUrl = (text) =>
     phone: WHATSAPP_NUMBER,
     text,
   })}`;
-const fallbackWhatsAppUrl = (question) =>
-  whatsAppUrl(
-    `Hi Ware team! I was chatting on your website and asked: "${question}"`,
+// "Hi! I'm Priya. I was chatting with the assistant on your
+// website and would love some help. What I asked: ..." (their last few
+// questions, so the team knows what it's about). Same as ask-faq's
+// handoffText.
+const fallbackWhatsAppUrl = (questions, name = "") => {
+  const asked = [...new Set(questions.map((q) => (q ?? "").trim()).filter(Boolean))]
+    .slice(-3)
+    .map((q) => (q.length > 200 ? `${q.slice(0, 200)}…` : q));
+  const first = name.trim().split(/\s+/)[0];
+  return whatsAppUrl(
+    [
+      `Hi!${first ? ` I'm ${first}.` : ""} I was chatting with the assistant on your website and would love some help.`,
+      asked.length === 1
+        ? `\nI asked: ${asked[0]}`
+        : asked.length
+          ? `\nWhat I asked:\n${asked.map((q) => `- ${q}`).join("\n")}`
+          : "",
+    ].join("\n"),
   );
+};
+// Their questions so far in this chat (since the last "start over").
+const askedSoFar = (messages) =>
+  messages
+    .slice(messages.findLastIndex((m) => m.isReset) + 1)
+    .filter((m) => m.question && !m.isLocal)
+    .map((m) => m.historyQuestion ?? m.question);
 
 // In a sentence: "the Lilo Cup & Saucer Set Tea Green", not "... (Set of
 // 2) - Gift Set".
@@ -750,7 +772,10 @@ const AskAi = ({
       patchMessage(id, {
         loading: false,
         answer: TEXTS.fallback,
-        whatsappUrl: fallbackWhatsAppUrl(question),
+        whatsappUrl: fallbackWhatsAppUrl(
+          [...askedSoFar(messages), question],
+          namePrefs.name || (window.WareChatConfig?.customer?.name ?? ""),
+        ),
         failed: true,
         isLocal: true,
       });
@@ -971,7 +996,10 @@ const AskAi = ({
       patchMessage(id, {
         loading: false,
         answer: TEXTS.fallback,
-        whatsappUrl: fallbackWhatsAppUrl(historyQuestion),
+        whatsappUrl: fallbackWhatsAppUrl(
+          [...askedSoFar(messages), historyQuestion],
+          namePrefs.name || (window.WareChatConfig?.customer?.name ?? ""),
+        ),
         failed: true,
       });
       return;

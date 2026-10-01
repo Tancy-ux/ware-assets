@@ -189,7 +189,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 36px;
+  height: 40px;
   padding: 0 10px;
   border: 1px solid var(--chats-border);
   border-radius: var(--chats-radius);
@@ -2390,7 +2390,7 @@
   justify-content: space-between;
   gap: 16px;
   flex-shrink: 0;
-  min-height: 58px;
+  min-height: 72px;
   padding: 10px 18px;
   border-bottom: 1px solid var(--chats-border);
   background: var(--chats-panel);
@@ -2400,7 +2400,7 @@
   align-items: center;
   gap: 9px;
   margin: 0;
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
 }
 .chats-titlebar .chats-search {
@@ -3416,10 +3416,690 @@
   }
   .chats-titlebar .chats-search {
     grid-column: 2;
-    width: min(460px, 40vw);
+    width: min(560px, 40vw);
   }
   .chats-titlebar-refresh {
     grid-column: 3;
     justify-self: end;
   }
+}
+
+/* ============================================================
+   Calmer look (Oct 2026): clearer text sizes, fewer outlines,
+   lighter list rows, a centred chat column, a slimmer menu.
+   ============================================================ */
+.chats-page {
+  /* Small grey text a touch darker, so it doesn't fade out. */
+  --chats-text-secondary: #565a53;
+  --chats-text-muted: #7c7f76;
+}
+
+/* Text sizes: 14px for reading, 12px for the small print. */
+.chats-item-date,
+.chats-item-count,
+.chats-item-day,
+.chats-detail-meta,
+.chats-bubble-time,
+.chats-sender-time,
+.chats-info-row dt,
+.chats-lead-form label,
+.chats-list-head {
+  font-size: 12px;
+}
+.chats-item-name {
+  font-size: 15px;
+  font-weight: 650;
+}
+.chats-detail-heading h2 {
+  font-size: 19px;
+  font-weight: 650;
+}
+
+/* Slimmer menu: four items don't need more. */
+@media (min-width: 761px) {
+  .chats-page.chats-shell {
+    grid-template-columns: 180px minmax(0, 1fr);
+  }
+}
+
+/* Quick filters: soft filled chips, the selected one dark green. */
+.chats-view,
+.chats-views .chats-range {
+  border-color: transparent;
+  background: #f0f1ec;
+}
+.chats-view:hover {
+  border-color: transparent;
+  background: #e7e9e2;
+}
+.chats-view.chats-view-active,
+.chats-view.chats-view-active:hover {
+  border-color: var(--chats-accent);
+  background: var(--chats-accent);
+  color: #fff;
+}
+.chats-view.chats-view-active .chats-view-icon {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+/* Tags: small filled labels, no outline. */
+.chats-tag {
+  border-color: transparent;
+  font-size: 11.5px;
+}
+
+/* List rows: name + time, what they're after, latest message. */
+.chats-item {
+  padding: 14px 16px;
+}
+.chats-item-title {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chats-item-day {
+  margin: 0;
+  color: var(--chats-text-muted);
+  font-weight: 400;
+}
+.chats-item-topic {
+  margin-top: 4px;
+  font-size: 13.5px;
+}
+.chats-item-last {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 3px;
+}
+.chats-item-last .chats-item-preview {
+  flex: 1;
+  min-width: 0;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--chats-text-secondary);
+}
+.chats-item-last .chats-item-count {
+  flex-shrink: 0;
+  color: var(--chats-text-muted);
+}
+
+/* "Ask AI is replying": a plain tinted strip. */
+.chats-main .chats-ai-note {
+  border: none;
+  border-radius: 8px;
+  background: #f0f1ec;
+}
+
+/* Side panel: a little wider (from the menu). */
+@media (min-width: 1181px) {
+  .chats-layout.chats-has-selection {
+    grid-template-columns: minmax(300px, 380px) minmax(0, 1fr) minmax(310px, 360px);
+  }
+}
+/* The cart: the most useful signal on the page. */
+.chats-info-row.chats-info-strong dd {
+  font-weight: 600;
+  color: var(--chats-text);
+}
+
+/* Contact form: light filled fields, no strong outline. */
+.chats-lead-form input,
+.chats-lead-form select,
+.chats-lead-form textarea {
+  border-color: transparent;
+  background: #f3f4f0;
+}
+.chats-lead-form input:focus,
+.chats-lead-form select:focus,
+.chats-lead-form textarea:focus {
+  border-color: var(--chats-accent);
+  background: #fff;
+  outline: none;
+}
+
+/* ---------- Stats, calmer (Oct 2026) ---------- */
+/* Small print readable: 13px. */
+.chats-card-label,
+.chats-card-sub,
+.chats-funnel-label,
+.chats-funnel-sub,
+.chats-results-orders th {
+  font-size: 13px;
+}
+/* The funnel reads left to right: step → step → step, then "Ordered"
+   apart (people can order without leaving a number). */
+.chats-funnel {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 8px;
+}
+.chats-funnel-step strong {
+  font-size: 30px;
+  line-height: 1.1;
+}
+.chats-funnel-arrow {
+  display: flex;
+  align-items: center;
+  color: var(--chats-text-muted);
+}
+.chats-funnel-apart {
+  margin-left: 16px;
+}
+@media (max-width: 900px) {
+  .chats-funnel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .chats-funnel-arrow {
+    display: none;
+  }
+  .chats-funnel-apart {
+    margin-left: 0;
+  }
+}
+/* "₹29,247 in 8 carts, not ordered yet" */
+.chats-carts-headline {
+  margin: 2px 0 4px;
+  font-size: 15px;
+  color: var(--chats-text-secondary);
+}
+.chats-carts-headline strong {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--chats-text);
+}
+.chats-carts-tag {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--chats-text-muted);
+}
+/* Chat names: dark green text, underlined only on hover. */
+.chats-results-chat {
+  text-decoration: none;
+}
+.chats-results-chat:hover {
+  text-decoration: underline;
+}
+/* Stats: Overview | Carts tabs. */
+.chats-stats-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--chats-border);
+}
+.chats-stats-tab {
+  margin-bottom: -1px;
+  padding: 8px 14px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--chats-text-secondary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.chats-stats-tab:hover {
+  color: var(--chats-text);
+}
+.chats-stats-tab-active {
+  border-bottom-color: var(--chats-accent);
+  color: var(--chats-text);
+}
+/* Carts tab: the "Lead" tag beside the chat's name. */
+.chats-carts-lead {
+  margin-left: 8px;
+}
+
+/* ---------- Left menu, calmer (Oct 2026) ---------- */
+/* Icons the same colour as their label; the open section in dark green. */
+.chats-nav-item,
+.chats-nav-item svg {
+  color: var(--chats-text-secondary);
+}
+.chats-nav-item:hover,
+.chats-nav-item:hover svg {
+  color: var(--chats-text);
+}
+.chats-nav-item-active,
+.chats-nav-item-active:hover,
+.chats-nav-item-active svg,
+.chats-nav-item-active:hover svg {
+  color: var(--chats-accent);
+}
+.chats-nav-item-active,
+.chats-nav-item-active:hover {
+  background: var(--chats-accent-soft);
+  font-weight: 600;
+  opacity: 1;
+}
+/* "Needs a reply" count on Conversations. */
+.chats-nav-badge {
+  min-width: 20px;
+  height: 20px;
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #d9482b;
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
+@media (min-width: 761px) {
+  /* "Chats" and the Live pill on one line. */
+  .chats-nav-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 18px;
+  }
+  .chats-nav-head h1 {
+    margin: 0;
+  }
+  .chats-nav-live .chats-live {
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: #e8f3ea;
+    color: #2f7a47;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  /* Roomier rows, 14px, with a thin green bar on the open one. */
+  .chats-nav-section {
+    gap: 6px;
+  }
+  .chats-nav-item {
+    position: relative;
+    min-height: 40px;
+    padding: 9px 12px;
+    font-size: 14px;
+  }
+  .chats-nav-item-active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 8px;
+    bottom: 8px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: var(--chats-accent);
+  }
+}
+/* Phones (icons only): the count sits on the icon's corner. */
+@media (max-width: 760px) {
+  .chats-nav-item {
+    position: relative;
+  }
+  .chats-nav-badge {
+    position: absolute;
+    top: 0;
+    right: -2px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    font-size: 10px;
+    line-height: 16px;
+  }
+}
+
+/* Carts table: headings that sort (arrows show which way). */
+.chats-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.chats-sort svg {
+  color: var(--chats-text-muted);
+}
+.chats-sort:hover,
+.chats-sort-on {
+  color: var(--chats-text);
+}
+.chats-sort-on svg {
+  color: var(--chats-accent);
+}
+
+/* ---------- Bot section, calmer (Oct 2026) ---------- */
+.chats-bot .chats-card-sub {
+  font-size: 14px;
+}
+.chats-bot-item p,
+.chats-bot-q,
+.chats-bot-a {
+  font-size: 14px;
+}
+.chats-bot-row small,
+.chats-bot-version small,
+.chats-bot-history-toggle small {
+  font-size: 12px;
+}
+/* The two cards the same height on computers; the list and the chat
+   scroll inside them. */
+@media (min-width: 901px) {
+  .chats-bot {
+    align-items: stretch;
+  }
+  .chats-bot-rules,
+  .chats-bot-try {
+    display: flex;
+    flex-direction: column;
+    height: min(600px, calc(100vh - 200px));
+    min-height: 420px;
+  }
+  .chats-bot-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .chats-bot-try .chats-bot-chat {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+  }
+}
+/* "Always on": the built-in rules, folded away. */
+.chats-bot-builtin {
+  margin: 10px 0 6px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #f3f4f0;
+}
+.chats-bot-builtin > button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--chats-text);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.chats-bot-builtin > button {
+  flex-wrap: wrap;
+  white-space: nowrap;
+}
+.chats-bot-builtin small {
+  white-space: normal;
+  margin-left: 4px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--chats-text-muted);
+}
+.chats-bot-builtin ul {
+  list-style: disc;
+  margin: 8px 0 2px;
+  padding-left: 22px;
+  font-size: 13px;
+  color: var(--chats-text-secondary);
+}
+.chats-bot-builtin li + li {
+  margin-top: 4px;
+}
+/* Ideas and sample questions: tap-to-use chips. */
+.chats-bot-ideas {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0;
+}
+.chats-bot-ideas p,
+.chats-bot-samples p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--chats-text-secondary);
+}
+.chats-bot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: none;
+  border-radius: 999px;
+  background: #eceee8;
+  color: var(--chats-text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.chats-bot-chip:hover {
+  background: var(--chats-accent-soft);
+  color: var(--chats-accent);
+}
+.chats-bot-chip:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.chats-bot-samples {
+  margin: auto;
+  text-align: center;
+}
+.chats-bot-samples > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.chats-bot-samples .chats-bot-chip {
+  background: #fff;
+}
+
+/* ---------- Team, calmer (Oct 2026) ---------- */
+/* Initial · name, email, last login · what they may do · buttons. */
+.chats-team-list li {
+  grid-template-columns: auto minmax(180px, 260px) minmax(0, 1fr) auto;
+}
+.chats-team-list li.chats-team-empty {
+  display: block;
+}
+.chats-team-who strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.chats-team-who small + small {
+  margin-top: 2px;
+}
+/* Turned off: the name a little faded and an "Off" pill; what they'd be
+   allowed stays readable. */
+.chats-team-off .chats-team-tags {
+  opacity: 1;
+}
+.chats-team-off .chats-team-who {
+  opacity: 1;
+}
+.chats-team-off .chats-team-who strong {
+  color: var(--chats-text-secondary);
+}
+.chats-team-off .chats-avatar {
+  opacity: 0.5;
+}
+.chats-team-status {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #fbece6;
+  color: #b5502f;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.chats-team-tags .chats-tag {
+  font-size: 12px;
+}
+/* "Remove from team" sits apart, at the left of the Edit form's buttons. */
+.chats-team-remove {
+  margin-right: auto;
+  color: #b5502f;
+}
+.chats-team-remove:hover {
+  border-color: #e6b8a6;
+  background: #fbece6;
+}
+@media (max-width: 760px) {
+  .chats-team-list li {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .chats-team-tags,
+  .chats-team-actions {
+    grid-column: 1 / -1;
+  }
+}
+
+/* WareBot is a page of its own now (no site header above it): the
+   screen is all its own. */
+.chats-page,
+.chats-page.chats-shell {
+  --chats-navbar: 0px;
+}
+@media (max-width: 760px) {
+  .chats-page,
+  .chats-page.chats-shell {
+    --chats-navbar: 0px;
+  }
+}
+
+/* "Ware assets home": a quiet link above the name (an icon on phones). */
+.chats-home {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 2px;
+  color: var(--chats-text-secondary);
+  font-size: 13px;
+  text-decoration: none;
+}
+.chats-home:hover {
+  color: var(--chats-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+@media (max-width: 760px) {
+  .chats-home {
+    gap: 0;
+    padding: 6px;
+    font-size: 0;
+    border: 1px solid var(--chats-border);
+    border-radius: var(--chats-radius);
+  }
+  .chats-home svg {
+    width: 18px;
+    height: 18px;
+  }
+  .chats-nav-foot {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+  }
+}
+
+/* ---------- Title bar and list top (Oct 2026) ---------- */
+/* The title bar: the section's name, Refresh at the right edge. */
+.chats-titlebar,
+.chats-main .chats-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+/* The list's top: search, then "31 conversations" with the date filter
+   on its right, then the chips. */
+.chats-list-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.chats-list-search .chats-search {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  border-radius: 8px;
+  background: #f7f7f4;
+}
+.chats-list-refresh {
+  display: none;
+}
+.chats-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+}
+.chats-list-head .chats-range {
+  width: auto;
+  min-width: 0;
+  height: 30px;
+  margin: 0;
+  padding: 0 8px;
+  border: none;
+  border-radius: 999px;
+  background: #f0f1ec;
+  font-weight: 400;
+}
+.chats-list-head .chats-range select {
+  width: auto;
+  font-size: 12.5px;
+}
+.chats-list-head .chats-range-custom {
+  flex-basis: 100%;
+}
+.chats-list-head {
+  flex-wrap: wrap;
+}
+/* What they're after: regular weight, so the name stands out. */
+.chats-item-topic {
+  font-weight: 400;
+  color: var(--chats-text);
+}
+@media (max-width: 760px) {
+  /* Conversations on phones: no title bar; Refresh sits by the search. */
+  .chats-titlebar.chats-titlebar-convos {
+    display: none;
+  }
+  .chats-list-refresh {
+    display: inline-flex;
+  }
+  .chats-list-search .chats-search {
+    height: 38px;
+    border-radius: 999px;
+  }
+}
+
+/* Refresh: easy to see (solid dark green, a little wider). */
+.chats-page .chats-btn.chats-titlebar-refresh {
+  border: 1px solid var(--chats-accent);
+  background: var(--chats-accent);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+}
+@media (min-width: 761px) {
+  .chats-page .chats-btn.chats-titlebar-refresh {
+    min-width: 124px;
+    justify-content: center;
+    padding: 0 18px;
+  }
+}
+.chats-page .chats-btn.chats-titlebar-refresh:hover {
+  border-color: #1f2c23;
+  background: #1f2c23;
+  color: #fff;
 }

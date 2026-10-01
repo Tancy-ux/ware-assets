@@ -12,8 +12,10 @@ import {
   CircleCheck,
   UserPlus,
   CalendarDays,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   MessagesSquare,
   ExternalLink,
   LogOut,
@@ -21,6 +23,7 @@ import {
   PanelRight,
   Pencil,
   RefreshCw,
+  House,
   Search,
   Send,
   Trash2,
@@ -30,6 +33,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "react-toastify";
+import { Link } from "react-router-dom";
 import { callFunction } from "../lib/askFaq";
 import ChatResults from "./ChatResults";
 import LeadCard from "./LeadCard";
@@ -50,8 +54,10 @@ const TOKEN_KEY = "chatsToken";
 const TRANSCRIPT_REFRESH_MS = 5000;
 // How often the list checks for new chats and messages ("Live").
 const LIST_REFRESH_MS = 30000;
-// "Products seen" takes this many from each reply's cards.
+// "Products seen" takes this many from each reply's cards, and shows this
+// many before "Show all".
 const SEEN_PER_REPLY = 1;
+const SEEN_SHOWN = 6;
 
 const readToken = () => {
   try {
@@ -88,12 +94,6 @@ const timeAgo = (iso) => {
   return formatDate(iso);
 };
 
-const ordinal = (n) => {
-  const s = ["th", "st", "nd", "rd"];
-  const v = n % 100;
-  return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
-};
-
 const titleOf = (c) =>
   c.label ||
   c.visitorName ||
@@ -117,6 +117,15 @@ const shortPage = (path) => {
   const label = pageLabel(path).replace(/^[\w ]+ · /, "");
   return label.charAt(0).toUpperCase() + label.slice(1);
 };
+
+const msgCount = (n) => `${n} msg${n === 1 ? "" : "s"}`;
+
+// Whether a re-fetched transcript is the same as the one showing (so a
+// refresh with nothing new doesn't redraw it).
+const sameMessages = (a, b) =>
+  a.length === b.length &&
+  a.at(-1)?.id === b.at(-1)?.id &&
+  a.at(-1)?.answer === b.at(-1)?.answer;
 
 // Each chat's coloured circle: its initials (or visitor number), in one
 // of these muted colours, picked from the browser's id so a visitor keeps
@@ -181,11 +190,11 @@ const thumb = (url) =>
 // "Internal", so they're never mistaken for store visitors.
 const external = (test) => (c) => !c.internal && test(c);
 const VIEWS = [
+  { id: "all", label: "All", icon: MessagesSquare, test: external(() => true) },
   { id: "needs", label: "Needs reply", icon: BellRing, test: external((c) => c.needsReply) },
   { id: "leads", label: "Leads", icon: UserPlus, test: external(isLead) },
   { id: "takeover", label: "Taken over", icon: UserRound, test: external((c) => c.takeover) },
   { id: "zoho", label: "In Zoho", icon: CircleCheck, test: external((c) => !!c.zohoLeadId) },
-  { id: "all", label: "All", icon: MessagesSquare, test: external(() => true) },
   { id: "internal", label: "Internal", icon: Building2, test: (c) => !!c.internal },
 ];
 
@@ -261,12 +270,16 @@ const ChatLogs = () => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [leadOpen, setLeadOpen] = useState(true);
   const [infoOpen, setInfoOpen] = useState(false);
+  // "Products seen" past the first SEEN_SHOWN (closed again per chat).
+  const [allSeen, setAllSeen] = useState(false);
   // The open chat's transcript scrolls inside its own box: kept at the
-  // newest message.
+  // newest message, unless they've scrolled up to read (then it stays put
+  // while new messages come in).
   const transcriptRef = useRef(null);
+  const stickToBottom = useRef(true);
   useEffect(() => {
     const el = transcriptRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
   }, [messages]);
   // "conversations", "stats" or "team".
   const [tab, setTab] = useState("conversations");
@@ -391,16 +404,25 @@ const ChatLogs = () => {
   // list shows a newer one, the transcript reloads.
   const loadedAt = useRef(null);
 
+  const openingId = useRef(null);
   const open = async (id) => {
+    openingId.current = id;
+    stickToBottom.current = true;
     setSelectedId(id);
     setMessages([]);
     setEditingLabel(null);
     setReply("");
     setMenuOpen(false);
-    setLeadOpen(true);
+    setAllSeen(false);
+    // The contact form starts collapsed while there's nothing in it.
+    const conv = conversations.find((c) => c.id === id);
+    setLeadOpen(
+      !!conv && (hasContact(conv) || !!conv.zohoLeadId || !!conv.accountPhone),
+    );
     setLoadingMessages(true);
     loadedAt.current = conversations.find((c) => c.id === id)?.lastMessageAt;
     const data = await api({ action: "messages", conversationId: id });
+    if (openingId.current !== id) return; // they've opened another since
     setLoadingMessages(false);
     if (data) {
       setMessages(data.messages);
@@ -477,9 +499,15 @@ const ChatLogs = () => {
         conversationId: selectedId,
         token,
       });
-      const data = handleResponse(res);
-      if (!data) return;
-      setMessages(data.messages);
+      if (openingId.current !== selectedId) return;
+      // A signed-out session still says so; other hiccups wait for the
+      // next check rather than popping an error every 5 seconds.
+      if (res.error || res.data?.error) {
+        if (res.error?.context?.status === 401) handleResponse(res);
+        return;
+      }
+      const data = res.data;
+      setMessages((prev) => (sameMessages(prev, data.messages) ? prev : data.messages));
       patchConversation(selectedId, { takeover: data.takeover });
     }, TRANSCRIPT_REFRESH_MS);
     return () => clearInterval(timer);
@@ -499,7 +527,9 @@ const ChatLogs = () => {
       conversationId: selectedId,
       token,
     }).then(({ data }) => {
-      if (data?.messages) setMessages(data.messages);
+      if (data?.messages && openingId.current === selectedId) {
+        setMessages(data.messages);
+      }
     });
   }, [selectedId, selectedLastAt, selectedTakeover, token]);
 
@@ -652,6 +682,23 @@ const ChatLogs = () => {
     return [...seen.values()];
   }, [messages]);
 
+  // How many different days they've messaged in this chat: "1 day", or
+  // "3 days (first 29 Sep)" for someone who keeps coming back.
+  const daysChatted = useMemo(() => {
+    const days = [
+      ...new Set(
+        messages.filter((m) => m.question).map((m) => dayKey(m.created_at)),
+      ),
+    ];
+    if (!days.length) return null;
+    if (days.length === 1) return "1 day";
+    const first = messages.find((m) => m.question).created_at;
+    return `${days.length} days (first ${new Date(first).toLocaleDateString([], {
+      day: "numeric",
+      month: "short",
+    })})`;
+  }, [messages]);
+
   // The Results strip's range. Fixed per choice (not re-computed every
   // render, which would move "last 7 days" along and reload it).
   const bounds = useMemo(
@@ -671,6 +718,20 @@ const ChatLogs = () => {
     loadList();
     setStatsRefresh((n) => n + 1);
   };
+
+  const refreshButton = (
+    <button
+      type="button"
+      className="chats-btn chats-titlebar-refresh"
+      onClick={refresh}
+      disabled={loadingList}
+      title="Refresh now"
+      aria-label="Refresh now"
+    >
+      <RefreshCw size={15} className={loadingList ? "chats-spin" : ""} />
+      <span>Refresh</span>
+    </button>
+  );
 
   // The date filter, shared by both tabs (same range in each).
   const dateFilter = (
@@ -729,7 +790,8 @@ const ChatLogs = () => {
 
   const NAV = [
     { id: "conversations", label: "Conversations", icon: MessagesSquare, show: true },
-    { id: "stats", label: "Stats", icon: BarChart3, show: can("stats") },
+    // Stats has an Overview tab and a Carts tab; either tick opens it.
+    { id: "stats", label: "Stats", icon: BarChart3, show: can("stats") || can("carts") },
     { id: "team", label: "Team", icon: Users, show: can("users") },
     // The bot's instructions: the owner login only.
     { id: "bot", label: "Bot", icon: Bot, show: !!me?.owner },
@@ -744,8 +806,9 @@ const ChatLogs = () => {
     >
       {/* Left menu: overview, sections, and who's logged in. */}
       <nav className="chats-nav" aria-label="Chats">
+        {/* "Chats" with a small Live pill on the same line. */}
         <div className="chats-nav-head">
-          <h1>Chats</h1>
+          <h1>WareBot</h1>
           <div className="chats-nav-live">
             <span className="chats-live" title="Checks for new chats every 30 seconds">
               <span className="chats-live-dot" />
@@ -755,7 +818,6 @@ const ChatLogs = () => {
         </div>
 
         <div className="chats-nav-section">
-          <span className="chats-nav-label">Sections</span>
           {NAV.filter((n) => n.show).map((n) => (
             <button
               key={n.id}
@@ -765,13 +827,24 @@ const ChatLogs = () => {
               title={n.label}
               onClick={() => setTab(n.id)}
             >
-              <n.icon size={16} />
+              <n.icon size={17} />
               {n.label}
+              {/* Chats waiting on the team (hidden at 0). */}
+              {n.id === "conversations" && counts.needs > 0 && (
+                <span className="chats-nav-badge" aria-label={`${counts.needs} need a reply`}>
+                  {counts.needs}
+                </span>
+              )}
             </button>
           ))}
         </div>
 
         <div className="chats-nav-foot">
+          {/* Back to the rest of the site (WareBot has no site header). */}
+          <Link to="/" className="chats-home" title="Ware brand assets home">
+            <House size={14} />
+            Ware assets home
+          </Link>
           {me && (
             <div className="chats-nav-me">
               <span className="chats-avatar" style={{ "--avatar": "#3f7f86" }}>
@@ -792,7 +865,9 @@ const ChatLogs = () => {
 
       <main className="chats-main">
       {/* The section's title, and the search for conversations. */}
-      <header className="chats-titlebar">
+      <header
+        className={`chats-titlebar${tab === "conversations" ? " chats-titlebar-convos" : ""}`}
+      >
         <h2>
           {(() => {
             const current = NAV.find((n) => n.id === tab) ?? NAV[0];
@@ -804,34 +879,7 @@ const ChatLogs = () => {
             );
           })()}
         </h2>
-        {tab === "conversations" && (
-          <div className="chats-search">
-            <Search size={15} />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search names, numbers or any message"
-            />
-            {search && (
-              <button type="button" onClick={() => setSearch("")} aria-label="Clear search">
-                <X size={14} />
-              </button>
-            )}
-          </div>
-        )}
-        {(tab === "conversations" || tab === "stats") && (
-          <button
-            type="button"
-            className="chats-btn chats-titlebar-refresh"
-            onClick={refresh}
-            disabled={loadingList}
-            title="Refresh now"
-            aria-label="Refresh now"
-          >
-            <RefreshCw size={15} className={loadingList ? "chats-spin" : ""} />
-            <span>Refresh</span>
-          </button>
-        )}
+        {(tab === "conversations" || tab === "stats") && refreshButton}
       </header>
       {tab === "bot" && me?.owner ? (
         <div className="chats-stats">
@@ -841,9 +889,11 @@ const ChatLogs = () => {
         <div className="chats-stats">
           <ChatTeam api={api} me={me} />
         </div>
-      ) :       tab === "stats" && can("stats") ? (
+      ) : tab === "stats" && (can("stats") || can("carts")) ? (
         <div className="chats-stats">
           <ChatResults
+            canStats={can("stats")}
+            canCarts={can("carts")}
             toolbar={<div className="chats-stats-filter">{dateFilter}</div>}
             token={token}
             bounds={bounds}
@@ -859,8 +909,29 @@ const ChatLogs = () => {
         }`}
       >
         <aside className="chats-list">
+          {/* Searching the list, so it sits on top of it. */}
+          <div className="chats-list-search">
+            <div className="chats-search">
+              <Search size={15} />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search names, numbers or any message"
+              />
+              {search && (
+                <button type="button" onClick={() => setSearch("")} aria-label="Clear search">
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            {/* Phones have no title bar here: Refresh comes along. */}
+            <span className="chats-list-refresh">{refreshButton}</span>
+          </div>
           <div className="chats-list-head">
-            {filtered.length} conversation{filtered.length === 1 ? "" : "s"}
+            <span>
+              {filtered.length} conversation{filtered.length === 1 ? "" : "s"}
+            </span>
+            {dateFilter}
           </div>
 
           <div className="chats-views">
@@ -883,8 +954,6 @@ const ChatLogs = () => {
                 {counts[v.id] > 0 && <span>{counts[v.id]}</span>}
               </button>
             ))}
-            {/* On the same line as the filters (wraps if it doesn't fit). */}
-            {dateFilter}
           </div>
 
           {visitorFilter && (
@@ -932,49 +1001,49 @@ const ChatLogs = () => {
               >
                 <Avatar c={c} dot={c.needsReply} />
                 <div className="chats-item-body">
+                {/* 1: name (plus what tells same-numbered visitors
+                    apart), status tags, time. */}
                 <div className="chats-item-top">
                   <span className="chats-item-title">
-                    <span className="chats-item-name">
-                      {titleOf(c)}
-                      {/* Visitor numbers restart daily: which day's. */}
-                      {isNumberTitle(c) && !isToday(c.startedAt) && (
-                        <small className="chats-item-day">
-                          {formatDay(c.visitorDay)}
-                        </small>
-                      )}
-                    </span>
+                    <span className="chats-item-name">{titleOf(c)}</span>
+                    {/* Visitor numbers restart daily: which day's, and the
+                        browser's short id. */}
+                    {isNumberTitle(c) && (
+                      <small className="chats-item-day">
+                        {!isToday(c.startedAt) && `${formatDay(c.visitorDay)} · `}
+                        {visitorTag(c.visitorId)}
+                      </small>
+                    )}
+                    {c.needsReply && <span className="chats-tag chats-tag-alert">Needs reply</span>}
+                    {isLead(c) && <span className="chats-tag chats-tag-lead">Lead</span>}
+                    {c.zohoLeadId && (
+                      <span className="chats-tag chats-tag-zoho" title="Lead in Zoho">
+                        Zoho ✓
+                      </span>
+                    )}
+                    {c.internal && (
+                      <span className="chats-tag chats-tag-internal" title="From the team's own site">
+                        Internal
+                      </span>
+                    )}
                   </span>
                   <span className="chats-item-date">{listTime(c.lastMessageAt)}</span>
                 </div>
+                {/* 2: what they're after. */}
                 {c.topic && <div className="chats-item-topic">{c.topic}</div>}
-                {/* While searching, the line that matched (if it's in a
-                    message) instead of the latest question. */}
-                {messageHits.has(c.id) ? (
-                  <div className="chats-item-preview chats-item-match">
-                    {messageHits.get(c.id)}
-                  </div>
-                ) : (
-                  c.preview && <div className="chats-item-preview">{c.preview}</div>
-                )}
-                <div className="chats-item-tags">
-                  {c.internal && (
-                    <span className="chats-tag chats-tag-internal" title="From the team's own site">
-                      Internal
-                    </span>
-                  )}
-                  {c.needsReply && <span className="chats-tag chats-tag-alert">Needs reply</span>}
-                  {isLead(c) && <span className="chats-tag chats-tag-lead">Lead</span>}
-                  {c.zohoLeadId && (
-                    <span className="chats-tag chats-tag-zoho" title="Lead in Zoho">
-                      Zoho ✓
-                    </span>
-                  )}
-                  {c.takeover ? (
-                    !c.needsReply && <span className="chats-tag chats-tag-team">Team</span>
-                  ) : (
-                    <span className="chats-tag">AI handled</span>
-                  )}
-                  <span className="chats-item-count">{c.messageCount} msgs</span>
+                {/* 3: the latest message (or, while searching, the line that
+                    matched), with who's handling it and the count. */}
+                <div className="chats-item-last">
+                  <span
+                    className={`chats-item-preview${
+                      messageHits.has(c.id) ? " chats-item-match" : ""
+                    }`}
+                  >
+                    {messageHits.has(c.id) ? messageHits.get(c.id) : c.preview}
+                  </span>
+                  <small className="chats-item-count">
+                    {c.takeover ? "Team" : "AI handled"} · {msgCount(c.messageCount)}
+                  </small>
                 </div>
                 </div>
               </button>
@@ -1154,7 +1223,15 @@ const ChatLogs = () => {
                 </div>
               </div>
 
-              <div className="chats-transcript" ref={transcriptRef}>
+              <div
+                className="chats-transcript"
+                ref={transcriptRef}
+                onScroll={(e) => {
+                  const el = e.currentTarget;
+                  stickToBottom.current =
+                    el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+                }}
+              >
                 {loadingMessages && <p className="chats-empty">Loading...</p>}
                 {messages.map((m, i) => {
                   const prev = messages[i - 1];
@@ -1319,19 +1396,6 @@ const ChatLogs = () => {
               </p>
             </div>
 
-            <LeadCard
-              key={selected.id}
-              conversation={selected}
-              api={api}
-              canEdit={can("edit")}
-              canPush={can("zoho")}
-              canDraft={can("draft")}
-              canSeeContacts={can("contacts")}
-              open={leadOpen}
-              onOpenChange={setLeadOpen}
-              onUpdated={(patch) => patchConversation(selected.id, patch)}
-            />
-
             <div className="chats-info-section">
               <div className="chats-info-title">Right now</div>
               <dl className="chats-info-rows">
@@ -1366,25 +1430,36 @@ const ChatLogs = () => {
                     }
                   />
                 )}
-                <InfoRow label="Cart" value={selected.cart} />
-                <InfoRow label="Device" value={selected.device} />
+                {/* "Empty": nothing in their cart the last time they chatted. */}
                 <InfoRow
-                  label="Visits"
-                  value={
-                    selected.visits > 1
-                      ? `${ordinal(selected.visit)} of ${selected.visits}`
-                      : "First visit"
-                  }
+                  label="Cart"
+                  value={selected.cart}
+                  strong={!/^empty$/i.test(selected.cart ?? "")}
                 />
+                <InfoRow label="Device" value={selected.device} />
+                <InfoRow label="Days chatted" value={daysChatted} />
                 <InfoRow label="Last active" value={timeAgo(selected.lastMessageAt)} />
               </dl>
             </div>
+
+            <LeadCard
+              key={selected.id}
+              conversation={selected}
+              api={api}
+              canEdit={can("edit")}
+              canPush={can("zoho")}
+              canDraft={can("draft")}
+              canSeeContacts={can("contacts")}
+              open={leadOpen}
+              onOpenChange={setLeadOpen}
+              onUpdated={(patch) => patchConversation(selected.id, patch)}
+            />
 
             {productsSeen.length > 0 && (
               <div className="chats-info-section">
                 <div className="chats-info-title">Products seen</div>
                 <ul className="chats-seen">
-                  {productsSeen.map((p) => (
+                  {(allSeen ? productsSeen : productsSeen.slice(0, SEEN_SHOWN)).map((p) => (
                     <li key={p.url}>
                       <a href={p.url} target="_blank" rel="noopener noreferrer">
                         <span className="chats-product-img">
@@ -1394,7 +1469,7 @@ const ChatLogs = () => {
                           {p.title}
                           <small>
                             Shown in chat
-                            {p.price ? ` · ${p.price}` : ""}
+                            {p.price ? ` · ${p.price.replace(/^Rs\.?\s*/, "₹")}` : ""}
                             {!p.available ? " · Sold out" : ""}
                           </small>
                         </span>
@@ -1403,6 +1478,16 @@ const ChatLogs = () => {
                     </li>
                   ))}
                 </ul>
+                {productsSeen.length > SEEN_SHOWN && (
+                  <button
+                    type="button"
+                    className="chats-card-link"
+                    onClick={() => setAllSeen((v) => !v)}
+                  >
+                    {allSeen ? "Show fewer" : `Show all ${productsSeen.length}`}
+                    {allSeen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                  </button>
+                )}
               </div>
             )}
           </aside>
@@ -1485,8 +1570,8 @@ const ProductRow = ({ products }) => {
 
 // One "Label   value" line in the side panel; `missing` (orange) or a
 // dash when there's no value.
-const InfoRow = ({ label, value, missing, clamp }) => (
-  <div className="chats-info-row">
+const InfoRow = ({ label, value, missing, clamp, strong }) => (
+  <div className={`chats-info-row${strong && value ? " chats-info-strong" : ""}`}>
     <dt>{label}</dt>
     <dd
       className={
@@ -1664,7 +1749,7 @@ const ChatsLogin = ({ onLogin }) => {
   return (
     <div className="chats-page">
       <div className="chats-login">
-        <h1>Chats</h1>
+        <h1>WareBot</h1>
         {GOOGLE_CLIENT_ID ? (
           <>
             <p>Sign in with your @wareinnovations.com Google account.</p>
