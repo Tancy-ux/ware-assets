@@ -1052,7 +1052,7 @@ const AskAi = ({
   // (and WhatsApp as the alternative) under it.
   const acceptBespoke = (msg) => {
     const product = msg.bespokeOffer;
-    patchMessage(msg.id, { bespokeOffer: null });
+    patchMessage(msg.id, { bespokeOffer: null, showCatalog: true });
     setMessages((prev) => [
       ...prev,
       {
@@ -1065,12 +1065,13 @@ const AskAi = ({
     ]);
   };
 
-  // "Not now", from the offer or from the form.
+  // "Not now", from the offer or from the form. (Either answer keeps the
+  // offer's "Browse catalog" link.)
   const declineBespoke = (msg, product) => {
     if (msg.bespokeForm) {
       setMessages((prev) => prev.filter((m) => m.id !== msg.id));
     } else {
-      patchMessage(msg.id, { bespokeOffer: null });
+      patchMessage(msg.id, { bespokeOffer: null, showCatalog: true });
     }
     logBespoke(product, "later");
     postLocalReply(TEXTS.notNow, { answer: TEXTS.bespokeLater });
@@ -1247,6 +1248,8 @@ const AskAi = ({
           isAgent: true,
           // First name only: "Tani · Ware team".
           agentName: (r.agent_name ?? "").trim().split(/\s+/)[0] || null,
+          // Product cards the team sent with it (from the live catalogue).
+          products: Array.isArray(r.products) ? r.products : [],
           isLocal: true,
           serverId: r.id,
           serverTime: r.created_at,

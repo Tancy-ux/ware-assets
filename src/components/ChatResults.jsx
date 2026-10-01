@@ -9,6 +9,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { callFunction } from "../lib/askFaq";
+import { ChatGaps, ChatProducts } from "./ChatInsights";
 import { pageKind, pageKindLabel, pageLabel, pageUrl } from "../lib/storePages";
 
 // The Chats page's Stats tab: how the store chat did in the chosen date
@@ -55,9 +56,14 @@ const ChatResults = ({
   handleResponse,
   onOpenChat,
   toolbar,
-  // What this login may see: the Overview tab, the Carts tab, or both.
+  // What this login may see: Overview, Products and Couldn't answer with
+  // Stats; the Carts tab with Carts.
   canStats = true,
   canCarts = false,
+  // For the Products and Couldn't answer tabs.
+  api,
+  // "Teach the bot" on a question it couldn't answer (owner only).
+  onTeach,
 }) => {
   const [view, setView] = useState(canStats ? "stats" : "carts");
   // Carts table order: by cart value or last chatted, either way (newest
@@ -166,14 +172,19 @@ const ChatResults = ({
     );
   };
 
+  const tabs = [
+    canStats && ["stats", "Overview"],
+    canCarts && ["carts", "Carts"],
+    canStats && ["products", "Products"],
+    canStats && ["gaps", "Couldn't answer"],
+  ].filter(Boolean);
+  const request = { ...bounds, hideTest, refreshKey };
+
   return (
     <div className="chats-stats-body">
-      {canStats && canCarts && (
+      {tabs.length > 1 && (
         <div className="chats-stats-tabs" role="tablist">
-          {[
-            ["stats", "Overview"],
-            ["carts", "Carts"],
-          ].map(([id, label]) => (
+          {tabs.map(([id, label]) => (
             <button
               key={id}
               type="button"
@@ -397,6 +408,11 @@ const ChatResults = ({
             </table>
           )}
         </section>
+      )}
+
+      {view === "products" && <ChatProducts api={api} request={request} />}
+      {view === "gaps" && (
+        <ChatGaps api={api} request={request} onOpenChat={onOpenChat} onTeach={onTeach} />
       )}
 
       {view === "stats" && (

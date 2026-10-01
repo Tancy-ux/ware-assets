@@ -10,9 +10,11 @@ import { toast } from "react-toastify";
 
 const PERMISSION_LABELS = {
   contacts: "See phone numbers & emails",
+  people: "See the Contacts list",
   reply: "Take over & reply to chats",
   edit: "Edit contact & lead details, rename chats",
-  draft: "Draft the requirement with AI (\"Draft from chat\")",
+  draft: 'Zoho requirement with AI ("Draft from chat")',
+  aireply: 'Agent reply with AI ("AI reply", with Take over & reply)',
   zoho: "Send leads to Zoho",
   stats: "See Stats (orders, revenue)",
   carts: "See who has items in their cart (in Stats)",
@@ -26,7 +28,16 @@ const PRESETS = [
   { label: "Sales", perms: ["contacts", "reply", "edit"] },
   {
     label: "Manager",
-    perms: ["contacts", "reply", "edit", "draft", "zoho", "stats", "delete"],
+    perms: [
+      "contacts",
+      "reply",
+      "edit",
+      "draft",
+      "aireply",
+      "zoho",
+      "stats",
+      "delete",
+    ],
   },
   { label: "View only", perms: [] },
 ];
@@ -83,7 +94,9 @@ const ChatTeam = ({ api, me }) => {
 
   const set = (patch) => setForm((prev) => ({ ...prev, ...patch }));
   const togglePerm = (key) =>
-    set({ permissions: { ...form.permissions, [key]: !form.permissions[key] } });
+    set({
+      permissions: { ...form.permissions, [key]: !form.permissions[key] },
+    });
 
   const save = async (e) => {
     e.preventDefault();
@@ -99,13 +112,21 @@ const ChatTeam = ({ api, me }) => {
   const setActive = async (u, active) => {
     const res = await api({ action: "user-save", user: { ...u, active } });
     if (!res) return;
-    toast.success(active ? `${u.name || u.email} can sign in again` : `${u.name || u.email} is turned off`);
+    toast.success(
+      active
+        ? `${u.name || u.email} can sign in again`
+        : `${u.name || u.email} is turned off`,
+    );
     load();
   };
 
   // From the Edit form only (away from the row's buttons), with a confirm.
   const remove = async (u) => {
-    if (!window.confirm(`Remove ${u.name || u.email} from the team? They won't be able to sign in.`)) {
+    if (
+      !window.confirm(
+        `Remove ${u.name || u.email} from the team? They won't be able to sign in.`,
+      )
+    ) {
       return;
     }
     const res = await api({ action: "user-delete", id: u.id });
@@ -142,7 +163,11 @@ const ChatTeam = ({ api, me }) => {
 
         {form && (
           <form className="chats-team-form" onSubmit={save}>
-            <h4>{form.id ? `Change ${form.name || form.email || "login"}` : "Add a person"}</h4>
+            <h4>
+              {form.id
+                ? `Change ${form.name || form.email || "login"}`
+                : "Add a person"}
+            </h4>
             <div className="chats-team-fields">
               <label>
                 Name
@@ -217,17 +242,27 @@ const ChatTeam = ({ api, me }) => {
                   <Trash2 size={13} /> Remove from team
                 </button>
               )}
-              <button type="button" className="chats-btn" onClick={() => setForm(null)}>
+              <button
+                type="button"
+                className="chats-btn"
+                onClick={() => setForm(null)}
+              >
                 Cancel
               </button>
-              <button type="submit" className="chats-btn chats-btn-primary" disabled={saving}>
+              <button
+                type="submit"
+                className="chats-btn chats-btn-primary"
+                disabled={saving}
+              >
                 {saving ? "Saving…" : form.id ? "Save changes" : "Add person"}
               </button>
             </div>
           </form>
         )}
 
-        {error && <p className="chats-results-note chats-results-warn">{error}</p>}
+        {error && (
+          <p className="chats-results-note chats-results-warn">{error}</p>
+        )}
         {!data && !error && <p className="chats-results-note">Loading…</p>}
 
         {data && (
@@ -248,14 +283,19 @@ const ChatTeam = ({ api, me }) => {
             </li>
             {data.users.map((u) => (
               <li key={u.id} className={u.active ? "" : "chats-team-off"}>
-                <span className="chats-avatar" style={{ "--avatar": "#8a5a8f" }}>
+                <span
+                  className="chats-avatar"
+                  style={{ "--avatar": "#8a5a8f" }}
+                >
                   {initial(u.name || u.email)}
                 </span>
                 <div className="chats-team-who">
                   <strong>
                     {u.name || u.email}
                     {/* Their status, apart from what they may do. */}
-                    {!u.active && <span className="chats-team-status">Off</span>}
+                    {!u.active && (
+                      <span className="chats-team-status">Off</span>
+                    )}
                   </strong>
                   <small>{u.email || "No email yet: edit to add one"}</small>
                   <small>Last login: {formatWhen(u.lastLoginAt)}</small>
@@ -292,8 +332,7 @@ const ChatTeam = ({ api, me }) => {
             ))}
             {data.users.length === 0 && (
               <li className="chats-team-empty">
-                Nobody else yet. Add each person who needs the
-                Chats page.
+                Nobody else yet. Add each person who needs the Chats page.
               </li>
             )}
           </ul>

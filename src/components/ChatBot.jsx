@@ -64,10 +64,16 @@ const formatWhen = (iso) =>
     minute: "2-digit",
   });
 
-const ChatBot = ({ api }) => {
+// draft: an instruction to start writing (from "Teach the bot" in Stats),
+// cleared with onDraftUsed once it's in the box.
+const ChatBot = ({ api, draft, onDraftUsed }) => {
   const [rules, setRules] = useState(null);
   // The instruction being written: { id } for an edit, no id for a new one.
-  const [editing, setEditing] = useState(null);
+  const [editing, setEditing] = useState(() => (draft ? { text: draft } : null));
+  // Used once: coming back to Bot later starts empty.
+  useEffect(() => {
+    if (draft) onDraftUsed?.();
+  }, [draft, onDraftUsed]);
   const [versions, setVersions] = useState(null);
   const [limits, setLimits] = useState({ rules: 60, chars: 400 });
   const [error, setError] = useState(null);

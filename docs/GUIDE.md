@@ -168,7 +168,7 @@ Where FAQs come from:
   (not built into the bot yet; the gifting follow-up person is **Priyal**, not
   the name in that doc).
 
-### Chats (`/chats`, `ChatLogs.jsx`, `ChatResults.jsx`, `LeadCard.jsx`, `ChatTeam.jsx`, `ChatBot.jsx`)
+### Chats (`/chats`, `ChatLogs.jsx`, `ChatResults.jsx`, `ChatContacts.jsx`, `ChatInsights.jsx`, `LeadCard.jsx`, `ChatTeam.jsx`, `ChatBot.jsx`)
 
 **Sign-in: "Continue with Google"**, separate from the site login. Only
 `@wareinnovations.com` Google Workspace accounts get in: `chat-admin` checks
@@ -185,15 +185,16 @@ the tab doesn't sign you out; Log out clears it). A team member who is
 turned off or removed is locked out at once regardless. Sign-in attempts: 10 per 10 minutes, 30 per day per
 connection.
 
-**Layout**: left menu (Conversations, Stats, Team, Bot, and who's signed in
+**Layout**: left menu (Conversations, Contacts, Stats, Team, Bot, and who's signed in
 with Log out), a title bar with the search and **Refresh**, then the
 section. Phones work like WhatsApp Business: icons in a slim top bar,
 search + refresh, one swipeable row of filters, the list; a chat opens full
 screen with ← back.
 
 **Team** (needs "Manage team"): add a person with name, work email and
-ticks: see phone numbers & emails, take over & reply, edit details, draft
-the requirement with AI ("Draft from chat", off unless ticked), send to
+ticks: see phone numbers & emails, see the Contacts list, take over & reply, edit details, draft
+the requirement with AI ("Draft from chat", off unless ticked), write
+replies with AI ("AI reply", off unless ticked), send to
 Zoho, Stats, see carts (the Stats **Carts** tab; off unless ticked; with
 only this tick, Stats opens straight on Carts), delete chats, manage team. Checked on the server on every
 action (contacts are masked server-side), so turning someone off or
@@ -225,6 +226,26 @@ login keeps its own saved messages (`chat_quick_replies`, up to 50);
 picking one puts it in the box to edit or send, with `{name}` filled in as
 the visitor's first name ("there" if unknown). The smiley adds an emoji at
 the cursor.
+
+**AI reply and + Product** (the bar above the reply box, with "Take over
+& reply"):
+- **AI reply** (`chat-admin` "ai-reply"; needs its own tick too, "Write
+  replies with AI", in the Manager preset like "Draft from chat"): asks `ask-faq` what the bot
+  would say to the shopper's latest message(s), with the chat's history
+  since they last started over, the live Bot instructions, and their name
+  / whether their number is saved. It's told a team member sends it under
+  their own name ("we", no "pop your details below"). The text goes in the
+  box and its product picks show above it; **nothing is sent until you
+  press Send**, so edit or remove anything first. One AI answer's cost per
+  click, nothing otherwise; nothing is logged by the click itself.
+- **+ Product** (`chat-admin` "product-search", no AI, free): search the
+  store's products by name (every word must be in the title, in stock
+  first), tap one to add it. Up to 6 per reply; ✕ removes one.
+- Sent products are checked against the catalogue (unknown links are
+  dropped) and saved on the team message. The shopper's chat gets them
+  from `ask-faq` "updates" rebuilt from the live catalogue, so the card's
+  price, stock and Add to cart are current. Needs the current
+  `ware-chat.js` on the store to show the cards.
 
 **Transcript = what the shopper saw**: taps are saved in the chat's own
 words ("Show me more products like this", "Dimensions", the designer-call
@@ -332,8 +353,31 @@ Meetha Ho Jaye Dessert Set").
   (two extra fields, no extra AI call). Pill taps (similar / bespoke) set
   them without AI. Chats from before 29 Sep 2026 have neither.
 
-**Stats tab** (same date filter), with two tabs, **Overview** and
-**Carts**:
+**Contacts** (needs the "See the Contacts list" tick, which no preset
+includes; without "See phone numbers & emails" too, the numbers and emails
+are left out; `chat-admin` "contacts"): one row
+per person who left a phone number or email, in the chat, the Ware
+Atelier form or their store account (logged-in customers). Chats with the
+same phone (last 10 digits) or email are merged into one person, even
+from different browsers. Shows people **last chatted** in the date
+filter's range; internal and test chats are left out.
+
+- Columns: person (name, company, where the details came from), phone
+  (tap to call), email, what they asked about, number of chats, last
+  chatted (hover for first), latest cart value, and status tags:
+  **Ordered** (Shopify order from the same browser), **In Zoho** (opens
+  the lead), **Replied** (a team reply in any of their chats), **Follow
+  up**.
+- Filters: All, **To follow up** (nobody replied, not in Zoho, no
+  order), Not in Zoho, Has a cart, Ordered. Search by name, number, email
+  or company. Sort by person, chats, last chatted (default, newest first)
+  or cart. Tap a name to open their latest chat.
+- **Download CSV** (owner only): what's on screen, for Excel / a mailing
+  list / a Zoho import.
+
+**Stats tab** (same date filter), with four tabs, **Overview**,
+**Carts**, **Products** and **Couldn't answer** (Carts needs the carts
+tick, the others the stats tick):
 
 - **Hide test and junk chats** (on by default, remembered per browser):
   leaves out chats named or labelled "test", "testing" or "junk" (rename
@@ -355,6 +399,19 @@ Meetha Ho Jaye Dessert Set").
   **Ordered** when Shopify has an order from the same browser after the
   chat, blank otherwise. The chat only reads the cart while they're
   chatting, so it can't tell if they emptied it later.
+- **Products tab** (`chat-admin` "products"): every product the bot
+  showed in the range, with its photo and price: **Bot showed it** (in how
+  many chats), **Chatted on its page** (chats while on its product page),
+  **Ordered from chat** (pieces and ₹ added with the chat card's + button
+  and then ordered; matched by the order line's product title). Sort by
+  any column; most shown first.
+- **Couldn't answer tab** (`chat-admin` "gaps"): AI replies that said it
+  didn't know / couldn't find / wasn't sure, or that sent them to WhatsApp
+  when they hadn't asked for a person. Replies to gibberish ("didn't
+  understand that") are left out. The same question asked again is one
+  row (count and number of chats), newest first, with **Open chat**. Owner:
+  **Teach the bot** opens the Bot page with a new instruction started:
+  `When someone asks "…", ` to finish and save.
 - **Where chats start**: chats per store page they started on, with the
   product's or collection's real name and photo (from the store's public
   products.json / collections.json, cached 1 h), a bar, filters (All,
@@ -553,6 +610,8 @@ While the team has taken a chat over, the shopper's messages go to the team
 ("Sent to the Ware team") and team replies appear in the chat (checked every
 4 s while the team is active, every 20 s otherwise, and not at all after 10
 minutes of quiet or in a background tab).
+Team replies can carry product cards (from AI reply or + Product in
+Chats), shown like the bot's, with Add to cart.
 
 ### 5.12 Starting over
 

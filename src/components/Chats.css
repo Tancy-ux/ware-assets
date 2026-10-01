@@ -4103,3 +4103,257 @@
   background: #1f2c23;
   color: #fff;
 }
+
+/* ---------- Contacts, Products, Couldn't answer (Oct 2026) ---------- */
+/* Wide tables scroll sideways inside their card on small screens. */
+.chats-table-scroll {
+  overflow-x: auto;
+}
+.chats-nowrap {
+  white-space: nowrap;
+}
+/* Contacts: search between the date filter and Download. */
+.chats-stats-toolbar .chats-contacts-search {
+  flex: 1;
+  min-width: 200px;
+  max-width: 420px;
+  width: auto;
+  border-radius: 8px;
+  background: #f7f7f4;
+}
+.chats-contacts-download {
+  margin-left: auto;
+}
+.chats-contacts-table td {
+  vertical-align: top;
+}
+.chats-contacts-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--chats-text-muted);
+}
+.chats-contacts-status {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.chats-contacts-status a.chats-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  text-decoration: none;
+}
+/* Products: photo beside the name and price. */
+.chats-product-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.chats-product-cell .chats-start-img {
+  flex: none;
+}
+.chats-product-cell small {
+  display: block;
+  font-size: 12px;
+  color: var(--chats-text-muted);
+}
+/* Couldn't answer: one card-like row per question. */
+.chats-gaps {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.chats-gaps li {
+  padding: 12px 0;
+  border-top: 1px solid var(--chats-border, #ecece7);
+}
+.chats-gaps li:first-child {
+  border-top: none;
+}
+.chats-gap-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.chats-gap-head strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.chats-gap-head .chats-tag {
+  flex: none;
+}
+.chats-gap-answer {
+  margin: 4px 0 8px;
+  font-size: 13px;
+  color: var(--chats-text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.chats-gap-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.chats-gap-foot small {
+  font-size: 12px;
+  color: var(--chats-text-muted);
+}
+.chats-gap-teach {
+  margin-left: auto;
+}
+@media (max-width: 760px) {
+  .chats-stats-toolbar .chats-contacts-search {
+    max-width: none;
+  }
+}
+.chats-orders-card > .chats-card-sub + .chats-table-scroll,
+.chats-orders-card > .chats-results-warn + .chats-table-scroll {
+  margin-top: 10px;
+}
+
+/* ---------- AI reply during a takeover (Oct 2026) ---------- */
+.chats-page .chats-btn.chats-ai-reply {
+  flex: none;
+  gap: 6px;
+  border-color: #cfe0d4;
+  background: var(--chats-accent-soft);
+  color: var(--chats-accent);
+  font-weight: 600;
+}
+.chats-page .chats-btn.chats-ai-reply:hover:not(:disabled) {
+  border-color: var(--chats-accent);
+}
+.chats-pulse {
+  animation: chats-pulse 1s ease-in-out infinite;
+}
+@keyframes chats-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+/* Above the box: AI reply, + Product, then the products going with it. */
+.chats-reply-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 18px 0;
+  border-top: 1px solid var(--chats-border);
+  background: var(--chats-panel);
+}
+.chats-reply-tools + .chats-reply {
+  border-top: none;
+  padding-top: 8px;
+}
+.chats-reply-tools .chats-btn {
+  height: 32px;
+}
+.chats-reply-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+  padding: 3px 4px 3px 3px;
+  border-radius: 8px;
+  background: #f0f1ec;
+  color: var(--chats-text);
+}
+.chats-reply-pick img {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 6px;
+  object-fit: cover;
+}
+.chats-reply-pick > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.25;
+}
+.chats-reply-pick small {
+  display: block;
+  color: var(--chats-text-muted);
+}
+.chats-reply-pick button {
+  display: inline-flex;
+  flex: none;
+  padding: 3px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--chats-text-muted);
+  cursor: pointer;
+}
+.chats-reply-pick button:hover {
+  background: #e2e4dc;
+  color: var(--chats-text);
+}
+@media (max-width: 760px) {
+  .chats-reply-tools {
+    padding: 8px 12px 0;
+  }
+}
+
+/* "+ Product": search the store and add a card to the reply. */
+.chats-page .chats-btn.chats-add-product {
+  gap: 4px;
+}
+.chats-picker-pop {
+  width: min(380px, calc(100vw - 32px));
+}
+.chats-picker-search {
+  width: auto;
+  margin-bottom: 8px;
+}
+.chats-picker-list {
+  min-height: 0;
+  overflow-y: auto;
+}
+.chats-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--chats-text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.chats-picker-item:hover:not(:disabled) {
+  background: #f0f1ec;
+}
+.chats-picker-item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.chats-picker-item .chats-start-img {
+  flex: none;
+}
+.chats-picker-item small {
+  display: block;
+  font-size: 12px;
+  color: var(--chats-text-muted);
+}
+/* The product search opens from the bar's left edge, so it stays on screen. */
+.chats-reply-tools {
+  position: relative;
+}
+.chats-reply-tools .chats-quick {
+  position: static;
+}
+.chats-reply-tools .chats-picker-pop {
+  left: 12px;
+}

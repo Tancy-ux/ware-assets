@@ -1385,6 +1385,11 @@ function handoffText(name: string, questions: string[]) {
   ].join("\n");
 }
 
+// The Chats page's "AI reply": a team member sends this under their own
+// name, as a plain message (no forms or buttons under it).
+const TEAM_DRAFT_NOTE =
+  `\n\nImportant, and this overrides anything above about forms, buttons or WhatsApp: this reply will be sent by a member of the Ware team who has taken over the chat, under their own name. Write it as the Ware team ("we"), warm and natural, never as an assistant or AI. Nothing appears under it except any product cards, so never say "pop your details below", "tap below" or "the form below". If you need their number or email, ask them to type it here.`;
+
 // The "Enquire" button on a Ware Atelier card.
 const atelierEnquiryUrl = (title: string) =>
   whatsAppLink(
@@ -1831,6 +1836,22 @@ Deno.serve(async (req) => {
       }
       const { data, error } = await query;
       if (error) console.error("Team replies lookup failed:", error);
+      // Products a team member sent with a reply (the Chats page's AI
+      // reply): cards rebuilt from the live catalogue, so the price, stock
+      // and Add to cart are current and never come from the message.
+      // deno-lint-ignore no-explicit-any
+      const withProducts = (data ?? []).some((m: any) => m.products?.length);
+      const catalog = withProducts ? await loadProducts().catch(() => []) : [];
+      const cardsFor = (saved: unknown) =>
+        (Array.isArray(saved) ? saved : [])
+          // deno-lint-ignore no-explicit-any
+          .map((p: any) => {
+            const handle = String(p?.url ?? "").match(/\/products\/([^/?#]+)/)?.[1];
+            return handle ? catalog.find((x) => x.handle === handle) : undefined;
+          })
+          .filter((p): p is Product => !!p)
+          .slice(0, MAX_CARDS)
+          .map(toCard);
       return json({
         takeover: takeoverActive(conversation),
         messages: (data ?? []).map((m) => ({
@@ -1839,6 +1860,7 @@ Deno.serve(async (req) => {
           created_at: m.created_at,
           // The team member's name, for "Tani · Ware team".
           agent_name: m.agent_name ?? null,
+          products: cardsFor(m.products),
         })),
       });
     }
@@ -2224,6 +2246,18 @@ Deno.serve(async (req) => {
         fromTeam: t.fromTeam === true,
       }));
 
+    // A draft reply for a team member who has taken the chat over (the
+    // Chats page's "AI reply"): sent by chat-admin with the service role,
+    // never by a shopper. It's what they know of the shopper, since there's
+    // no conversation id (so nothing is logged).
+    const teamDraft = isServiceRole(req) && payload.teamDraft &&
+        typeof payload.teamDraft === "object"
+      ? {
+        name: String(payload.teamDraft.name ?? "").slice(0, 60),
+        contactSaved: payload.teamDraft.contactSaved === true,
+      }
+      : null;
+
     // A team member has taken this chat over from the Chats page: the AI
     // stays quiet, and the message is saved for them to answer.
     // One conversation per visitor, holding the details they left (name /
@@ -2232,7 +2266,7 @@ Deno.serve(async (req) => {
       payload.conversationId,
       payload.visitorId,
     );
-    const contactSaved = !!conversation?.visitor_phone;
+    const contactSaved = !!conversation?.visitor_phone || !!teamDraft?.contactSaved;
 
     if (takeoverActive(conversation)) {
       try {
@@ -2271,7 +2305,10 @@ Deno.serve(async (req) => {
         fallback: true,
       });
     }
-    const verdict = await rateCheck(req, payload.visitorId);
+    // Shoppers' limits; not for chat-admin (Bot's "Try it", "AI reply"),
+    // which only a signed-in team member can reach and all comes from one
+    // server.
+    const verdict = isServiceRole(req) ? "ok" : await rateCheck(req, payload.visitorId);
     if (verdict === "person") {
       return toWhatsApp(
         "You've sent quite a few messages in a short while! Let's continue on WhatsApp, where our team can help you properly.",
@@ -2386,7 +2423,7 @@ Deno.serve(async (req) => {
     // A logged-in customer's account name counts as known (never their
     // phone or email: the model isn't told those).
     const accountName = accountFields(payload.account).account_name ?? "";
-    const knownName = conversation?.visitor_name || accountName;
+    const knownName = conversation?.visitor_name || teamDraft?.name || accountName;
     const knownFirstName = knownName.split(/\s+/)[0];
     const nameUsedRecently = knownFirstName.length > 1 &&
       history
@@ -2579,7 +2616,7 @@ ${details || "(none)"}${
       contactSaved
         ? "\n\nThey've already left their phone number for the team, so don't ask whether the team can call them. If they ask for a call, warmly confirm the team will call them on the number they shared."
         : `\n\nThe team doesn't have their phone number yet, so never say the team will call them, contact them or be in touch. If they ask for a call ("call_request"), warmly say you'd be happy to arrange it and ask them to pop their name and number in the form just below, for example "Of course! Just pop your name and number below and our team will give you a call." The form appears automatically.`
-    }`;
+    }${teamDraft ? TEAM_DRAFT_NOTE : ""}`;
 
     // After a human takeover the history has customer messages nobody
     // answered and team replies with no question, so consecutive same-side

@@ -2,34 +2,36 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowUpRight,
-  BookOpen,
-  Image as ImageIcon,
-  MapPin,
-  MessageCircle,
   BarChart3,
   BellRing,
+  BookOpen,
+  Bot,
   Building2,
-  CircleCheck,
-  UserPlus,
   CalendarDays,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
-  MessagesSquare,
+  CircleCheck,
+  Contact,
   ExternalLink,
+  House,
+  Image as ImageIcon,
   LogOut,
+  MapPin,
+  MessageCircle,
+  MessagesSquare,
   MoreHorizontal,
   PanelRight,
   Pencil,
   RefreshCw,
-  House,
   Search,
   Send,
+  Sparkles,
   Trash2,
+  UserPlus,
   UserRound,
   Users,
-  Bot,
   X,
 } from "lucide-react";
 import { toast } from "react-toastify";
@@ -40,6 +42,8 @@ import LeadCard from "./LeadCard";
 import ChatTeam from "./ChatTeam";
 import ChatBot from "./ChatBot";
 import ChatQuickReplies from "./ChatQuickReplies";
+import ChatContacts from "./ChatContacts";
+import ChatProductPicker from "./ChatProductPicker";
 import { pageLabel, pageUrl } from "../lib/storePages";
 import { GOOGLE_CLIENT_ID } from "../lib/googleConfig";
 import { TEXTS, fillText } from "../lib/chatTexts";
@@ -264,6 +268,10 @@ const ChatLogs = () => {
   const [customTo, setCustomTo] = useState("");
   const [editingLabel, setEditingLabel] = useState(null);
   const [reply, setReply] = useState("");
+  // "AI reply": the products it picked that go with the reply (the team
+  // member can remove any), and whether it's still writing.
+  const [replyProducts, setReplyProducts] = useState([]);
+  const [drafting, setDrafting] = useState(false);
   const [sendingReply, setSendingReply] = useState(false);
   // The open chat's "..." menu, its Zoho lead form, and (on narrower
   // screens) the side panel.
@@ -281,8 +289,11 @@ const ChatLogs = () => {
     const el = transcriptRef.current;
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
   }, [messages]);
-  // "conversations", "stats" or "team".
+  // "conversations", "contacts", "stats", "team" or "bot".
   const [tab, setTab] = useState("conversations");
+  // "Teach the bot" from Stats: the instruction to start on the Bot page.
+  const [botDraft, setBotDraft] = useState(null);
+  const clearBotDraft = useCallback(() => setBotDraft(null), []);
   // The logged-in person: { name, username, owner, permissions }. Every
   // action is also checked on the server; this only hides what they can't
   // use.
@@ -412,6 +423,7 @@ const ChatLogs = () => {
     setMessages([]);
     setEditingLabel(null);
     setReply("");
+    setReplyProducts([]);
     setMenuOpen(false);
     setAllSeen(false);
     // The contact form starts collapsed while there's nothing in it.
@@ -469,6 +481,27 @@ const ChatLogs = () => {
     requestAnimationFrame(() => el?.focus());
   };
 
+  // What the bot would have said to their latest message, put in the box
+  // (with its product picks above it) to edit and send, or not. One AI
+  // answer's cost per click; nothing reaches the shopper until Send.
+  const aiReply = async () => {
+    if (drafting) return;
+    if (
+      reply.trim() &&
+      !window.confirm("Replace what you've typed with the AI's reply?")
+    ) {
+      return;
+    }
+    const forId = selectedId;
+    setDrafting(true);
+    const data = await api({ action: "ai-reply", conversationId: forId });
+    setDrafting(false);
+    if (!data || openingId.current !== forId) return;
+    setReply(data.answer);
+    setReplyProducts(data.products ?? []);
+    requestAnimationFrame(() => replyBox.current?.focus());
+  };
+
   const sendReply = async (e) => {
     e.preventDefault();
     const text = reply.trim();
@@ -478,10 +511,12 @@ const ChatLogs = () => {
       action: "reply",
       conversationId: selectedId,
       text,
+      products: replyProducts,
     });
     setSendingReply(false);
     if (!data) return;
     setReply("");
+    setReplyProducts([]);
     setMessages((prev) => [...prev, data.message]);
     patchConversation(selectedId, { needsReply: false });
   };
@@ -790,6 +825,8 @@ const ChatLogs = () => {
 
   const NAV = [
     { id: "conversations", label: "Conversations", icon: MessagesSquare, show: true },
+    // One row per person who left a phone or email.
+    { id: "contacts", label: "Contacts", icon: Contact, show: can("people") },
     // Stats has an Overview tab and a Carts tab; either tick opens it.
     { id: "stats", label: "Stats", icon: BarChart3, show: can("stats") || can("carts") },
     { id: "team", label: "Team", icon: Users, show: can("users") },
@@ -879,15 +916,25 @@ const ChatLogs = () => {
             );
           })()}
         </h2>
-        {(tab === "conversations" || tab === "stats") && refreshButton}
+        {["conversations", "contacts", "stats"].includes(tab) && refreshButton}
       </header>
       {tab === "bot" && me?.owner ? (
         <div className="chats-stats">
-          <ChatBot api={api} />
+          <ChatBot api={api} draft={botDraft} onDraftUsed={clearBotDraft} />
         </div>
       ) : tab === "team" && can("users") ? (
         <div className="chats-stats">
           <ChatTeam api={api} me={me} />
+        </div>
+      ) : tab === "contacts" && can("people") ? (
+        <div className="chats-stats">
+          <ChatContacts
+            api={api}
+            bounds={bounds}
+            refreshKey={statsRefresh}
+            toolbar={<div className="chats-stats-filter">{dateFilter}</div>}
+            onOpenChat={openFromResults}
+          />
         </div>
       ) : tab === "stats" && (can("stats") || can("carts")) ? (
         <div className="chats-stats">
@@ -900,6 +947,11 @@ const ChatLogs = () => {
             refreshKey={statsRefresh}
             handleResponse={handleResponse}
             onOpenChat={openFromResults}
+            api={api}
+            onTeach={(text) => {
+              setBotDraft(text);
+              setTab("bot");
+            }}
           />
         </div>
       ) : (
@@ -1318,6 +1370,52 @@ const ChatLogs = () => {
               </div>
 
               {selected.takeover && can("reply") ? (
+                <>
+                {/* Above the box: AI reply, + Product, and the products going
+                    with the reply as cards (✕ leaves one out). */}
+                <div className="chats-reply-tools">
+                  {/* Its own tick (one AI answer per click). */}
+                  {can("aireply") && (
+                    <button
+                      type="button"
+                      className="chats-btn chats-ai-reply"
+                      onClick={aiReply}
+                      disabled={drafting}
+                      title="Write the reply the AI would give (you can edit it before sending)"
+                    >
+                      <Sparkles size={14} className={drafting ? "chats-pulse" : ""} />
+                      <span>{drafting ? "Writing…" : "AI reply"}</span>
+                    </button>
+                  )}
+                  <ChatProductPicker
+                    api={api}
+                    picked={replyProducts}
+                    onPick={(p) =>
+                      setReplyProducts((prev) =>
+                        prev.some((x) => x.url === p.url) ? prev : [...prev, p].slice(0, 6),
+                      )
+                    }
+                  />
+                  {replyProducts.map((p) => (
+                    <span key={p.url} className="chats-reply-pick">
+                      {p.image && <img src={`${p.image}${p.image.includes("?") ? "&" : "?"}width=80`} alt="" />}
+                      <span>
+                        {p.title}
+                        {p.price && <small>{p.price}</small>}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setReplyProducts((prev) => prev.filter((x) => x.url !== p.url))
+                        }
+                        aria-label={`Don't send ${p.title}`}
+                        title="Don't send this one"
+                      >
+                        <X size={13} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
                 <form className="chats-reply" onSubmit={sendReply}>
                   <ChatQuickReplies
                     api={api}
@@ -1347,6 +1445,7 @@ const ChatLogs = () => {
                     Send
                   </button>
                 </form>
+                </>
               ) : (
                 <div className="chats-ai-note">
                   <span>

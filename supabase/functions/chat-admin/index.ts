@@ -137,9 +137,11 @@ async function googleEmail(credential: unknown) {
 // allowed; these are on top.
 const PERMISSIONS = [
   "contacts", // see phone numbers and emails
+  "people", // the Contacts section (its numbers / emails need "contacts" too)
   "reply", // take over chats and reply
   "edit", // edit contact / lead details, rename chats
   "draft", // "Draft from chat": the AI writes the requirement (with edit)
+  "aireply", // "AI reply" in a taken-over chat (with reply): one AI answer a click
   "zoho", // send leads to Zoho
   "stats", // the Stats tab (orders, revenue)
   "carts", // Stats' Carts tab: who has things in their cart
@@ -217,7 +219,29 @@ const ordersCache = new Map<
 // admin token.
 const STORE_URL = "https://www.wareinnovations.com";
 const CATALOG_CACHE_MS = 60 * 60 * 1000;
-type CatalogItem = { title: string; image: string | null };
+// price / available: from the catalogue copy or feed (for "+ Product").
+type CatalogItem = {
+  title: string;
+  image: string | null;
+  price?: string | null;
+  available?: boolean;
+};
+
+// "₹1,500", or "From ₹1,200" when the variants differ. Ware Atelier
+// pieces (tagged "ware atelier") are made to order: never a price, as in
+// the bot's cards.
+// deno-lint-ignore no-explicit-any
+function feedPrice(variants: any[] | undefined, tags?: unknown) {
+  const tagList = Array.isArray(tags) ? tags : String(tags ?? "").split(",");
+  if (tagList.some((t) => String(t).toLowerCase().trim() === "ware atelier")) {
+    return "Price on request";
+  }
+  const prices = (variants ?? []).map((v) => Number(v?.price)).filter((n) => n > 0);
+  if (!prices.length) return null;
+  const min = Math.min(...prices);
+  const text = `₹${Math.round(min).toLocaleString("en-IN")}`;
+  return Math.max(...prices) > min ? `From ${text}` : text;
+}
 type StoreCatalog = {
   products: Map<string, CatalogItem>;
   collections: Map<string, CatalogItem>;
@@ -234,6 +258,9 @@ async function readFeed(kind: "products" | "collections") {
       items.set(x.handle, {
         title: x.title,
         image: x.images?.[0]?.src ?? x.image?.src ?? null,
+        price: feedPrice(x.variants, x.tags),
+        // deno-lint-ignore no-explicit-any
+        available: x.variants ? x.variants.some((v: any) => v?.available) : undefined,
       });
     }
     if (list.length < 250) break;
@@ -251,7 +278,13 @@ async function productsFromSnapshot(db: any) {
   if (error || !data) throw new Error("No catalogue copy yet");
   const items = new Map<string, CatalogItem>();
   for (const p of JSON.parse(await data.text()).raw ?? []) {
-    items.set(p.handle, { title: p.title, image: p.images?.[0]?.src ?? null });
+    items.set(p.handle, {
+      title: p.title,
+      image: p.images?.[0]?.src ?? null,
+      price: feedPrice(p.variants, p.tags),
+      // deno-lint-ignore no-explicit-any
+      available: p.variants ? p.variants.some((v: any) => v?.available) : undefined,
+    });
   }
   return items;
 }
@@ -363,6 +396,8 @@ query Orders($q: String!, $after: String) {
       currentTotalPriceSet { shopMoney { amount } }
       lineItems(first: 15) {
         nodes {
+          title
+          quantity
           customAttributes { key value }
           discountedTotalSet { shopMoney { amount } }
         }
@@ -422,6 +457,13 @@ async function chatOrders(since: string | null, until: string | null) {
           (sum: number, l: any) => sum + Number(l.discountedTotalSet.shopMoney.amount),
           0,
         ),
+        // What was added with the chat's own + button (the Products tab).
+        // deno-lint-ignore no-explicit-any
+        fromChatItems: fromChat.map((l: any) => ({
+          title: String(l.title ?? ""),
+          quantity: Number(l.quantity ?? 1),
+          amount: Number(l.discountedTotalSet.shopMoney.amount),
+        })),
         visitorId: visitor && UUID_RE.test(visitor) ? visitor : null,
         adminUrl: `https://admin.shopify.com/store/${
           SHOP.split(".")[0]
@@ -433,6 +475,60 @@ async function chatOrders(since: string | null, until: string | null) {
   }
   return { orders: found, scanned };
 }
+
+// Orders for a date range, kept for ORDERS_CACHE_MS unless `fresh`.
+async function cachedOrders(since: string | null, until: string | null, fresh = false) {
+  const key = `${since}|${until}`;
+  const cached = ordersCache.get(key);
+  if (cached && Date.now() - cached.at < ORDERS_CACHE_MS && !fresh) {
+    return cached.value;
+  }
+  const value = await chatOrders(since, until);
+  ordersCache.set(key, { at: Date.now(), value });
+  return value;
+}
+
+// A phone number's last 10 digits, so "+91 98200 12345" and "9820012345"
+// are the same person.
+const phoneKey = (phone: string | null | undefined) => {
+  const digits = String(phone ?? "").replace(/\D/g, "");
+  return digits.length >= 8 ? digits.slice(-10) : "";
+};
+
+// "₹" amounts in a cart summary: "2 items · ₹12,407" -> 12407.
+const cartValue = (cart: string | null | undefined) =>
+  Number(String(cart ?? "").match(/₹\s*([\d,]+)/)?.[1]?.replace(/,/g, "") ?? 0);
+
+// Messages of the conversations in `ids`: 100 conversations a request
+// (URL length), each paged by 1,000 rows (Supabase's most per request).
+// deno-lint-ignore no-explicit-any
+async function messagesOf(db: any, ids: string[], columns: string, filter?: (q: any) => any) {
+  const PAGE = 1000;
+  // deno-lint-ignore no-explicit-any
+  const rows: any[] = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    for (let from = 0; from < 50 * PAGE; from += PAGE) {
+      let q = db.from("chat_messages").select(columns)
+        .in("conversation_id", ids.slice(i, i + 100))
+        .order("id", { ascending: true });
+      if (filter) q = filter(q);
+      const { data, error } = await q.range(from, from + PAGE - 1);
+      if (error) throw error;
+      rows.push(...(data ?? []));
+      if ((data ?? []).length < PAGE) break;
+    }
+  }
+  return rows;
+}
+
+// The bot's reply says it doesn't know or can't help ("Couldn't answer").
+const DIDNT_KNOW_RE =
+  /\b(couldn'?t|could not|can'?t|cannot|unable to|wasn'?t able to) (find|confirm|say|tell|answer|share|check)\b|\bnot sure\b|\b(don'?t|do not) (have|know) (that|this|those|any|the|much|enough|specific)\b|\bno (information|details) (on|about)\b/i;
+// Not a gap: the bot couldn't make out what they typed (gibberish, "hi").
+const DIDNT_UNDERSTAND_RE = /\b(understand|understood|make out|catch) (that|what you|your)/i;
+// They asked for a person themselves: sending them on isn't a gap.
+const WANTS_PERSON_RE =
+  /\b(human|person|someone|real|agent|executive|representative|whats ?app|call me|talk to|speak to|contact (you|the team))\b/i;
 
 // ---- Daily visitor numbers ----
 // "Visitor 3" = the 3rd chat started that day (India time), counting the
@@ -893,6 +989,11 @@ Deno.serve(async (req) => {
       "quick-list": "reply",
       "quick-save": "reply",
       "quick-delete": "reply",
+      "ai-reply": "aireply",
+      "product-search": "reply",
+      contacts: "people",
+      products: "stats",
+      gaps: "stats",
       "user-save": "users",
       "user-delete": "users",
     };
@@ -904,6 +1005,8 @@ Deno.serve(async (req) => {
     }
     // Drafting fills the requirement box, so it needs edit too.
     if (body.action === "lead-draft" && !perms.edit) return notAllowed();
+    // Only useful while replying, so it needs that too.
+    if (body.action === "ai-reply" && !perms.reply) return notAllowed();
     if (body.action === "lead-options" && !perms.edit && !perms.zoho) {
       return notAllowed();
     }
@@ -1469,6 +1572,26 @@ Deno.serve(async (req) => {
       }
       const text = String(body.text ?? "").trim().slice(0, 2000);
       if (!text) return json({ error: "Empty reply" }, 400);
+      // Products from "AI reply" the team member kept: only real store
+      // products (the shopper's chat rebuilds the cards from the live
+      // catalogue anyway).
+      const picked = (Array.isArray(body.products) ? body.products : []).slice(0, 6);
+      const catalog = picked.length ? await storeCatalog(db).catch(() => EMPTY_CATALOG) : EMPTY_CATALOG;
+      const products = picked
+        // deno-lint-ignore no-explicit-any
+        .map((p: any) => {
+          const handle = handleOf(String(p?.url ?? ""));
+          const item = handle ? catalog.products.get(handle) : null;
+          if (!item) return null;
+          return {
+            title: item.title,
+            url: `${STORE_URL}/products/${handle}`,
+            image: item.image,
+            price: typeof p.price === "string" ? p.price.slice(0, 40) : null,
+            available: p.available !== false,
+          };
+        })
+        .filter(Boolean);
       const { data: convo, error: convoError } = await db
         .from("chat_conversations")
         .select("*")
@@ -1486,6 +1609,7 @@ Deno.serve(async (req) => {
         answer: text,
         sender: "agent",
         agent_name: agentName,
+        ...(products.length ? { products } : {}),
       };
       const insertReply = (r: Record<string, unknown>) =>
         db.from("chat_messages").insert(r).select().single();
@@ -1505,7 +1629,7 @@ Deno.serve(async (req) => {
           id: data.id,
           question: "",
           answer: data.answer,
-          products: [],
+          products: data.products ?? [],
           created_at: data.created_at,
           sender: "agent",
           agentName: data.agent_name ?? null,
@@ -1513,18 +1637,105 @@ Deno.serve(async (req) => {
       });
     }
 
+    // "+ Product" in the reply box: store products by name (no AI), in
+    // stock first. Every word typed must be in the title.
+    if (body.action === "product-search") {
+      const words = String(body.query ?? "").toLowerCase().trim().slice(0, 80)
+        .split(/\s+/).filter(Boolean);
+      if (!words.length || words.join("").length < 2) return json({ products: [] });
+      const catalog = await storeCatalog(db).catch(() => EMPTY_CATALOG);
+      const found = [...catalog.products]
+        .filter(([, p]) => words.every((w) => p.title.toLowerCase().includes(w)))
+        .sort(([, a], [, b]) =>
+          Number(b.available !== false) - Number(a.available !== false) ||
+          a.title.length - b.title.length
+        )
+        .slice(0, 12)
+        .map(([handle, p]) => ({
+          title: p.title,
+          url: `${STORE_URL}/products/${handle}`,
+          image: p.image,
+          price: p.price ?? null,
+          available: p.available !== false,
+        }));
+      return json({ products: found });
+    }
+
+    // "AI reply" during a takeover: what the bot would say to the shopper's
+    // latest message(s), as a draft for the team member to edit and send.
+    // Nothing is saved or sent to the shopper here.
+    if (body.action === "ai-reply") {
+      if (!UUID_RE.test(String(body.conversationId))) {
+        return json({ error: "Bad conversation id" }, 400);
+      }
+      const [{ data: rows, error }, { data: convo }] = await Promise.all([
+        db.from("chat_messages").select("*").eq("conversation_id", body.conversationId)
+          .order("created_at", { ascending: true }),
+        db.from("chat_conversations").select("*").eq("id", body.conversationId).maybeSingle(),
+      ]);
+      if (error) throw error;
+      // Since they last started over.
+      const all = rows ?? [];
+      const lastReset = all.findLastIndex((m) =>
+        m.sender === "system" && /reset/i.test(m.answer ?? "")
+      );
+      const msgs = all.slice(lastReset + 1).filter((m) => m.sender !== "system");
+      // Their latest message is what to answer; everything before it (their
+      // other unanswered messages included) is the history the bot reads.
+      const at = msgs.findLastIndex((m) => m.question?.trim());
+      if (at < 0) return json({ error: "They haven't asked anything yet." }, 400);
+      const question = String(msgs[at].question).trim();
+      const history = msgs.slice(0, at).slice(-10).map((m) => ({
+        question: String(m.question ?? "").slice(0, 1000),
+        answer: String(m.answer ?? "").slice(0, 1000),
+        // deno-lint-ignore no-explicit-any
+        products: (m.products ?? []).map((p: any) => p?.title).filter(Boolean),
+        fromTeam: m.sender === "agent",
+      }));
+      const base = Deno.env.get("ASK_FAQ_URL") ??
+        `${Deno.env.get("SUPABASE_URL")}/functions/v1/ask-faq`;
+      const res = await fetch(base, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${serviceKey}`,
+          apikey: serviceKey,
+          Origin: "https://tancy-ux.github.io",
+        },
+        body: JSON.stringify({
+          // The bot's own limit per message.
+          question: question.slice(0, 500),
+          history,
+          teamDraft: {
+            name: convo?.visitor_name || convo?.account_name || "",
+            contactSaved: !!convo?.visitor_phone,
+          },
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      // `fallback`: one of the bot's stand-in messages (busy, too long), not
+      // a reply worth sending.
+      if (!res.ok || !data.answer || data.fallback) {
+        return json({ error: data.error ?? "The AI couldn't write a reply just now. Try again." }, 502);
+      }
+      return json({
+        answer: data.answer,
+        products: (Array.isArray(data.products) ? data.products : [])
+          .slice(0, 6)
+          // deno-lint-ignore no-explicit-any
+          .map((p: any) => ({
+            title: p.title,
+            url: p.url,
+            image: p.image ?? null,
+            price: typeof p.price === "string" ? p.price.replace(/^Rs\.?\s*/, "₹") : null,
+            available: p.available !== false,
+          })),
+      });
+    }
+
     // The Chats page's Results panel, for the same date range as the list.
     if (body.action === "results") {
-      const key = `${since}|${until}`;
-      const cached = ordersCache.get(key);
-      const loadOrders = async () => {
-        if (cached && Date.now() - cached.at < ORDERS_CACHE_MS && !body.fresh) {
-          return cached.value;
-        }
-        const value = await chatOrders(since, until);
-        ordersCache.set(key, { at: Date.now(), value });
-        return value;
-      };
+      const loadOrders = () => cachedOrders(since, until, !!body.fresh);
       let chatsQuery = db
         .from("chat_conversations")
         // "*": works before and after first_page / topic exist. The count
@@ -1603,9 +1814,6 @@ Deno.serve(async (req) => {
       // logins allowed to see carts; left out otherwise.
       let carts: unknown[] | undefined;
       if (perms.carts) {
-        // "2 items · ₹12,407" -> 12407
-        const cartValue = (cart: string) =>
-          Number(cart.match(/₹\s*([\d,]+)/)?.[1]?.replace(/,/g, "") ?? 0);
         const withCart = chats
           .filter((c) => c.cart && !/^empty$/i.test(c.cart))
           .sort((a, b) =>
@@ -1680,6 +1888,250 @@ Deno.serve(async (req) => {
         return json({ carts: value.carts, hiddenTest: value.hiddenTest });
       }
       return json(value);
+    }
+
+    // ---- Contacts: one row per person who left a phone or email ----
+    // Chats with the same phone (last 10 digits) or email are one person,
+    // even across browsers. Only people last seen in the date range.
+    if (body.action === "contacts") {
+      const { data, error } = await db
+        .from("chat_conversations")
+        .select("*, chat_messages(count)")
+        .or("visitor_phone.not.is.null,visitor_email.not.is.null,account_phone.not.is.null,account_email.not.is.null")
+        .order("last_message_at", { ascending: false })
+        .limit(LIST_LIMIT);
+      if (error) {
+        // Before scripts/supabase-chat-account.sql: without the account columns.
+        if (!/account_/.test(error.message ?? "")) throw error;
+      }
+      const rows = (data ?? (await db
+        .from("chat_conversations")
+        .select("*, chat_messages(count)")
+        .or("visitor_phone.not.is.null,visitor_email.not.is.null")
+        .order("last_message_at", { ascending: false })
+        .limit(LIST_LIMIT)).data ?? [])
+        .filter((c) => c.source !== "internal" && !isTestChat(c));
+
+      // Group chats into people: any shared phone or email joins them.
+      const parent = rows.map((_, i) => i);
+      const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+      const owner = new Map<string, number>();
+      rows.forEach((c, i) => {
+        const keys = [
+          phoneKey(c.visitor_phone) && `p:${phoneKey(c.visitor_phone)}`,
+          phoneKey(c.account_phone) && `p:${phoneKey(c.account_phone)}`,
+          c.visitor_email && `e:${String(c.visitor_email).toLowerCase()}`,
+          c.account_email && `e:${String(c.account_email).toLowerCase()}`,
+        ].filter(Boolean) as string[];
+        for (const k of keys) {
+          const j = owner.get(k);
+          if (j === undefined) owner.set(k, i);
+          else parent[find(i)] = find(j);
+        }
+      });
+      const groups = new Map<number, typeof rows>();
+      rows.forEach((c, i) => {
+        const g = find(i);
+        groups.set(g, [...(groups.get(g) ?? []), c]);
+      });
+
+      // Who the team has written to (a reply in any of their chats).
+      const replied = new Set(
+        (await messagesOf(db, rows.map((c) => c.id), "conversation_id", (q) =>
+          q.eq("sender", "agent")
+        )).map((m) => m.conversation_id),
+      );
+      // Who ordered (from the same browser, since tracking began).
+      let ordersError: string | null = null;
+      const orderedBy = new Set<string>();
+      try {
+        for (const o of (await cachedOrders(null, null, !!body.fresh)).orders) {
+          if (!o.cancelled && o.visitorId) orderedBy.add(o.visitorId);
+        }
+      } catch (err) {
+        console.error(err);
+        ordersError = "Couldn't check Shopify orders just now.";
+      }
+
+      const people = [...groups.values()].map((chats) => {
+        // Newest first (the query's order).
+        const latest = chats[0];
+        const first = (pick: (c: (typeof chats)[number]) => unknown) =>
+          chats.map(pick).find((v) => typeof v === "string" && v.trim()) as string | undefined;
+        const from = [
+          chats.some((c) => (c.visitor_phone || c.visitor_email) &&
+            !/^Ware Atelier/.test(c.topic ?? "")) && "Chat",
+          chats.some((c) => /^Ware Atelier/.test(c.topic ?? "") && c.visitor_phone) &&
+          "Atelier form",
+          chats.some((c) => c.account_phone || c.account_email) && "Store account",
+        ].filter(Boolean);
+        const cartChat = chats.find((c) => c.cart);
+        return {
+          conversationId: latest.id,
+          name: (first((c) => c.visitor_name) && nameCase(first((c) => c.visitor_name)!)) ||
+            first((c) => c.account_name) || null,
+          company: first((c) => c.company) ?? null,
+          // Only with "See phone numbers & emails" too.
+          phone: perms.contacts
+            ? first((c) => c.visitor_phone) ?? first((c) => c.account_phone) ?? null
+            : null,
+          email: perms.contacts
+            ? (first((c) => c.visitor_email) ?? first((c) => c.account_email) ?? "")
+              .toLowerCase() || null
+            : null,
+          from,
+          chats: chats.length,
+          firstAt: chats[chats.length - 1].started_at,
+          lastAt: latest.last_message_at,
+          topic: first((c) => c.topic) ?? null,
+          askedAbout: askedAbout(latest),
+          // Their latest known cart.
+          cart: cartChat?.cart ?? null,
+          cartValue: cartValue(cartChat?.cart),
+          ordered: ordersError ? null : chats.some((c) => orderedBy.has(c.visitor_id)),
+          zohoUrl: chats.find((c) => c.zoho_lead_id)
+            ? `${ZOHO_CRM}/tab/Leads/${chats.find((c) => c.zoho_lead_id).zoho_lead_id}`
+            : null,
+          replied: chats.some((c) => replied.has(c.id)),
+        };
+      }).filter((p) =>
+        (!since || p.lastAt >= since) && (!until || p.lastAt < until)
+      );
+      return json({ contacts: people, ordersError, canDownload: me.owner });
+    }
+
+    // ---- Products: what the bot showed, what they looked at, what sold ----
+    if (body.action === "products") {
+      let chatsQuery = db
+        .from("chat_conversations")
+        .select("id, visitor_id, visitor_name, company, label, source");
+      if (since) chatsQuery = chatsQuery.gte("last_message_at", since);
+      if (until) chatsQuery = chatsQuery.lt("last_message_at", until);
+      const [{ data: allChats, error }, catalog, shop] = await Promise.all([
+        chatsQuery.limit(LIST_LIMIT),
+        storeCatalog(db).catch(() => EMPTY_CATALOG),
+        cachedOrders(since, until, !!body.fresh).catch((err) => ({ error: String(err) })),
+      ]);
+      if (error) throw error;
+      const hideTest = body.hideTest !== false;
+      const chats = (allChats ?? []).filter((c) => !hideTest || !isTestChat(c));
+      const messages = await messagesOf(db, chats.map((c) => c.id), "conversation_id, products, page");
+
+      type Row = { handle: string; title: string; image: string | null; price: string | null;
+        shown: Set<string>; onPage: Set<string>; ordered: number; orderedValue: number };
+      const rows = new Map<string, Row>();
+      const row = (handle: string, title = "", image: string | null = null) => {
+        if (!rows.has(handle)) {
+          const item = catalog.products.get(handle);
+          rows.set(handle, {
+            handle,
+            title: item?.title ?? title ?? handle,
+            image: item?.image ?? image,
+            price: null,
+            shown: new Set(),
+            onPage: new Set(),
+            ordered: 0,
+            orderedValue: 0,
+          });
+        }
+        return rows.get(handle)!;
+      };
+      for (const m of messages) {
+        // deno-lint-ignore no-explicit-any
+        for (const p of (m.products ?? []) as any[]) {
+          const handle = p?.url ? handleOf(p.url) : "";
+          if (!handle) continue;
+          const r = row(handle, p.title, p.image ?? null);
+          r.shown.add(m.conversation_id);
+          if (p.price) r.price = String(p.price).replace(/^Rs\.?\s*/, "₹");
+        }
+        const onPage = m.page ? handleOf(m.page) : "";
+        if (onPage && catalog.products.has(onPage)) row(onPage).onPage.add(m.conversation_id);
+      }
+      // Items added with the chat's + button, then ordered.
+      const byTitle = new Map(
+        [...catalog.products].map(([handle, p]) => [p.title.toLowerCase(), handle]),
+      );
+      if (!("error" in shop)) {
+        for (const o of shop.orders) {
+          if (o.cancelled) continue;
+          for (const item of o.fromChatItems ?? []) {
+            const handle = byTitle.get(item.title.toLowerCase()) ??
+              [...rows.values()].find((r) => r.title.toLowerCase() === item.title.toLowerCase())?.handle;
+            const r = handle ? row(handle) : row(`title:${item.title}`, item.title);
+            r.ordered += item.quantity;
+            r.orderedValue += item.amount;
+          }
+        }
+      }
+      return json({
+        products: [...rows.values()].map((r) => ({
+          handle: r.handle.startsWith("title:") ? null : r.handle,
+          title: r.title,
+          image: r.image,
+          price: r.price,
+          shown: r.shown.size,
+          onPage: r.onPage.size,
+          ordered: r.ordered,
+          orderedValue: r.orderedValue,
+        })),
+        ordersError: "error" in shop ? "Couldn't load Shopify orders just now." : null,
+      });
+    }
+
+    // ---- Couldn't answer: bot replies that didn't help ----
+    // The bot said it didn't know, or sent them to the team on WhatsApp
+    // when they hadn't asked for a person. Same question, one row.
+    if (body.action === "gaps") {
+      let chatsQuery = db
+        .from("chat_conversations")
+        .select("id, visitor_id, visitor_name, company, label, source");
+      if (since) chatsQuery = chatsQuery.gte("last_message_at", since);
+      if (until) chatsQuery = chatsQuery.lt("last_message_at", until);
+      const { data: allChats, error } = await chatsQuery.limit(LIST_LIMIT);
+      if (error) throw error;
+      const hideTest = body.hideTest !== false;
+      const chats = (allChats ?? []).filter((c) => !hideTest || !isTestChat(c));
+      const messages = await messagesOf(
+        db,
+        chats.map((c) => c.id),
+        "conversation_id, question, answer, created_at, sender, extras",
+      );
+      const groups = new Map<string, {
+        question: string; answer: string; why: string; count: number;
+        lastAt: string; conversationId: string; chats: Set<string>;
+      }>();
+      for (const m of messages) {
+        if ((m.sender ?? "ai") !== "ai" || !m.question?.trim() || !m.answer) continue;
+        const handedOn = Array.isArray(m.extras) && m.extras.includes("whatsapp") &&
+          !WANTS_PERSON_RE.test(m.question);
+        const didntKnow = DIDNT_KNOW_RE.test(m.answer) && !DIDNT_UNDERSTAND_RE.test(m.answer);
+        if (!handedOn && !didntKnow) continue;
+        const key = m.question.trim().toLowerCase().replace(/[^\p{L}\p{N} ]/gu, "").replace(/\s+/g, " ");
+        const g = groups.get(key);
+        const tidy = (t: string) => (perms.contacts ? t : hideContacts(t));
+        if (!g || m.created_at > g.lastAt) {
+          groups.set(key, {
+            question: tidy(m.question.trim()).slice(0, 300),
+            answer: tidy(m.answer).slice(0, 400),
+            why: didntKnow ? "Didn't know" : "Sent to WhatsApp",
+            count: (g?.count ?? 0) + 1,
+            lastAt: m.created_at,
+            conversationId: m.conversation_id,
+            chats: new Set([...(g?.chats ?? []), m.conversation_id]),
+          });
+        } else {
+          g.count++;
+          g.chats.add(m.conversation_id);
+        }
+      }
+      return json({
+        gaps: [...groups.values()]
+          .sort((a, b) => b.lastAt.localeCompare(a.lastAt))
+          .slice(0, 300)
+          .map(({ chats: c, ...g }) => ({ ...g, chats: c.size })),
+        canTeach: me.owner,
+      });
     }
 
     // ---- The "Lead" card (Zoho CRM) ----
