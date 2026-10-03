@@ -305,6 +305,7 @@ const ChatResults = ({
                 <th>Total</th>
                 <th>Added from chat</th>
                 <th>Chat</th>
+                <th>Visitor</th>
               </tr>
             </thead>
             <tbody>
@@ -329,6 +330,14 @@ const ChatResults = ({
                       >
                         {o.chatTitle}
                       </button>
+                    ) : (
+                      "–"
+                    )}
+                  </td>
+                  {/* The browser's tag, as in Conversations ("#04174e"). */}
+                  <td>
+                    {o.visitorId ? (
+                      <span className="chats-carts-tag">#{o.visitorId.slice(0, 6)}</span>
                     ) : (
                       "–"
                     )}

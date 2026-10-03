@@ -4357,3 +4357,7 @@
 .chats-reply-tools .chats-picker-pop {
   left: 12px;
 }
+/* The orders table's Visitor column: just the tag, no gap before it. */
+.chats-results-orders td > .chats-carts-tag:first-child {
+  margin-left: 0;
+}
