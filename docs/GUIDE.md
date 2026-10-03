@@ -389,7 +389,8 @@ tick, the others the stats tick):
   number, a hint links to the FAQ page.
 - **Orders from people who chatted** (value, count, **See orders**: order
   number opening Shopify admin, date, total, amount added from the chat,
-  link to the chat) and **Orders from items added in chat**.
+  link to the chat, and the visitor's browser tag like `#04174e`, shown even
+  when that chat is gone) and **Orders from items added in chat**.
 - **Carts tab** (needs the carts tick): a headline "₹X in N carts, no
   order since", then everyone who had something in their cart when they
   last chatted, **newest first** (tap the **Cart** or **Last chatted**
