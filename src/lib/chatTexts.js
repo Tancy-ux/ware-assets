@@ -36,7 +36,7 @@ export const TEXTS = {
 
   // When the assistant can't answer (AI down or out of quota)
   fallback:
-    "So sorry, I'm having a little trouble answering right now. Our team would love to help though! Tap below to chat with them on WhatsApp.",
+    "So sorry, I'm having a little trouble answering right now. We'd love to help though! Tap below to chat with us on WhatsApp.",
 
   // "What should we call you?" box
   nameBoxTitle: "What should we call you?",
@@ -117,9 +117,9 @@ export const TEXTS = {
     "Thanks, {name}! Share your number, and one of our designers will call you.",
   bespokeWhatsApp: "Prefer WhatsApp? Chat with us instead",
   bespokeThanks:
-    "Wonderful, thank you {name}! One of our designers will call you shortly from +91 96196 20099 ({hours}). Do save the number so you know it's us.",
+    "Wonderful, thank you {name}! One of our designers will call you shortly from +91 98252 20088 ({hours}). Do save the number so you know it's us.",
   bespokeThanksNoName:
-    "Wonderful, thank you! One of our designers will call you shortly from +91 96196 20099 ({hours}). Do save the number so you know it's us.",
+    "Wonderful, thank you! One of our designers will call you shortly from +91 98252 20088 ({hours}). Do save the number so you know it's us.",
   bespokeLater:
     "Of course, no rush at all. Take your time with it, and whenever you'd like to talk it through, I'm right here.",
 

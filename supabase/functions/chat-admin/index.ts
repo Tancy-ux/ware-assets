@@ -375,9 +375,12 @@ function askedAbout(c: { topic?: string | null; first_question?: string | null; 
 
 // "Hide test and junk chats": ones the team named or labelled test / junk.
 const TEST_RE = /\b(test(ing)?|junk)\b/i;
-// Chats from the team's own site count too (source "internal").
+// Internal: from the team's own site (source "internal"), or a name with
+// "test" anywhere in it ("Tanu test", "test2", "Tester").
+const isInternal = (c: { visitor_name?: string | null; source?: string | null }) =>
+  c.source === "internal" || /test/i.test(c.visitor_name ?? "");
 const isTestChat = (c: { label?: string | null; visitor_name?: string | null; company?: string | null; source?: string | null }) =>
-  c.source === "internal" ||
+  isInternal(c) ||
   [c.label, c.visitor_name, c.company].some((s) => s && TEST_RE.test(s));
 
 const handleOf = (url: string) => url.match(/\/products\/([^/?#]+)/)?.[1] ?? "";
@@ -1440,8 +1443,8 @@ Deno.serve(async (req) => {
           interest: c.interest ?? null,
           device: c.device ?? null,
           cart: c.cart ?? null,
-          // From the team's own site, not a store visitor.
-          internal: c.source === "internal",
+          // From the team's own site or a test name, not a store visitor.
+          internal: isInternal(c),
         })),
       });
     }
@@ -1910,7 +1913,7 @@ Deno.serve(async (req) => {
         .or("visitor_phone.not.is.null,visitor_email.not.is.null")
         .order("last_message_at", { ascending: false })
         .limit(LIST_LIMIT)).data ?? [])
-        .filter((c) => c.source !== "internal" && !isTestChat(c));
+        .filter((c) => !isTestChat(c));
 
       // Group chats into people: any shared phone or email joins them.
       const parent = rows.map((_, i) => i);

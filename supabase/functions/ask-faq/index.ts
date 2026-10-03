@@ -1333,15 +1333,17 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const WHATSAPP_NUMBER = "+919082820610";
+// Ware Atelier's designers: their Enquire button and the number in replies.
+const ATELIER_NUMBER = "+919825220088";
 
 // Enquiries the team should follow up on personally (bulk / corporate /
 // custom / quotes / business orders / big quantities like "100 pcs").
 const FOLLOW_UP_WORDS =
   /\b(bulk|corporate|wholesale|custom(ised|ized|ise|ize)?|personali[sz]ed?|branding|logo|quote|quotation|hamper|horeca|hotel|restaurant|cafe|caf[eé]|b2b)\b|\b\d{2,}\s*(pcs|pieces|units|qty|nos|boxes|sets|gifts)\b|\b(qty|quantity)\s*(of\s*)?\d{2,}/i;
 
-const whatsAppLink = (text: string) =>
+const whatsAppLink = (text: string, phone = WHATSAPP_NUMBER) =>
   `https://api.whatsapp.com/send/?${new URLSearchParams({
-    phone: WHATSAPP_NUMBER,
+    phone,
     text,
     type: "phone_number",
     app_absent: "0",
@@ -1396,6 +1398,7 @@ const atelierEnquiryUrl = (title: string) =>
     // "The Cosmic Temple" -> "the Cosmic Temple", not "the The Cosmic Temple".
     `Hi! I'm interested in the ${title.replace(/^the\s+/i, "")} from Ware Atelier. ` +
       `Could you share pricing and customisation options?`,
+    ATELIER_NUMBER,
   );
 
 // e.g. "Hi! This is Priya from Fox Brains. I was chatting with the Ware
@@ -2319,7 +2322,7 @@ Deno.serve(async (req) => {
     }
     if (verdict === "global") {
       return toWhatsApp(
-        "So sorry, I'm having a little trouble answering right now. Our team would love to help though! Tap below to chat with them on WhatsApp.",
+        "So sorry, I'm having a little trouble answering right now. We'd love to help though! Tap below to chat with us on WhatsApp.",
       );
     }
 
@@ -2527,6 +2530,8 @@ A big number with no purpose given (for example "I need 80 mugs" or "100 plates"
 Reselling (they want to stock or resell Ware in their shop or business): ask them to send their business profile so our sales head can reach out, or to email hello@wareinnovations.com. Don't quote trade prices.
 
 4. Ask for a call. In the same reply where you first suggest options for a bulk enquiry (by then they've shared quantity or budget, plus timeline or city), end by asking if our team could give them a quick call to take it forward, and set "askForCall". If you didn't ask then, ask in your next reply. The app shows a short name and number form right under your reply, so don't ask them to type their number in the chat. Ask this only once in a chat; if they skip it, carry on helping without asking again.
+
+Speak as part of Ware. When you talk about the Ware team, our designers or the studio, say "we", "us" or "our team", never "they" or "them" (for example "we'll call you", "our team will share the pricing", "chat with us on WhatsApp", not "they'll call you" or "the team will get back to you"). "They" is only ever the customer's own people.
 
 How you sound. You're someone from the Ware studio who knows the pieces well and genuinely cares that each person finds the right thing. Your warmth comes from paying attention, not from pleasantries:
 - Respond to their actual situation, the way a thoughtful person would. Warm: "Diwali gifts for 100, lovely! Could you share your budget per gift and when you need them by?" or "The Lilo set is a favourite for gifting, it's small enough to use every day." Not warm, just filler: "Happy to help!", "Great question!", "Absolutely!", "Thanks for reaching out", or praising their question or choice. You're here to help; you don't need to announce it (except the one warm opening line when a bulk or corporate gifting enquiry starts, see above).
@@ -2841,15 +2846,15 @@ ${details || "(none)"}${
           ? "availability and timeline depend"
           : null;
         const reach = contactSaved
-          ? "and as you've shared your number, they'll call you shortly. You can also reach them on +91 96196 20099."
-          : `You can reach them on +91 96196 20099, or tap "Yes, call me" below and they'll call you shortly.`;
+          ? "and as you've shared your number, we'll call you shortly. You can also reach us on +91 98252 20088."
+          : `You can reach us on +91 98252 20088, or tap "Yes, call me" below and we'll call you shortly.`;
         answer = topic
           ? `Thank you for your interest in ${piece}! Each piece is made to order and customised for you, so its ${topic} on what you have in mind. One of our designers will share the details with you${
             contactSaved ? ", " : ". "
           }${reach}`
           : `Our designers would love to help with that! As ${piece} ${
             bespoke.count > 1 ? "are" : "is"
-          } made to order, they can talk you through it${
+          } made to order, we'd love to talk you through it${
             contactSaved ? ", " : ". "
           }${reach}`;
       } else {
@@ -2860,7 +2865,7 @@ ${details || "(none)"}${
           : `The ${title} is one of our bespoke pieces, and we're so glad it caught your eye!`;
         answer = `${piece} Each one is made to order, so one of our designers ` +
           "would love to hear what you have in mind and create something just " +
-          "for you. Would you like one of them to give you a call?";
+          "for you. Shall we give you a call?";
       }
       intent = "bespoke";
     }

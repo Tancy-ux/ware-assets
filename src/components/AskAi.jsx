@@ -124,9 +124,11 @@ const systemNote = (kind) =>
 // the person gets the team on WhatsApp instead of an error, with their
 // question already in the message. Same number as the ask-faq function.
 const WHATSAPP_NUMBER = "919082820610";
-const whatsAppUrl = (text) =>
+// Ware Atelier's designers ("Prefer WhatsApp?" under the call-back form).
+const ATELIER_NUMBER = "919825220088";
+const whatsAppUrl = (text, phone = WHATSAPP_NUMBER) =>
   `https://api.whatsapp.com/send/?${new URLSearchParams({
-    phone: WHATSAPP_NUMBER,
+    phone,
     text,
   })}`;
 // "Hi! I'm Priya. I was chatting with the assistant on your
@@ -1891,6 +1893,7 @@ const AskAi = ({
                 <a
                   href={whatsAppUrl(
                     `Hi! I'm interested in the ${m.bespokeForm.title.replace(/^the\s+/i, "")} from Ware Atelier. Could we talk about it?`,
+                    ATELIER_NUMBER,
                   )}
                   target="_blank"
                   rel="noopener noreferrer"

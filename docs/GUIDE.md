@@ -4,7 +4,7 @@ Everything this repository does, how the pieces fit, where every setting
 lives, and how to run, change and deploy it. Written for whoever maintains
 it next (and as a reference for the team).
 
-Last updated: 29 Sep 2026.
+Last updated: 3 Oct 2026.
 
 ---
 
@@ -45,6 +45,170 @@ logins, and two server functions (`ask-faq` and `chat-admin`).
  └────────────────────────────────────────────────────────────────────────┘
 ```
 
+The full picture (chatbot, FAQs and the Chats admin) is in **1a**.
+
+---
+
+## 1a. System design (chatbot, FAQs, admin)
+
+The Downloads / brand assets pages are left out here. The diagrams are
+Mermaid, so GitHub (and VS Code with a Mermaid preview) draws them.
+
+### The pieces
+
+```mermaid
+flowchart LR
+  subgraph Store["wareinnovations.com (Shopify, theme Motion)"]
+    W["ware-chat.js + snippet ware-chat.liquid<br/>(the chat, built from AskAi.jsx)"]
+    SC["Shopify cart<br/>/cart.js · /cart/add.js · /cart/update.js"]
+    TH["Theme cart drawer<br/>(listens for cart:build)"]
+  end
+
+  subgraph Site["Team site (GitHub Pages, React)"]
+    FAQ["FAQs page<br/>Faq.jsx + Ask AI"]
+    CH["Chats page (WareBot)<br/>ChatLogs · Stats · Contacts · Bot · Team"]
+  end
+
+  subgraph SB["Supabase 'Brand Assets'"]
+    AF["Edge function ask-faq<br/>(the bot)"]
+    CA["Edge function chat-admin<br/>(the admin API)"]
+    DB[("Postgres<br/>faqs · ai_guidelines(+versions)<br/>chat_conversations · chat_messages<br/>chat_users · quick replies · ai_usage")]
+  end
+
+  subgraph Ext["Outside services"]
+    GEM["Google Gemini<br/>(answers, drafts)"]
+    PJ["Shopify products.json<br/>(public catalogue)"]
+    SA["Shopify Admin API<br/>(read-only: orders, shipping zones)"]
+    IP["India Post pincode API"]
+    ZO["Zoho CRM (leads)"]
+    WA["WhatsApp (team number)"]
+  end
+
+  DOCS["FAQ docs → scripts/build-faqs.mjs"] --> DB
+
+  W -- "questions, contact, bespoke,<br/>polls 'updates'" --> AF
+  W -- "add to cart, save _ware_chat" --> SC
+  W -- "cart:build / cart:refresh" --> TH
+  W -. "handoff link" .-> WA
+
+  FAQ -- "read / edit FAQs" --> DB
+  FAQ -- "Ask AI (source = internal)" --> AF
+  CH -- "every action, with login token" --> CA
+
+  AF --> DB
+  AF --> GEM
+  AF --> PJ
+  AF --> SA
+  AF --> IP
+
+  CA --> DB
+  CA -- "AI reply (service role)" --> AF
+  CA -- "lead draft" --> GEM
+  CA -- "orders tagged _ware_chat" --> SA
+  CA -- "product search" --> PJ
+  CA -- "push lead (button only)" --> ZO
+```
+
+Who talks to what, in one line each:
+
+- **The chat on the store** only ever talks to `ask-faq` (and to the
+  shopper's own Shopify cart). It never sees a key or the database.
+- **The team site** reads FAQs straight from the database (row-level
+  security), and does everything on the Chats page through `chat-admin`.
+- **`ask-faq`** is the only place the bot's prompt and rules live. It's
+  public, so it checks the origin, caps message length and rate-limits.
+- **`chat-admin`** checks the login and the person's permissions on every
+  call, then reads / writes with the service role. It's the only thing that
+  talks to Zoho and reads orders.
+- **Shopify is read-only** for both functions. The only writes to Shopify
+  are the shopper's own browser adding to their own cart.
+
+### A shopper asks a question
+
+```mermaid
+sequenceDiagram
+  actor S as Shopper
+  participant W as Chat (ware-chat.js)
+  participant AF as ask-faq
+  participant DB as Postgres
+  participant G as Gemini
+  S->>W: types a question
+  W->>AF: question + visitor id + page + history
+  AF->>DB: taken over by the team?
+  alt team has the chat
+    AF->>DB: save the message for the team
+    AF-->>W: "the team will reply here"
+  else bot answers
+    AF->>DB: rate check (ai_usage)
+    AF->>DB: FAQs + enabled guidelines (cached)
+    AF->>AF: catalogue (cached), shortlist, pincode / gifting facts
+    AF->>G: prompt → JSON reply (model fallbacks)
+    AF->>AF: decide cards, links, forms, Atelier offer
+    AF->>DB: log turn (chat_conversations / chat_messages)
+    AF-->>W: answer + product cards + extras
+  end
+  W-->>S: reply bubble, cards, buttons
+```
+
+### The team takes over and replies
+
+```mermaid
+sequenceDiagram
+  actor T as Team (WareBot)
+  participant CA as chat-admin
+  participant AF as ask-faq
+  participant DB as Postgres
+  participant W as Chat on the store
+  T->>CA: list (every 30 s) / messages
+  CA->>DB: chats, needs-reply, products seen
+  T->>CA: takeover
+  CA->>DB: takeover_at = now (bot goes quiet)
+  opt AI reply button
+    T->>CA: ai-reply
+    CA->>AF: latest question + history (teamDraft)
+    AF-->>CA: draft text + products
+    CA-->>T: draft in the box (team edits it)
+  end
+  T->>CA: reply (text + picked products)
+  CA->>DB: save as sender = agent
+  W->>AF: updates (polling)
+  AF->>DB: new team messages
+  AF-->>W: team reply + live product cards
+```
+
+### From chat to lead and order
+
+```mermaid
+flowchart LR
+  A["Shopper leaves name + number<br/>(contact form / call request)"] --> B["ask-faq saves it on<br/>chat_conversations"]
+  B --> C["WareBot Lead card<br/>(Draft = Gemini, team edits)"]
+  C -- "Push to Zoho (zoho permission)" --> D["Zoho CRM lead"]
+  E["Shopper adds to cart from the chat<br/>(_via line property)"] --> F["cart attribute _ware_chat<br/>= chat id"]
+  F --> G["Order placed"]
+  G -- "chat-admin reads orders (read-only)" --> H["Stats: orders from chats,<br/>Visitor column, Carts"]
+```
+
+### Logins and permissions
+
+- Team signs in on the Chats page with their @wareinnovations.com Google
+  account (or the owner's backup password). `chat-admin` checks the email
+  against `chat_users` and returns a signed token; every later call carries
+  it, and the person's permissions are looked up again on each call, so
+  changes in Team apply straight away.
+- Each action needs a permission (`ACTION_NEEDS` in `chat-admin`):
+  `reply`, `edit`, `draft`, `aireply`, `zoho`, `delete`, `stats`, `carts`,
+  `people` (Contacts tab), `contacts` (see phone / email), `users`. The owner
+  has all of them.
+
+### Where the cost and limits sit
+
+| Piece | Paid for | Limits |
+| --- | --- | --- |
+| Gemini | per token (spend cap Rs 1,000 / month) | rate limits in `ai_usage`; model fallbacks |
+| Supabase | free plan | 1000 rows per query (paged with `.range()`) |
+| GitHub Pages | free | static site only |
+| Shopify / Zoho / India Post | existing accounts / free | read-only Shopify; Zoho only on a button click |
+
 ---
 
 ## 2. Live addresses, accounts and where things are
@@ -58,8 +222,8 @@ logins, and two server functions (`ask-faq` and `chat-admin`).
 | Functions | `https://lauvnmdepcdjxilglubn.supabase.co/functions/v1/ask-faq` and `/chat-admin` |
 | Gemini | Google AI Studio (billing on, Tier 1, monthly spend cap Rs 1,000) |
 | Zoho CRM | India data centre: `zoho.in` / `zohoapis.in` / `crm.zoho.in` |
-| WhatsApp (team) | +91 90828 20610 (handoff button, fallback, Atelier enquiries) |
-| Designer call-back number shown to Atelier leads | +91 96196 20099 |
+| WhatsApp (team) | +91 90828 20610 (handoff button, fallback) |
+| Ware Atelier (designers) | +91 98252 20088: shown in Atelier replies and the call-back thanks; the Atelier **Enquire** button and "Prefer WhatsApp?" open WhatsApp to it |
 | Team hours shown in the chat | Mon–Sat, 10 am – 7 pm |
 | Store address (bot + map link) | Raghuvanshi Mills Compound, Senapati Bapat Marg, Lower Parel West, Mumbai 400013 · [Google Maps](https://maps.app.goo.gl/xvfFKjgKcb9agCtc6) |
 
@@ -263,7 +427,8 @@ to the customer in Shopify admin) and fill empty phone / email in the lead
 card. Masked like other contacts for logins without "contacts".
 
 **Internal chats**: chats started from this site's Ask AI (or a local test)
-are saved with `source = internal`, tagged **Internal** and shown only under
+are saved with `source = internal`; those and any chat whose name has "test"
+anywhere in it ("Tanu test", "Tester") are tagged **Internal** and shown only under
 the Internal filter (hidden when there are none), never in Needs reply /
 Leads / All; Stats counts them with the test chats.
 
@@ -528,14 +693,14 @@ mind, as it's made to order) and gives the designers' number, e.g. *"Thank
 you for your interest in the Cosmic Temple! Each piece is made to order and
 customised for you, so its price and availability depend on what you have
 in mind. One of our designers will share the details with you. You can
-reach them on +91 96196 20099, or tap "Yes, call me" below…"*. The
+reach us on +91 98252 20088, or tap "Yes, call me" below…"*. The
 catalogue link and Yes / Not now still show; the piece's card doesn't
 (it was shown with the offer). (`followUp` on the bot's
 `bespoke` reply; the chat shows the bot's text for it.) Names starting with
 "The" aren't doubled ("the Cosmic Temple", in the WhatsApp texts too).
 
 - **Yes, call me** → name + number form (and "Prefer WhatsApp?") → *"One of
-  our designers will call you shortly from +91 96196 20099 (Mon–Sat, 10 am –
+  our designers will call you shortly from +91 98252 20088 (Mon–Sat, 10 am –
   7 pm). Do save the number…"*
 - **Not now** → *"Of course, no rush at all…"*
 - General bespoke questions get a short AI reply plus the catalogue link.
@@ -937,6 +1102,10 @@ For a typed message:
 Intents: `recommend`, `product`, `gift_packaging`, `call_request`, `human`,
 `general`.
 
+Speaking as Ware: the bot and the chat's fixed texts call the team "we",
+"us" or "our team" ("we'll call you", "chat with us on WhatsApp"), never
+"they" / "them".
+
 Not repeating itself: the prompt tells the model to carry forward what
 they've said, never restate earlier replies, and when the same question
 comes again, confirm in a line ("Just to confirm, …") and move them on
@@ -952,9 +1121,11 @@ takeover poll), `reset`, `contact` (name + phone), `name`, `similar`
 `shipping-debug` (service role only: zones and one pincode's note),
 `tidy` (team only, AI).
 
-`chat-admin` actions: `login`, `list`, `search`, `messages`, `takeover`,
-`reply`, `label`, `delete`, `results` (Stats), `lead-options`,
-`lead-draft` (AI), `lead-save`, `lead-push`.
+`chat-admin` actions: `login`, `me`, `list`, `search`, `messages`,
+`takeover`, `reply`, `label`, `delete`, `results` (Stats), `products`,
+`gaps`, `contacts`, `product-search`, `ai-reply` (AI, through `ask-faq`),
+`quick-list` / `quick-save` / `quick-delete`, `users-list` / `user-save` /
+`user-delete`, `lead-options`, `lead-draft` (AI), `lead-save`, `lead-push`.
 
 The prompt's business rules (all in `ask-faq/index.ts`): stay on Ware
 topics, no invented discounts, overseas prices from the team, >20 pieces
