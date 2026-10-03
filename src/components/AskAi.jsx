@@ -306,8 +306,8 @@ const splitTitle = (title) => {
 };
 
 // On the Shopify store itself (the customer widget), Add to cart goes
-// through the store's cart API, so the shopper stays in the chat. The
-// theme's cart count catches up on their next page.
+// through the store's cart API, so the shopper stays in the chat; then the
+// theme is told to refresh its cart drawer and count (see refreshThemeCart).
 const storeRoot = () =>
   typeof window !== "undefined" && window.Shopify
     ? (window.Shopify.routes?.root ?? "/")
@@ -325,6 +325,17 @@ const addToStoreCart = async (root, cartUrl) => {
     }),
   });
   if (!res.ok) throw new Error(`Cart add failed: ${res.status}`);
+  refreshThemeCart();
+};
+
+// Tells the theme the cart changed, so its drawer and header count show the
+// new item without a page reload. Ware's theme (Motion, by Archetype)
+// rebuilds on "cart:build"; "cart:refresh" is what many other themes and
+// apps listen for. Doesn't open the drawer (they're still in the chat).
+const refreshThemeCart = () => {
+  for (const name of ["cart:build", "cart:refresh"]) {
+    document.dispatchEvent(new CustomEvent(name, { bubbles: true }));
+  }
 };
 
 // Once they've used the chat, their cart gets a hidden attribute with the

@@ -697,6 +697,16 @@ CSS inside before (`0%,` in keyframes became `0,`, `@supports` lost its
   The underscore hides both from the cart and checkout. Because of the
   property, the same product added from the chat and from its page shows as
   two cart lines.
+- After adding, the chat fires **`cart:build`** (what the Motion theme's
+  drawer listens for) and `cart:refresh` (other themes/apps), so the cart
+  drawer and header count update without a reload. It doesn't open the
+  drawer.
+
+How often the chat reads the cart: `/cart.js` once per message it logs
+(the cart summary on the Chats page) and `/cart/update.js` once per page
+view (the `_ware_chat` tag). The `/cart.js` call every 5 seconds seen on
+the store is the theme's free-shipping bar script (`updateShippingMessage`
+with `setInterval(…, 5000)`), not the chat.
 
 The chat never writes anything else to the store. (The claude.ai Shopify
 connector, if used for maintenance, is read-only by rule.)
