@@ -1334,7 +1334,7 @@ const UUID_RE =
 
 const WHATSAPP_NUMBER = "+919082820610";
 // Ware Atelier's designers: their Enquire button and the number in replies.
-const ATELIER_NUMBER = "+919825220088";
+const ATELIER_NUMBER = "+919619620099";
 
 // Enquiries the team should follow up on personally (bulk / corporate /
 // custom / quotes / business orders / big quantities like "100 pcs").
@@ -2846,8 +2846,8 @@ ${details || "(none)"}${
           ? "availability and timeline depend"
           : null;
         const reach = contactSaved
-          ? "and as you've shared your number, we'll call you shortly. You can also reach us on +91 98252 20088."
-          : `You can reach us on +91 98252 20088, or tap "Yes, call me" below and we'll call you shortly.`;
+          ? "and as you've shared your number, we'll call you shortly. You can also reach us on +91 96196 20099."
+          : `You can reach us on +91 96196 20099, or tap "Yes, call me" below and we'll call you shortly.`;
         answer = topic
           ? `Thank you for your interest in ${piece}! Each piece is made to order and customised for you, so its ${topic} on what you have in mind. One of our designers will share the details with you${
             contactSaved ? ", " : ". "

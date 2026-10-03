@@ -223,7 +223,7 @@ flowchart LR
 | Gemini | Google AI Studio (billing on, Tier 1, monthly spend cap Rs 1,000) |
 | Zoho CRM | India data centre: `zoho.in` / `zohoapis.in` / `crm.zoho.in` |
 | WhatsApp (team) | +91 90828 20610 (handoff button, fallback) |
-| Ware Atelier (designers) | +91 98252 20088: shown in Atelier replies and the call-back thanks; the Atelier **Enquire** button and "Prefer WhatsApp?" open WhatsApp to it |
+| Ware Atelier (designers) | +91 96196 20099: shown in Atelier replies and the call-back thanks; the Atelier **Enquire** button and "Prefer WhatsApp?" open WhatsApp to it |
 | Team hours shown in the chat | Mon–Sat, 10 am – 7 pm |
 | Store address (bot + map link) | Raghuvanshi Mills Compound, Senapati Bapat Marg, Lower Parel West, Mumbai 400013 · [Google Maps](https://maps.app.goo.gl/xvfFKjgKcb9agCtc6) |
 
@@ -693,14 +693,14 @@ mind, as it's made to order) and gives the designers' number, e.g. *"Thank
 you for your interest in the Cosmic Temple! Each piece is made to order and
 customised for you, so its price and availability depend on what you have
 in mind. One of our designers will share the details with you. You can
-reach us on +91 98252 20088, or tap "Yes, call me" below…"*. The
+reach us on +91 96196 20099, or tap "Yes, call me" below…"*. The
 catalogue link and Yes / Not now still show; the piece's card doesn't
 (it was shown with the offer). (`followUp` on the bot's
 `bespoke` reply; the chat shows the bot's text for it.) Names starting with
 "The" aren't doubled ("the Cosmic Temple", in the WhatsApp texts too).
 
 - **Yes, call me** → name + number form (and "Prefer WhatsApp?") → *"One of
-  our designers will call you shortly from +91 98252 20088 (Mon–Sat, 10 am –
+  our designers will call you shortly from +91 96196 20099 (Mon–Sat, 10 am –
   7 pm). Do save the number…"*
 - **Not now** → *"Of course, no rush at all…"*
 - General bespoke questions get a short AI reply plus the catalogue link.

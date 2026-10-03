@@ -125,7 +125,7 @@ const systemNote = (kind) =>
 // question already in the message. Same number as the ask-faq function.
 const WHATSAPP_NUMBER = "919082820610";
 // Ware Atelier's designers ("Prefer WhatsApp?" under the call-back form).
-const ATELIER_NUMBER = "919825220088";
+const ATELIER_NUMBER = "919619620099";
 const whatsAppUrl = (text, phone = WHATSAPP_NUMBER) =>
   `https://api.whatsapp.com/send/?${new URLSearchParams({
     phone,
