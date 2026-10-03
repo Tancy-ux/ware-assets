@@ -26,6 +26,7 @@ import { toast } from "react-toastify";
 import { supabase } from "./supabase";
 import { callAskFaq } from "../lib/askFaq";
 import { TEXTS, fillText } from "../lib/chatTexts";
+import { WARE_MARK } from "./wareMark";
 import AiGuidelines from "./AiGuidelines";
 import RestockForm from "./RestockForm";
 import ContactCard from "./ContactCard";
@@ -1393,70 +1394,78 @@ const AskAi = ({
       className={`faq-chat-popup ${open ? "faq-chat-popup-open" : ""} ${isExpanded ? "faq-chat-popup-expanded" : ""}`}
     >
       {customer ? (
-        // The store's header: minimise on the left, name centred, and a
-        // small menu for starting over / full screen.
+        // The store's header: the Ware mark, the name with "Online · …"
+        // under it, and on the right a small menu (start over / full screen)
+        // and close.
         <div className="faq-chat-header ware-chat-header">
-          <button
-            type="button"
-            onClick={onClose}
-            className="faq-icon-btn"
-            aria-label="Minimise chat"
-          >
-            <ChevronDown size={20} />
-          </button>
+          <span className="ware-chat-logo" aria-hidden="true">
+            <img src={WARE_MARK} alt="" />
+          </span>
           <div className="ware-chat-heading">
             <span className="ware-chat-name">{TEXTS.title}</span>
-            {/* "Mon–Sat, 10 am – 7 pm" */}
-            {TEXTS.subtitle && (
-              <span className="ware-chat-sub">{fillText(TEXTS.subtitle)}</span>
+            {/* The bot answers any time, so always online. */}
+            {TEXTS.status && (
+              <span className="ware-chat-status">
+                {fillText(TEXTS.status)}
+              </span>
             )}
           </div>
-          <div className="ware-chat-menu-wrap">
+          <div className="ware-chat-actions">
+            <div className="ware-chat-menu-wrap">
+              <button
+                type="button"
+                onClick={() => setMenuOpen((v) => !v)}
+                className="faq-icon-btn"
+                aria-label="More options"
+                aria-expanded={menuOpen}
+              >
+                <MoreHorizontal size={20} />
+              </button>
+              {menuOpen && (
+                // Tapping anywhere else closes the menu.
+                <div
+                  className="ware-chat-menu-backdrop"
+                  onClick={() => setMenuOpen(false)}
+                  aria-hidden="true"
+                />
+              )}
+              {menuOpen && (
+                <div className="ware-chat-menu" role="menu">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={messages.length === 0}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      clearChat();
+                    }}
+                  >
+                    <Trash2 size={14} />
+                    {TEXTS.menuNewChat}
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="ware-chat-menu-expand"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      toggleExpanded(!expanded);
+                    }}
+                  >
+                    {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                    {expanded ? TEXTS.menuSmaller : TEXTS.menuFullScreen}
+                  </button>
+                </div>
+              )}
+            </div>
             <button
               type="button"
-              onClick={() => setMenuOpen((v) => !v)}
+              onClick={onClose}
               className="faq-icon-btn"
-              aria-label="More options"
-              aria-expanded={menuOpen}
+              aria-label="Close chat"
             >
-              <MoreHorizontal size={20} />
+              <X size={20} />
             </button>
-            {menuOpen && (
-              // Tapping anywhere else closes the menu.
-              <div
-                className="ware-chat-menu-backdrop"
-                onClick={() => setMenuOpen(false)}
-                aria-hidden="true"
-              />
-            )}
-            {menuOpen && (
-              <div className="ware-chat-menu" role="menu">
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={messages.length === 0}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    clearChat();
-                  }}
-                >
-                  <Trash2 size={14} />
-                  {TEXTS.menuNewChat}
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="ware-chat-menu-expand"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    toggleExpanded(!expanded);
-                  }}
-                >
-                  {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-                  {expanded ? TEXTS.menuSmaller : TEXTS.menuFullScreen}
-                </button>
-              </div>
-            )}
           </div>
         </div>
       ) : (

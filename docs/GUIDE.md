@@ -449,9 +449,15 @@ The product is detected from the URL (`/products/<handle>`), then
 
 ### 5.2 Opening the chat
 
-Header: minimise (⌄), "Ware concierge" with "Team online · Mon–Sat, 10 am
-– 7 pm" under it (`subtitle` and `teamHours` in the snippet's texts), and a
-⋯ menu (**Start a new chat**; full screen on desktop only).
+Header: the Ware mark (white wordmark on a terracotta circle, built into
+`ware-chat.js` from `public/ware-white-transparent.png`, see
+`src/components/wareMark.js`), "Ware concierge" with "Online · usually
+replies in minutes" under it (`status` in the snippet's texts; the bot
+answers any time, so there's no away state), and on the right a ⋯ menu
+(**Start a new chat**; full screen on desktop only) and ✕ to close.
+
+Text colours (snippet's EASY EDITS): `--ware-ink` #565656 for everything
+dark, `--ware-reply-ink` #3d3d3d for the concierge's and team's replies.
 
 Two sets of hours: the **team** (chat, WhatsApp, calls) is Mon–Sat 10 am –
 7 pm; the **store** in Lower Parel (visits, pickup) is Mon–Sat 10:30 am –
