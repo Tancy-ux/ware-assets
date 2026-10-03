@@ -31,6 +31,8 @@
       // Closed chat and header
       pill: "Need help choosing?",
       title: "Ware concierge",
+      // The small line under the title ({hours} = teamHours below; "" for none)
+      subtitle: "Team online · {hours}",
       inputPlaceholder: "Ask about a piece",
       menuNewChat: "Start a new chat",
       menuFullScreen: "Full screen",
@@ -1374,6 +1376,13 @@
       font-weight: 500;
       line-height: 1.15;
       color: var(--ware-ink);
+    }
+    /* The hours under the title */
+    .ware-chat-sub {
+      font-family: var(--ware-sans);
+      font-size: 12px;
+      line-height: 1.2;
+      color: #8a7f76;
     }
     .ware-chat-root .ware-chat-header .faq-icon-btn {
       width: 36px;

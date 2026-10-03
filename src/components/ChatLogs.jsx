@@ -278,8 +278,14 @@ const ChatLogs = () => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [leadOpen, setLeadOpen] = useState(true);
   const [infoOpen, setInfoOpen] = useState(false);
+  // The side panel's "Right now" (page, cart, device…): folded by default.
+  const [visitorOpen, setVisitorOpen] = useState(false);
   // "Products seen" past the first SEEN_SHOWN (closed again per chat).
   const [allSeen, setAllSeen] = useState(false);
+  // "Products seen" in the side panel: open while the AI has the chat,
+  // folded once the team takes over ("Send a product" lists them then).
+  // null = that default; a click overrides it for this chat.
+  const [seenOpen, setSeenOpen] = useState(null);
   // The open chat's transcript scrolls inside its own box: kept at the
   // newest message, unless they've scrolled up to read (then it stays put
   // while new messages come in).
@@ -426,6 +432,7 @@ const ChatLogs = () => {
     setReplyProducts([]);
     setMenuOpen(false);
     setAllSeen(false);
+    setSeenOpen(null);
     // The contact form starts collapsed while there's nothing in it.
     const conv = conversations.find((c) => c.id === id);
     setLeadOpen(
@@ -822,6 +829,7 @@ const ChatLogs = () => {
   }
 
   const warmth = selected && warmthOf(selected);
+  const seenShown = seenOpen ?? !selected?.takeover;
 
   const NAV = [
     { id: "conversations", label: "Conversations", icon: MessagesSquare, show: true },
@@ -1371,8 +1379,10 @@ const ChatLogs = () => {
 
               {selected.takeover && can("reply") ? (
                 <>
-                {/* Above the box: AI reply, + Product, and the products going
-                    with the reply as cards (✕ leaves one out). */}
+                {/* Above the box: AI reply and the products going with the
+                    reply as cards (from AI reply or the side panel's "Send a
+                    product"; ✕ leaves one out). Nothing when there's neither. */}
+                {(can("aireply") || replyProducts.length > 0) && (
                 <div className="chats-reply-tools">
                   {/* Its own tick (one AI answer per click). */}
                   {can("aireply") && (
@@ -1387,15 +1397,6 @@ const ChatLogs = () => {
                       <span>{drafting ? "Writing…" : "AI reply"}</span>
                     </button>
                   )}
-                  <ChatProductPicker
-                    api={api}
-                    picked={replyProducts}
-                    onPick={(p) =>
-                      setReplyProducts((prev) =>
-                        prev.some((x) => x.url === p.url) ? prev : [...prev, p].slice(0, 6),
-                      )
-                    }
-                  />
                   {replyProducts.map((p) => (
                     <span key={p.url} className="chats-reply-pick">
                       {p.image && <img src={`${p.image}${p.image.includes("?") ? "&" : "?"}width=80`} alt="" />}
@@ -1416,6 +1417,7 @@ const ChatLogs = () => {
                     </span>
                   ))}
                 </div>
+                )}
                 <form className="chats-reply" onSubmit={sendReply}>
                   <ChatQuickReplies
                     api={api}
@@ -1495,8 +1497,21 @@ const ChatLogs = () => {
               </p>
             </div>
 
-            <div className="chats-info-section">
-              <div className="chats-info-title">Right now</div>
+            <div className="chats-info-section chats-lead">
+              <button
+                type="button"
+                className="chats-lead-bar"
+                onClick={() => setVisitorOpen((o) => !o)}
+                aria-expanded={visitorOpen}
+              >
+                <span className="chats-info-title">Right now</span>
+                {/* Folded: their cart, if there's something in it. */}
+                {!visitorOpen && selected.cart && !/^empty$/i.test(selected.cart) && (
+                  <span className="chats-lead-status">Cart {selected.cart}</span>
+                )}
+                {visitorOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+              </button>
+              {visitorOpen && (
               <dl className="chats-info-rows">
                 <InfoRow
                   label="Page"
@@ -1539,6 +1554,7 @@ const ChatLogs = () => {
                 <InfoRow label="Days chatted" value={daysChatted} />
                 <InfoRow label="Last active" value={timeAgo(selected.lastMessageAt)} />
               </dl>
+              )}
             </div>
 
             <LeadCard
@@ -1555,8 +1571,20 @@ const ChatLogs = () => {
             />
 
             {productsSeen.length > 0 && (
-              <div className="chats-info-section">
-                <div className="chats-info-title">Products seen</div>
+              <div className="chats-info-section chats-lead">
+                <button
+                  type="button"
+                  className="chats-lead-bar"
+                  onClick={() => setSeenOpen(!seenShown)}
+                  aria-expanded={seenShown}
+                >
+                  <span className="chats-info-title">
+                    Products seen <span className="chats-seen-count">{productsSeen.length}</span>
+                  </span>
+                  {seenShown ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                </button>
+                {seenShown && (
+                <>
                 <ul className="chats-seen">
                   {(allSeen ? productsSeen : productsSeen.slice(0, SEEN_SHOWN)).map((p) => (
                     <li key={p.url}>
@@ -1587,7 +1615,34 @@ const ChatLogs = () => {
                     {allSeen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                   </button>
                 )}
+                </>
+                )}
               </div>
+            )}
+
+            {/* While replying: products to send with the reply. Before a
+                search, the ones they've been shown in this chat (newest
+                first, in stock). */}
+            {selected.takeover && can("reply") && (
+              <ChatProductPicker
+                // Its own key: the LeadCard beside it is keyed by the chat id.
+                key={`picker-${selected.id}`}
+                api={api}
+                picked={replyProducts}
+                suggestions={[...productsSeen]
+                  .reverse()
+                  .filter((p) => p.available !== false)
+                  .slice(0, 5)
+                  .map((p) => ({
+                    ...p,
+                    price: p.price ? p.price.replace(/^Rs\.?\s*/, "₹") : null,
+                  }))}
+                onPick={(p) =>
+                  setReplyProducts((prev) =>
+                    prev.some((x) => x.url === p.url) ? prev : [...prev, p].slice(0, 6),
+                  )
+                }
+              />
             )}
           </aside>
         )}

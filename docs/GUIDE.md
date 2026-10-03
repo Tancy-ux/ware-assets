@@ -449,8 +449,13 @@ The product is detected from the URL (`/products/<handle>`), then
 
 ### 5.2 Opening the chat
 
-Header: minimise (⌄), "Ware concierge", and a ⋯ menu (**Start a new chat**;
-full screen on desktop only). Welcome message and four suggestion chips:
+Header: minimise (⌄), "Ware concierge" with "Team online · Mon–Sat, 10 am
+– 7 pm" under it (`subtitle` and `teamHours` in the snippet's texts), and a
+⋯ menu (**Start a new chat**; full screen on desktop only).
+
+Two sets of hours: the **team** (chat, WhatsApp, calls) is Mon–Sat 10 am –
+7 pm; the **store** in Lower Parel (visits, pickup) is Mon–Sat 10:30 am –
+7 pm, as the FAQs say. The bot's prompt keeps them apart. Welcome message and four suggestion chips:
 "Gift ideas below ₹2,500", "Gifts below ₹5,000", "Bulk or corporate
 gifting", "How long does delivery take?". The conversation is kept in the
 browser, so it's still there on the next page.
@@ -509,6 +514,19 @@ piece: *"The Cosmic Temple is one of our bespoke pieces, and we're so glad
 it caught your eye! … Shall we give you a call?"* with the piece's card,
 **Browse our bespoke catalogue ↗** (the Atelier PDF), and **Yes, call me** /
 **Not now**.
+
+Once that offer has been made in the chat, a later question about the
+piece isn't answered with the same text again: the reply thanks them,
+answers in general terms (price / availability depend on what they have in
+mind, as it's made to order) and gives the designers' number, e.g. *"Thank
+you for your interest in the Cosmic Temple! Each piece is made to order and
+customised for you, so its price and availability depend on what you have
+in mind. One of our designers will share the details with you. You can
+reach them on +91 96196 20099, or tap "Yes, call me" below…"*. The
+catalogue link and Yes / Not now still show; the piece's card doesn't
+(it was shown with the offer). (`followUp` on the bot's
+`bespoke` reply; the chat shows the bot's text for it.) Names starting with
+"The" aren't doubled ("the Cosmic Temple", in the WhatsApp texts too).
 
 - **Yes, call me** → name + number form (and "Prefer WhatsApp?") → *"One of
   our designers will call you shortly from +91 96196 20099 (Mon–Sat, 10 am –
@@ -902,6 +920,15 @@ For a typed message:
 
 Intents: `recommend`, `product`, `gift_packaging`, `call_request`, `human`,
 `general`.
+
+Not repeating itself: the prompt tells the model to carry forward what
+they've said, never restate earlier replies, and when the same question
+comes again, confirm in a line ("Just to confirm, …") and move them on
+(e.g. "the form is right below this message") instead of rewording the
+same answer. The team's hours are mentioned at most once a chat. The one
+fixed text that replaces an AI reply (the Ware Atelier offer) is only used
+the first time; later questions about the piece get a follow-up answer
+(see 5.5).
 
 Other `ask-faq` modes (no AI unless noted): `updates` (team replies /
 takeover poll), `reset`, `contact` (name + phone), `name`, `similar`

@@ -1,19 +1,18 @@
-import { useEffect, useRef, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, Plus, Search, X } from "lucide-react";
 
-// "+ Product" in the reply box: search the store's products by name (no
-// AI) and add one to send with the reply as a card. From chat-admin's
-// "product-search".
-const ChatProductPicker = ({ api, picked, onPick, max = 6 }) => {
-  const [open, setOpen] = useState(false);
+// "Send a product" in the side panel of a taken-over chat: tap one to send
+// it with the reply as a card (it shows above the reply box). Before a
+// search, `suggestions` (what they've been shown in this chat); a search
+// covers the whole store by name (no AI; chat-admin's "product-search").
+const ChatProductPicker = ({ api, picked, onPick, suggestions = [], max = 6 }) => {
   const [query, setQuery] = useState("");
   const [result, setResult] = useState({ query: "", products: [] });
-  const box = useRef(null);
 
   // Searches a moment after they stop typing.
   useEffect(() => {
     const q = query.trim();
-    if (!open || q.length < 2) return;
+    if (q.length < 2) return;
     let cancelled = false;
     const timer = setTimeout(() => {
       api({ action: "product-search", query: q }).then((res) => {
@@ -24,97 +23,78 @@ const ChatProductPicker = ({ api, picked, onPick, max = 6 }) => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [api, open, query]);
-
-  // Closes on a click outside or Escape.
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e) => {
-      if (box.current && !box.current.contains(e.target)) setOpen(false);
-    };
-    const onKey = (e) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  }, [api, query]);
 
   const q = query.trim();
-  const loading = q.length >= 2 && result.query !== q;
+  const searching = q.length >= 2;
+  const loading = searching && result.query !== q;
   const full = picked.length >= max;
+  const list = searching ? result.products : suggestions;
+
+  const item = (p) => {
+    const added = picked.some((x) => x.url === p.url);
+    return (
+      <button
+        key={p.url}
+        type="button"
+        className="chats-picker-item"
+        disabled={added || full}
+        onClick={() => onPick(p)}
+        title={added ? "Added to your reply" : "Send with your reply"}
+      >
+        <span className="chats-start-img">
+          {p.image && (
+            <img
+              src={`${p.image}${p.image.includes("?") ? "&" : "?"}width=80`}
+              alt=""
+              loading="lazy"
+            />
+          )}
+        </span>
+        <span>
+          {p.title}
+          <small>{[p.price, p.available === false && "Sold out"].filter(Boolean).join(" · ")}</small>
+        </span>
+        {added ? <Check size={14} /> : <Plus size={14} />}
+      </button>
+    );
+  };
 
   return (
-    <div className="chats-quick" ref={box}>
-      <button
-        type="button"
-        className={`chats-btn chats-add-product${open ? " chats-quick-on" : ""}`}
-        onClick={() => setOpen((o) => !o)}
-        title="Add a product card to your reply"
-      >
-        <Plus size={14} />
-        <span>Product</span>
-      </button>
-      {open && (
-        <div className="chats-quick-pop chats-picker-pop" role="dialog" aria-label="Add a product">
-          <h4>Add a product to your reply</h4>
-          <div className="chats-search chats-picker-search">
-            <Search size={14} />
-            <input
-              autoFocus
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search products, e.g. pod cup nude"
-            />
-          </div>
-          <div className="chats-picker-list">
-            {q.length < 2 ? (
-              <p className="chats-results-note">Type at least 2 letters.</p>
-            ) : loading ? (
-              <p className="chats-results-note">Searching…</p>
-            ) : !result.products.length ? (
-              <p className="chats-results-note">No products match.</p>
-            ) : (
-              result.products.map((p) => {
-                const added = picked.some((x) => x.url === p.url);
-                return (
-                  <button
-                    key={p.url}
-                    type="button"
-                    className="chats-picker-item"
-                    disabled={added || full}
-                    onClick={() => {
-                      onPick(p);
-                      setOpen(false);
-                      setQuery("");
-                    }}
-                  >
-                    <span className="chats-start-img">
-                      {p.image && (
-                        <img
-                          src={`${p.image}${p.image.includes("?") ? "&" : "?"}width=80`}
-                          alt=""
-                          loading="lazy"
-                        />
-                      )}
-                    </span>
-                    <span>
-                      {p.title}
-                      <small>
-                        {[p.price, !p.available && "Sold out", added && "Added"]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </small>
-                    </span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-          {full && <p className="chats-results-note">Up to {max} products per reply.</p>}
+    <div className="chats-info-section chats-picker">
+      <div className="chats-info-title">Send a product</div>
+      <div className="chats-search chats-picker-search">
+        <Search size={14} />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search products, e.g. pod cup nude"
+        />
+        {query && (
+          <button type="button" onClick={() => setQuery("")} aria-label="Clear search">
+            <X size={13} />
+          </button>
+        )}
+      </div>
+      {searching ? (
+        <div className="chats-picker-list">
+          {loading ? (
+            <p className="chats-results-note">Searching…</p>
+          ) : !list.length ? (
+            <p className="chats-results-note">No products match.</p>
+          ) : (
+            list.map(item)
+          )}
         </div>
+      ) : (
+        list.length > 0 && (
+          <div className="chats-picker-list">
+            <p className="chats-picker-label">Shown in this chat</p>
+            {list.map(item)}
+          </div>
+        )
       )}
+      {full && <p className="chats-results-note">Up to {max} products per reply.</p>}
     </div>
   );
 };

@@ -4361,3 +4361,47 @@
 .chats-results-orders td > .chats-carts-tag:first-child {
   margin-left: 0;
 }
+
+/* ---------- Side panel: Send a product, Right now folded (Oct 2026) ---------- */
+.chats-picker .chats-picker-search {
+  width: auto;
+  margin: 8px 0 0;
+  border-radius: 8px;
+  background: #f7f7f4;
+}
+.chats-picker .chats-picker-list {
+  max-height: 300px;
+  margin-top: 6px;
+}
+.chats-picker .chats-picker-item {
+  padding: 6px 4px;
+}
+.chats-picker .chats-picker-item > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+.chats-picker .chats-picker-item > svg {
+  flex: none;
+  color: var(--chats-accent);
+}
+.chats-info-rows {
+  margin-top: 10px;
+}
+
+.chats-picker-label {
+  margin: 4px 0 2px;
+  font-size: 12px;
+  color: var(--chats-text-muted);
+}
+.chats-lead > .chats-seen {
+  margin-top: 10px;
+}
+/* "PRODUCTS SEEN 3": the count on the same line, a little quieter. */
+.chats-seen-count {
+  margin-left: 4px;
+  font-weight: 600;
+  color: var(--chats-text-muted);
+}
+.chats-lead-bar > .chats-info-title {
+  margin-right: auto;
+}

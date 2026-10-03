@@ -24,8 +24,11 @@ export const TEXTS = {
     "How long does delivery take?",
   ],
 
-  // When the team can be reached (WhatsApp card, details form, thanks)
+  // When the team can be reached (WhatsApp card, details form, thanks,
+  // and under the store chat's title)
   teamHours: "Mon–Sat, 10 am – 7 pm",
+  // The small line under "Ware concierge" (empty: none)
+  subtitle: "Team online · {hours}",
 
   // WhatsApp card
   whatsappTitle: "Chat with the Ware team",

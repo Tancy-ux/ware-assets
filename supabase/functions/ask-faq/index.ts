@@ -1393,7 +1393,8 @@ const TEAM_DRAFT_NOTE =
 // The "Enquire" button on a Ware Atelier card.
 const atelierEnquiryUrl = (title: string) =>
   whatsAppLink(
-    `Hi! I'm interested in the ${title} from Ware Atelier. ` +
+    // "The Cosmic Temple" -> "the Cosmic Temple", not "the The Cosmic Temple".
+    `Hi! I'm interested in the ${title.replace(/^the\s+/i, "")} from Ware Atelier. ` +
       `Could you share pricing and customisation options?`,
   );
 
@@ -2150,7 +2151,9 @@ Deno.serve(async (req) => {
         // The chat's own words (chatTexts bespoke*), so the Chats page
         // reads like what the shopper saw.
         start: {
-          question: `I'd love to know more about the ${target.title}`,
+          question: `I'd love to know more about the ${
+            target.title.replace(/^the\s+/i, "")
+          }`,
           answer: `The ${
             target.title.replace(/^the\s+/i, "")
           } is one of our bespoke pieces, and we're so glad it caught your eye! Each one is made to order, so one of our designers would love to hear what you have in mind and create something just for you. Shall we give you a call?`,
@@ -2534,6 +2537,8 @@ Length: usually 1 to 3 sentences. Say what's useful, then stop. No padding, but 
 - Greetings or small talk ("hi", "thanks", "ok") get one friendly line. Don't summarize the FAQ or introduce yourself.
 - Answer what they asked. Don't pile on details they didn't ask about (packaging, ribbons, delivery, other options); they can ask.
 - Don't repeat what you told them earlier, and don't restate what they just said back to them.
+- If they ask something you've already answered in this chat (the same or nearly the same question), don't give the same answer again in new words. Acknowledge it in a few words ("Just to confirm," or "Sure!"), give the key point in one line, then move them forward: ask what they'd like to do next or what it's for (for a policy, whether it's about a particular order; for a call or the form, that the form is just below this message and the team will ring once they've filled it in). Never send a reply that's nearly the same as one of your earlier replies.
+- Mention the team's hours at most once in the chat, and only when it's useful.
 - When recommending, the cards show each product, so don't describe them one by one: a line on why these suit them, plus your one question if you have one. Flat: "Here are a few giftable pieces above Rs 2000, including the Lilo espresso set." Warm: "For something a little special, these are some of our most-gifted pieces. The Lilo espresso set is a favourite for slow mornings."
 - Go longer (a few short lines, around 60 words at most) only when the question genuinely needs it, like comparing options they asked about.
 
@@ -2564,7 +2569,7 @@ Only products that are directly relevant get shown, so don't attach products to 
 
 If someone asks about a specific product that's sold out, still include it in "products" and lead with the positive, then the stock status, for example: "The Bites and Delights Lime Green is a lovely pick for corporate gifting, but it's currently sold out." Don't suggest alternatives to it yourself and don't ask whether they'd like to see similar items; the app automatically offers similar in-stock products under a sold-out card. Mention that our team can reconfirm whether any stock is left. Pre-orders aren't available, and never promise a restock or a date; if they ask when it'll be back, suggest contacting the team.
 
-Team hours: the Ware team replies on WhatsApp and returns calls Monday to Saturday, 10 am to 7 pm (India time). When you hand them to the team on WhatsApp, or ask whether the team can call them, mention the hours briefly and naturally in the same reply (for example "The team's around Monday to Saturday, 10 to 7."), and never promise a reply outside those hours.
+Team hours: the Ware team replies on WhatsApp and returns calls Monday to Saturday, 10 am to 7 pm (India time). The first time you hand them to the team on WhatsApp, or ask whether the team can call them, mention the hours briefly and naturally in the same reply (for example "The team's around Monday to Saturday, 10 to 7."), and never promise a reply outside those hours. These are the team's hours, not the store's: the store in Lower Parel (visits, pickup) is open Monday to Saturday, 10:30 am to 7 pm, so use those for anything about visiting or collecting.
 
 Reaching the team: for "human" replies, say warmly in a sentence or two that they can reach the team directly on WhatsApp using the button below your reply. A WhatsApp button with the team's number is added automatically, so never write a phone number or link yourself, and don't claim you're transferring them or that someone will contact them.
 
@@ -2810,24 +2815,60 @@ ${details || "(none)"}${
         handle: bespokePieces[0].handle,
         title: bespokePieces[0].title,
         count: bespokePieces.length,
+        // Set below: a later question, answered as it is.
+        followUp: false,
       }
       : null;
+    // The offer was already made earlier in this chat: answer what they
+    // asked now (price, availability…) instead of repeating it, with the
+    // designers' number. The chat shows this one as it is (followUp).
+    const offeredBefore = history.some((t) => /\bbespoke pieces?\b/i.test(t.answer));
     if (bespoke) {
-      // What the chat shows (it uses its own editable copy of these words;
-      // this one is for the Chats page and older copies of the chat).
-      const piece = bespoke.count > 1
-        ? "These are some of our bespoke pieces, and we're so glad they caught your eye!"
-        : `The ${
-          bespoke.title.replace(/^the\s+/i, "")
-        } is one of our bespoke pieces, and we're so glad it caught your eye!`;
-      answer = `${piece} Each one is made to order, so one of our designers ` +
-        "would love to hear what you have in mind and create something just " +
-        "for you. Would you like one of them to give you a call?";
+      const title = bespoke.title.replace(/^the\s+/i, "");
+      bespoke.followUp = offeredBefore;
+      if (offeredBefore) {
+        const piece = bespoke.count > 1 ? "these pieces" : `the ${title}`;
+        const price = /\b(price|pricing|priced|cost|costs|rate|how much|quote|budget)\b/i
+          .test(question);
+        const stock =
+          /\b(availab\w*|in stock|stock|ready|lead time|how long|when|deliver\w*|timeline)\b/i
+            .test(question);
+        const topic = price && stock
+          ? "price and availability depend"
+          : price
+          ? "price depends"
+          : stock
+          ? "availability and timeline depend"
+          : null;
+        const reach = contactSaved
+          ? "and as you've shared your number, they'll call you shortly. You can also reach them on +91 96196 20099."
+          : `You can reach them on +91 96196 20099, or tap "Yes, call me" below and they'll call you shortly.`;
+        answer = topic
+          ? `Thank you for your interest in ${piece}! Each piece is made to order and customised for you, so its ${topic} on what you have in mind. One of our designers will share the details with you${
+            contactSaved ? ", " : ". "
+          }${reach}`
+          : `Our designers would love to help with that! As ${piece} ${
+            bespoke.count > 1 ? "are" : "is"
+          } made to order, they can talk you through it${
+            contactSaved ? ", " : ". "
+          }${reach}`;
+      } else {
+        // What the chat shows (it uses its own editable copy of these words;
+        // this one is for the Chats page and older copies of the chat).
+        const piece = bespoke.count > 1
+          ? "These are some of our bespoke pieces, and we're so glad they caught your eye!"
+          : `The ${title} is one of our bespoke pieces, and we're so glad it caught your eye!`;
+        answer = `${piece} Each one is made to order, so one of our designers ` +
+          "would love to hear what you have in mind and create something just " +
+          "for you. Would you like one of them to give you a call?";
+      }
       intent = "bespoke";
     }
 
     // Two colours per design across the picks and the extras together.
-    const cards = bespoke ? bespokePieces.map(toCard) : (
+    // A follow-up about the same piece: its card was shown with the offer,
+    // so not again (the catalogue link and Yes / Not now still show).
+    const cards = bespoke ? (bespoke.followUp ? [] : bespokePieces.map(toCard)) : (
       showCards ? limitPerDesign([...toShow, ...extras]) : []
     )
       .filter(inBudget)

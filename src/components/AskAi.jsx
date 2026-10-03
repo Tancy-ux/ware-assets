@@ -793,10 +793,14 @@ const AskAi = ({
     if (data.bespoke) {
       patchMessage(id, {
         loading: false,
-        answer: fillText(
-          data.bespoke.count > 1 ? TEXTS.bespokeIntroMany : TEXTS.bespokeIntro,
-          { name: shortName(data.bespoke.title) },
-        ),
+        // A later question about the same piece (price, availability…): the
+        // bot's own answer, with the designers' number, not the intro again.
+        answer: data.bespoke.followUp
+          ? data.answer
+          : fillText(
+              data.bespoke.count > 1 ? TEXTS.bespokeIntroMany : TEXTS.bespokeIntro,
+              { name: shortName(data.bespoke.title) },
+            ),
         // Their own Enquire (WhatsApp) would be a third ask: the form
         // behind "Yes, call me" links to WhatsApp already.
         products: (data.products ?? []).map((p) => ({ ...p, noAction: true })),
@@ -1402,6 +1406,10 @@ const AskAi = ({
           </button>
           <div className="ware-chat-heading">
             <span className="ware-chat-name">{TEXTS.title}</span>
+            {/* "Mon–Sat, 10 am – 7 pm" */}
+            {TEXTS.subtitle && (
+              <span className="ware-chat-sub">{fillText(TEXTS.subtitle)}</span>
+            )}
           </div>
           <div className="ware-chat-menu-wrap">
             <button
@@ -1862,7 +1870,7 @@ const AskAi = ({
               >
                 <a
                   href={whatsAppUrl(
-                    `Hi! I'm interested in the ${m.bespokeForm.title} from Ware Atelier. Could we talk about it?`,
+                    `Hi! I'm interested in the ${m.bespokeForm.title.replace(/^the\s+/i, "")} from Ware Atelier. Could we talk about it?`,
                   )}
                   target="_blank"
                   rel="noopener noreferrer"
