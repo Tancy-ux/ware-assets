@@ -375,13 +375,53 @@ function askedAbout(c: { topic?: string | null; first_question?: string | null; 
 
 // "Hide test and junk chats": ones the team named or labelled test / junk.
 const TEST_RE = /\b(test(ing)?|junk)\b/i;
-// Internal: from the team's own site (source "internal"), or a name with
-// "test" anywhere in it ("Tanu test", "test2", "Tester").
+// Internal: from the team's own site (source "internal"), marked internal
+// on the Chats page (also "internal"), or a name with "test" anywhere in it
+// ("Tanu test", "test2", "Tester"). "customer": marked as a real customer
+// on the Chats page, which overrides the name check.
 const isInternal = (c: { visitor_name?: string | null; source?: string | null }) =>
-  c.source === "internal" || /test/i.test(c.visitor_name ?? "");
+  c.source === "internal" ||
+  (c.source !== "customer" && /test/i.test(c.visitor_name ?? ""));
 const isTestChat = (c: { label?: string | null; visitor_name?: string | null; company?: string | null; source?: string | null }) =>
   isInternal(c) ||
-  [c.label, c.visitor_name, c.company].some((s) => s && TEST_RE.test(s));
+  (c.source !== "customer" &&
+    [c.label, c.visitor_name, c.company].some((s) => s && TEST_RE.test(s)));
+
+// ---- AI cost (Stats → AI cost) ----
+// Gemini's paid-tier prices, US$ per million tokens (Google AI pricing page,
+// Oct 2026): input, cached input, output (thinking counts as output). The
+// 3.6–3.8 Flash prices double from 1 Jan 2027.
+type AiCostRow = {
+  created_at: string;
+  kind: string;
+  model: string | null;
+  conversation_id: string | null;
+  prompt_tokens: number;
+  cached_tokens: number;
+  reply_tokens: number;
+  thinking_tokens: number;
+};
+const GEMINI_PRICES: Record<string, { input: number; cached: number; output: number }> = {
+  "gemini-3.8-flash": { input: 0.75, cached: 0.075, output: 3.75 },
+  "gemini-3.7-flash": { input: 0.75, cached: 0.075, output: 3.75 },
+  "gemini-3.6-flash": { input: 0.75, cached: 0.075, output: 3.75 },
+  "gemini-3.5-flash": { input: 1.5, cached: 0.15, output: 9 },
+  "gemini-3.5-flash-lite": { input: 0.3, cached: 0.03, output: 2.5 },
+};
+const PRICE_DOUBLES_FROM = "2027-01-01";
+const DOUBLING_MODELS = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"];
+// Roughly; Google bills in dollars, the card in rupees.
+const USD_TO_INR = 88;
+// The monthly spend cap set in Google AI Studio.
+const AI_MONTHLY_CAP_RUPEES = 1000;
+function aiCallRupees(r: AiCostRow) {
+  const base = GEMINI_PRICES[r.model ?? ""] ?? GEMINI_PRICES["gemini-3.6-flash"];
+  const k = DOUBLING_MODELS.includes(r.model ?? "") && r.created_at >= PRICE_DOUBLES_FROM ? 2 : 1;
+  const cached = Math.min(r.cached_tokens, r.prompt_tokens);
+  const usd = ((r.prompt_tokens - cached) * base.input + cached * base.cached +
+    (r.reply_tokens + r.thinking_tokens) * base.output) * k / 1e6;
+  return usd * USD_TO_INR;
+}
 
 const handleOf = (url: string) => url.match(/\/products\/([^/?#]+)/)?.[1] ?? "";
 
@@ -782,6 +822,9 @@ const GEMINI_MODELS = [
 ];
 async function draftRequirement(
   transcript: string,
+  // deno-lint-ignore no-explicit-any
+  db?: any,
+  conversationId?: string,
 ): Promise<{ requirement: string; products: string } | null> {
   const key = Deno.env.get("GEMINI_API_KEY");
   if (!key) return null;
@@ -824,6 +867,20 @@ async function draftRequirement(
         continue;
       }
       const result = await res.json();
+      const usage = result?.usageMetadata;
+      if (usage && db) {
+        // For the AI cost tab (scripts/supabase-ai-costs.sql); never fails the draft.
+        const { error } = await db.from("ai_costs").insert({
+          kind: "lead-draft",
+          model,
+          conversation_id: conversationId ?? null,
+          prompt_tokens: usage.promptTokenCount ?? 0,
+          cached_tokens: usage.cachedContentTokenCount ?? 0,
+          reply_tokens: usage.candidatesTokenCount ?? 0,
+          thinking_tokens: usage.thoughtsTokenCount ?? 0,
+        });
+        if (error) console.error("AI cost log failed:", error.message);
+      }
       const text = result?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
       const parsed = JSON.parse(text);
       return {
@@ -986,6 +1043,7 @@ Deno.serve(async (req) => {
       label: "edit",
       "lead-draft": "draft",
       "lead-save": "edit",
+      internal: "edit",
       "lead-push": "zoho",
       delete: "delete",
       "users-list": "users",
@@ -1775,7 +1833,7 @@ Deno.serve(async (req) => {
       const { data: linked } = ids.length
         ? await db
           .from("chat_conversations")
-          .select("id, visitor_id, visitor_name, company, label, started_at")
+          .select("id, visitor_id, visitor_name, company, label, source, started_at")
           .in("visitor_id", ids)
         : { data: [] };
       const linkedNumbers = await dailyNumbers(db, linked ?? []);
@@ -2201,7 +2259,7 @@ Deno.serve(async (req) => {
           )
           .join("\n");
         if (!transcript.trim()) return json({ error: "This chat is empty." }, 400);
-        const draft = await draftRequirement(transcript);
+        const draft = await draftRequirement(transcript, db, convo.id);
         if (!draft) return json({ error: "Couldn't draft it just now. Try again." }, 502);
         return json(draft);
       }
@@ -2376,6 +2434,90 @@ Deno.serve(async (req) => {
         if (err instanceof ZohoError) return json({ error: err.message }, 502);
         throw err;
       }
+    }
+
+    // "Mark as internal" / "A real customer" from the chat's ⋯ menu: kept
+    // in its source ("internal" / "customer"), which the store chat only
+    // sets when the chat starts.
+    if (body.action === "internal") {
+      if (!UUID_RE.test(String(body.conversationId))) {
+        return json({ error: "Bad conversation id" }, 400);
+      }
+      const source = body.internal ? "internal" : "customer";
+      const { data, error } = await db
+        .from("chat_conversations")
+        .update({ source })
+        .eq("id", body.conversationId)
+        .select("visitor_name, source")
+        .single();
+      if (error) throw error;
+      return json({ ok: true, internal: isInternal(data) });
+    }
+
+    // Stats → AI cost (owner only): what Gemini cost in the date range and
+    // this month, for real customers vs tests / internal chats and the
+    // team's own AI tools. From ai_costs (scripts/supabase-ai-costs.sql).
+    if (body.action === "ai-costs") {
+      if (!me.owner) return notAllowed();
+      const monthStart = new Date();
+      monthStart.setUTCDate(1);
+      monthStart.setUTCHours(0, 0, 0, 0);
+      const from = [since, monthStart.toISOString()].filter(Boolean).sort()[0] as string;
+      const rows: AiCostRow[] = [];
+      for (let start = 0; ; start += 1000) {
+        let q = db.from("ai_costs").select("*").order("id").range(start, start + 999);
+        if (since) q = q.gte("created_at", from);
+        else q = q.gte("created_at", "1970-01-01");
+        const { data, error } = await q;
+        if (error) {
+          if (/ai_costs/.test(error.message ?? "")) {
+            return json({ missingTable: true });
+          }
+          throw error;
+        }
+        rows.push(...(data ?? []));
+        if (!data || data.length < 1000) break;
+      }
+      // Which chats are tests / internal.
+      const ids = [...new Set(rows.map((r) => r.conversation_id).filter(Boolean))] as string[];
+      const testIds = new Set<string>();
+      for (let i = 0; i < ids.length; i += 200) {
+        const { data } = await db
+          .from("chat_conversations")
+          .select("id, visitor_name, company, label, source")
+          .in("id", ids.slice(i, i + 200));
+        for (const c of data ?? []) if (isTestChat(c)) testIds.add(c.id);
+      }
+      // A reply with no chat to save to only comes from a test (e.g.
+      // scripts/bot-tests.mjs); store chats always have one.
+      const groupOf = (r: AiCostRow) =>
+        r.kind === "reply"
+          ? (!r.conversation_id || testIds.has(r.conversation_id) ? "tests" : "customers")
+          : "team";
+      const total = (keep: (r: AiCostRow) => boolean) => {
+        const out: Record<string, { calls: number; tokens: number; rupees: number }> = {
+          customers: { calls: 0, tokens: 0, rupees: 0 },
+          tests: { calls: 0, tokens: 0, rupees: 0 },
+          team: { calls: 0, tokens: 0, rupees: 0 },
+        };
+        for (const r of rows) {
+          if (!keep(r)) continue;
+          const g = out[groupOf(r)];
+          g.calls++;
+          g.tokens += r.prompt_tokens + r.reply_tokens + r.thinking_tokens;
+          g.rupees += aiCallRupees(r);
+        }
+        for (const g of Object.values(out)) g.rupees = Math.round(g.rupees * 100) / 100;
+        return out;
+      };
+      const firstAt = await db.from("ai_costs").select("created_at").order("id").limit(1);
+      return json({
+        range: total((r) => (!since || r.created_at >= since) && (!until || r.created_at < until)),
+        month: total((r) => r.created_at >= monthStart.toISOString()),
+        monthCap: AI_MONTHLY_CAP_RUPEES,
+        trackedSince: firstAt.data?.[0]?.created_at ?? null,
+        usdToInr: USD_TO_INR,
+      });
     }
 
     if (body.action === "label") {

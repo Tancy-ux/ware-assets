@@ -129,6 +129,10 @@
       infoDimensions: "Dimensions of the {name}:\n{value}",
       infoVolume: "Volume of the {name}:\n{value}",
       infoWeight: "Weight of the {name}:\n{value}",
+      // When the detail is one line (a single piece): just the value.
+      infoDimensionsOne: "It measures {value}.",
+      infoVolumeOne: "It holds {value}.",
+      infoWeightOne: "It weighs {value}.",
       bespokeYes: "Yes, call me",
       bespokeFormTitle:
         "Share your name and number, and one of our designers will call you.",
@@ -149,6 +153,10 @@
       // Under replies giving the store's address
       storeMapLabel: "Get directions on Google Maps",
       storeMapUrl: "https://maps.app.goo.gl/xvfFKjgKcb9agCtc6",
+      // Under replies about returns, exchanges or a damaged / wrong piece.
+      returnsLabel: "Start a return or exchange",
+      returnsUrl: "https://www.wareinnovations.com/apps/return_prime",
+      returnsNote: "Available for 14 days after delivery.",
 
       // Team takeover
       teamJoined: "Ware team joined",
@@ -733,6 +741,13 @@
     .faq-chat-catalog-link:hover {
       color: var(--faq-text);
     }
+    /* Small print under a link (the returns window). */
+    .faq-chat-link-note {
+      display: block;
+      margin-top: 3px;
+      font-size: 12px;
+      color: var(--faq-text-muted, #8a7b70);
+    }
     /* "Prefer WhatsApp?" under the bespoke call form */
     .faq-chat-contact-whatsapp {
       display: inline-flex;
@@ -1204,14 +1219,14 @@
       line-height: 1;
 
       /*
-   Frosted glass: translucent white that blurs the page behind it, with
-   a bright hairline edge. Solid white where blur isn't supported.
+   Lightly frosted: mostly solid warm white with a soft blur, so it reads
+   well over any part of the page. Solid white where blur isn't supported.
 */
-      border: 1px solid rgba(255, 255, 255, 0.7);
+      border: 1px solid var(--faq-border);
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.62);
-      -webkit-backdrop-filter: blur(16px) saturate(170%);
-      backdrop-filter: blur(16px) saturate(170%);
+      background: rgba(255, 252, 249, 0.9);
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
       text-align: left;
       white-space: nowrap;
       cursor: pointer;

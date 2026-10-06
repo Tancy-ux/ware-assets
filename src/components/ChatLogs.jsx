@@ -19,6 +19,7 @@ import {
   Image as ImageIcon,
   LogOut,
   MapPin,
+  RotateCcw,
   MessageCircle,
   MessagesSquare,
   MoreHorizontal,
@@ -596,6 +597,17 @@ const ChatLogs = () => {
     setEditingLabel(null);
   };
 
+  // ⋯ menu: Mark as internal / Not internal (a real customer).
+  const toggleInternal = async () => {
+    setMenuOpen(false);
+    const data = await api({
+      action: "internal",
+      conversationId: selectedId,
+      internal: !selected?.internal,
+    });
+    if (data) patchConversation(selectedId, { internal: data.internal });
+  };
+
   const deleteConversation = async () => {
     setMenuOpen(false);
     const convo = conversations.find((c) => c.id === selectedId);
@@ -947,6 +959,7 @@ const ChatLogs = () => {
       ) : tab === "stats" && (can("stats") || can("carts")) ? (
         <div className="chats-stats">
           <ChatResults
+            isOwner={!!me?.owner}
             canStats={can("stats")}
             canCarts={can("carts")}
             toolbar={<div className="chats-stats-filter">{dateFilter}</div>}
@@ -1253,6 +1266,12 @@ const ChatLogs = () => {
                             }}
                           >
                             <Pencil size={14} /> Rename chat
+                          </button>
+                        )}
+                        {can("edit") && (
+                          <button type="button" role="menuitem" onClick={toggleInternal}>
+                            <Building2 size={14} />
+                            {selected.internal ? "Not internal (a real customer)" : "Mark as internal"}
                           </button>
                         )}
                         <button
@@ -1796,6 +1815,14 @@ const ReplyExtras = ({ extras }) => {
           <MapPin size={13} />
           {TEXTS.storeMapLabel}
           <ArrowUpRight size={12} />
+        </a>
+      )}
+      {has("returns_link") && (
+        <a href={TEXTS.returnsUrl} target="_blank" rel="noopener noreferrer" className="chats-extra-link">
+          <RotateCcw size={13} />
+          {TEXTS.returnsLabel}
+          <ArrowUpRight size={12} />
+          {TEXTS.returnsNote && <small>&nbsp;· {TEXTS.returnsNote}</small>}
         </a>
       )}
       {has("bespoke_call") && (

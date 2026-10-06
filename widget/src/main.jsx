@@ -18,6 +18,18 @@ import { TEXTS, setTexts } from "../../src/lib/chatTexts";
 
 const STYLES_ID = "ware-chat-styles";
 
+// A metafield's text, tidied: "&amp;" back to "&", one line per piece
+// ("Uno Lid - 60 ml" reads "Uno Lid: 60 ml"), and lines with no value
+// ("Hyphen Plate:") left out.
+function tidyInfo(text) {
+  return text
+    .replace(/&amp;/g, "&")
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(/^([^:\d]+?)\s+-\s+(?=\d)/, "$1: ").replace(/\s+:\s*/, ": "))
+    .filter((line) => line && !/[:-]$/.test(line))
+    .join("\n");
+}
+
 // The product's details from the snippet (its metafields), only the ones
 // it has: { includes, dimensions, volume, weight }, or null.
 function productInfo(handle) {
@@ -25,7 +37,7 @@ function productInfo(handle) {
   if (!info || info.handle !== handle) return null;
   const found = {};
   for (const key of ["includes", "dimensions", "volume", "weight"]) {
-    const value = typeof info[key] === "string" ? info[key].trim() : "";
+    const value = typeof info[key] === "string" ? tidyInfo(info[key]) : "";
     if (value) found[key] = value;
   }
   return Object.keys(found).length ? found : null;

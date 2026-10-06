@@ -4405,3 +4405,8 @@
 .chats-lead-bar > .chats-info-title {
   margin-right: auto;
 }
+
+/* ---------- Stats → AI cost ---------- */
+.chats-cost-notes {
+  margin-top: 14px;
+}

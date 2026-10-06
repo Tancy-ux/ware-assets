@@ -1232,7 +1232,19 @@ const CORRECTIONS_CATEGORY = "WhatsApp Bot FAQ";
 // model that says it's out of quota is skipped for a while (per warm
 // function instance), rather than costing every message a round trip.
 const modelBlockedUntil = new Map<string, number>();
-async function callGemini(key: string, body: string): Promise<string | null> {
+// What one call used, for the ai_costs table (logAiCost).
+type GeminiUsage = {
+  model: string;
+  prompt: number;
+  cached: number;
+  reply: number;
+  thinking: number;
+};
+async function callGemini(
+  key: string,
+  body: string,
+  onUsage?: (usage: GeminiUsage) => void,
+): Promise<string | null> {
   const deadline = Date.now() + GEMINI_DEADLINE_MS;
   for (const model of GEMINI_MODELS) {
     if ((modelBlockedUntil.get(model) ?? 0) > Date.now()) continue;
@@ -1265,6 +1277,13 @@ async function callGemini(key: string, body: string): Promise<string | null> {
             usage.candidatesTokenCount ?? 0
           } reply + ${usage.thoughtsTokenCount ?? 0} thinking tokens`,
         );
+        onUsage?.({
+          model,
+          prompt: usage.promptTokenCount ?? 0,
+          cached: usage.cachedContentTokenCount ?? 0,
+          reply: usage.candidatesTokenCount ?? 0,
+          thinking: usage.thoughtsTokenCount ?? 0,
+        });
       }
       return result?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
     }
@@ -1281,6 +1300,33 @@ async function callGemini(key: string, body: string): Promise<string | null> {
   return null;
 }
 
+// One row in ai_costs (scripts/supabase-ai-costs.sql) per AI call, for the
+// Chats page's AI cost tab. Never allowed to fail the reply; before the
+// table exists the insert just fails quietly.
+async function logAiCost(
+  kind: string,
+  usage: GeminiUsage | null,
+  conversationId?: unknown,
+) {
+  if (!usage) return;
+  try {
+    const { error } = await adminClient()?.from("ai_costs").insert({
+      kind,
+      model: usage.model,
+      conversation_id: typeof conversationId === "string" && UUID_RE.test(conversationId)
+        ? conversationId
+        : null,
+      prompt_tokens: usage.prompt,
+      cached_tokens: usage.cached,
+      reply_tokens: usage.reply,
+      thinking_tokens: usage.thinking,
+    }) ?? {};
+    if (error) console.error("AI cost log failed:", error.message);
+  } catch (err) {
+    console.error("AI cost log failed:", err);
+  }
+}
+
 const MAX_RULE_CHARS = 400;
 const MAX_NOTE_CHARS = 3000;
 
@@ -1288,6 +1334,7 @@ const MAX_NOTE_CHARS = 3000;
 // standalone rules for them to review before saving. Nothing is stored
 // here; the panel saves what they approve.
 async function tidyGuideline(key: string, note: string) {
+  let usage: GeminiUsage | null = null;
   const prompt = `A team member at Ware Innovations (a ceramic tableware brand) typed the note below to change how their customer-facing chat assistant behaves. It may be rough, run-on, or full of shorthand.
 
 Rewrite it as one or more clear, short instructions addressed to the assistant, in plain English. Each instruction must stand on its own and be under ${MAX_RULE_CHARS} characters. Split unrelated points into separate instructions; keep related ones together. Keep the team member's meaning exactly. Don't add requirements they didn't state, and don't soften or strengthen them.
@@ -1314,7 +1361,8 @@ ${note}`;
         required: ["rules", "note"],
       },
     },
-  }));
+  }), (u) => (usage = u));
+  await logAiCost("tidy", usage);
   if (text === null) return null;
   try {
     const parsed = JSON.parse(text);
@@ -1362,6 +1410,10 @@ const HORECA_WORDS =
   /\b(horeca|hotels?|restaurants?|caf[eé]s?|coffee shops?|bistros?|cloud kitchens?|caterers?|catering|bakery|bakeries)\b/i;
 const DIRECTIONS_WORDS =
   /\b(directions?|showroom|google maps?|how (do i|to|can i) (get|reach|come))\b/i;
+// Asking to return or exchange something (or it came broken / wrong): the
+// chat adds the store's returns & exchanges page (returnsUrl in chatTexts).
+const RETURNS_WORDS =
+  /\b(returns?|returning|returned|exchanges?|exchanging|refunds?|refunded|replace(ment)?|damaged|broken|cracked|chipped|wrong (item|product|piece|colou?r|size))\b/i;
 
 // The WhatsApp message when the bot can't answer: who they are (if we
 // know) and their last few questions, e.g.
@@ -1504,6 +1556,14 @@ async function upsertConversation(
   row: Record<string, string>,
   onInsert: Record<string, string> = {},
 ) {
+  // Where it came from (store / internal) is set once, when the chat is
+  // first saved, so the Chats page's "Mark as internal" isn't undone by the
+  // next message.
+  if ("source" in row) {
+    const { source, ...rest } = row;
+    row = rest;
+    onInsert = { source, ...onInsert };
+  }
   let error = await saveConversation(admin, row, onInsert);
   // A missing column: drop just that one ("Could not find the 'topic'
   // column…") and try again, so the columns that do exist still save.
@@ -2576,6 +2636,10 @@ If someone asks about a specific product that's sold out, still include it in "p
 
 Team hours: the Ware team replies on WhatsApp and returns calls Monday to Saturday, 10 am to 7 pm (India time). The first time you hand them to the team on WhatsApp, or ask whether the team can call them, mention the hours briefly and naturally in the same reply (for example "The team's around Monday to Saturday, 10 to 7."), and never promise a reply outside those hours. These are the team's hours, not the store's: the store in Lower Parel (visits, pickup) is open Monday to Saturday, 10:30 am to 7 pm, so use those for anything about visiting or collecting.
 
+Returns and exchanges: when they want to return or exchange something, or a piece arrived damaged or wrong, answer from the FAQ (the policy and what to do) and say they can start it from the "Start a return or exchange" link just below your reply. That link is added automatically, so never write a link yourself. The window is 14 days after delivery (not dispatch).
+
+Order status and tracking: you can't look up orders from this chat. When they ask where their order is, for tracking, or about a delay, say the tracking details are emailed once it's dispatched, and that for anything more our team can check on WhatsApp with their order number; use the "human" intent (with a "request" like "Checking on order #1234") so they get the WhatsApp button. Don't make up a status or date.
+
 Reaching the team: for "human" replies, say warmly in a sentence or two that they can reach the team directly on WhatsApp using the button below your reply. A WhatsApp button with the team's number is added automatically, so never write a phone number or link yourself, and don't claim you're transferring them or that someone will contact them.
 
 Ware Atelier: products marked "Ware Atelier, made to order, price on request" are bespoke marble furniture and lighting, made with multiple marble components and usually customised for each client. Never state or guess a price for them, and never call them sold out or out of stock. Very little is known about each piece beyond its name, so don't describe them or answer questions about their details (size, materials, finish, lead time, customisation): say they're bespoke and made to order, that one of our designers can talk them through it, and mention they can browse the Ware Atelier catalogue (the chat shows a link to it under your reply, so never write a link yourself). Ware Atelier's other range is the Collectibles: one-of-a-kind marble vases and tissue boxes (Arc, Claude, Horizon and so on), which are priced and can be bought directly like any other product. The bespoke Atelier pieces, the Collectibles, the marble tableware (trays, trivets, coasters) and the ceramic tableware are different ranges: when recommending alternatives, stay within the range they're looking at.
@@ -2709,7 +2773,14 @@ ${details || "(none)"}${
       },
     });
 
-    const text = await callGemini(geminiKey, body);
+    let usage: GeminiUsage | null = null;
+    const text = await callGemini(geminiKey, body, (u) => (usage = u));
+    // A shopper's reply, the Chats page's AI reply, or the Bot page's Try.
+    await logAiCost(
+      teamDraft ? "team-ai-reply" : draft ? "bot-try" : "reply",
+      usage,
+      teamDraft || draft ? null : payload.conversationId,
+    );
     if (text === null) {
       return json({ error: "AI request failed" }, 502);
     }
@@ -2944,12 +3015,16 @@ ${details || "(none)"}${
     // there): the chat adds a Google Maps link (storeMapUrl in chatTexts).
     const storeMap = STORE_ADDRESS_WORDS.test(answer) ||
       DIRECTIONS_WORDS.test(question);
+    // Returns / exchanges / something arrived damaged: the chat adds the
+    // returns & exchanges page (returnsUrl in chatTexts).
+    const returnsLink = !bespoke && RETURNS_WORDS.test(question);
     // The same, for the Chats page.
     const shownExtras = [
       bespoke && "bespoke_call",
       (bespoke || atelierCatalog) && "atelier_catalog",
       horecaCatalog && "horeca_catalog",
       storeMap && "store_map",
+      returnsLink && "returns_link",
       whatsappUrl && "whatsapp",
       detailsOpen ? "details_form" : askForDetails && !contactSaved && "details_prompt",
       images.length > 0 && "gift_photos",
@@ -2995,6 +3070,7 @@ ${details || "(none)"}${
       catalog: atelierCatalog,
       horecaCatalog,
       storeMap,
+      returnsLink,
       // Whether we know what to call them (typed in the chat, the name box
       // or the details form): the chat stops offering the name box.
       nameKnown: !!name,

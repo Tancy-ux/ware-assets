@@ -1495,3 +1495,11 @@
 .faq-chat-team-cont .faq-chat-team-label {
   display: none;
 }
+
+/* Small print under a chat link (the returns window). */
+.faq-chat-link-note {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--faq-text-muted, #8a7b70);
+}

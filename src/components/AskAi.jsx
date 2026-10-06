@@ -16,6 +16,7 @@ import {
   ArrowUp,
   BookOpen,
   MapPin,
+  RotateCcw,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -832,6 +833,7 @@ const AskAi = ({
       showCatalog: !!data.catalog,
       showHorecaCatalog: !!data.horecaCatalog,
       showStoreMap: !!data.storeMap,
+      showReturns: !!data.returnsLink,
       askForDetails: !!data.askForDetails,
       detailsOpen: !!data.detailsOpen,
       // Whether the details card goes under this reply (the server has
@@ -900,17 +902,24 @@ const AskAi = ({
       .map((m) => m.optionFor.id);
 
   // The options for a piece: "Show me more like this" and one per detail
-  // it has, minus the ones already asked (`used`).
+  // it has, minus the ones already asked (`used`). `one`: the answer when
+  // the detail is a single line ("Eclipse Pasta Bowl: 305ml" → "It holds
+  // 305ml."), so the piece's name isn't said twice.
   const PRODUCT_OPTIONS = [
     { id: "similar", label: () => TEXTS.optMoreLikeThis },
     { id: "includes", label: () => TEXTS.optIncludes, answer: () => TEXTS.infoIncludes },
-    { id: "dimensions", label: () => TEXTS.optDimensions, answer: () => TEXTS.infoDimensions },
-    { id: "volume", label: () => TEXTS.optVolume, answer: () => TEXTS.infoVolume },
-    { id: "weight", label: () => TEXTS.optWeight, answer: () => TEXTS.infoWeight },
+    { id: "dimensions", label: () => TEXTS.optDimensions, answer: () => TEXTS.infoDimensions, one: () => TEXTS.infoDimensionsOne },
+    { id: "volume", label: () => TEXTS.optVolume, answer: () => TEXTS.infoVolume, one: () => TEXTS.infoVolumeOne },
+    { id: "weight", label: () => TEXTS.optWeight, answer: () => TEXTS.infoWeight, one: () => TEXTS.infoWeightOne },
   ];
+  // "What's in the set?" only for sets ("set", "Set of 2", "Table Setting").
+  const isSet = (product) => /\bset(s|ting)?\b/i.test(product.title ?? "");
   const optionsFor = (product, used) =>
     PRODUCT_OPTIONS.filter(
-      (o) => !used.includes(o.id) && (o.id === "similar" || product.info?.[o.id]),
+      (o) =>
+        !used.includes(o.id) &&
+        (o.id === "similar" ||
+          (product.info?.[o.id] && (o.id !== "includes" || isSet(product)))),
     );
 
   // "Anything you'd like to know about the Uno Katori?" with the options
@@ -948,9 +957,12 @@ const AskAi = ({
     }
     const name = shortName(product.title);
     const question = option.label();
-    const answer = fillText(option.answer(), {
+    const value = product.info[option.id];
+    const single = option.one && !value.includes("\n");
+    const answer = fillText(single ? option.one() : option.answer(), {
       name,
-      value: product.info[option.id],
+      // One line: just the value ("Eclipse Pasta Bowl: 305ml" → "305ml").
+      value: single ? value.replace(/^[^:\d]+:\s*/, "").replace(/\.$/, "") : value,
     });
     // Logged for the team like any reply (no AI).
     callAskFaq({
@@ -1804,6 +1816,21 @@ const AskAi = ({
                     {TEXTS.storeMapLabel}
                     <ArrowUpRight size={13} />
                   </a>
+                )}
+                {m.showReturns && TEXTS.returnsUrl && (
+                  <a
+                    href={TEXTS.returnsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="faq-chat-catalog-link"
+                  >
+                    <RotateCcw size={14} />
+                    {TEXTS.returnsLabel}
+                    <ArrowUpRight size={13} />
+                  </a>
+                )}
+                {m.showReturns && TEXTS.returnsUrl && TEXTS.returnsNote && (
+                  <small className="faq-chat-link-note">{TEXTS.returnsNote}</small>
                 )}
                 {m.productOptions && (
                   // The details first, "Show me more like this" last; they

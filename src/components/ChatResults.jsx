@@ -9,7 +9,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { callFunction } from "../lib/askFaq";
-import { ChatGaps, ChatProducts } from "./ChatInsights";
+import { ChatGaps, ChatProducts, ChatAiCost } from "./ChatInsights";
 import { pageKind, pageKindLabel, pageLabel, pageUrl } from "../lib/storePages";
 
 // The Chats page's Stats tab: how the store chat did in the chosen date
@@ -64,6 +64,8 @@ const ChatResults = ({
   api,
   // "Teach the bot" on a question it couldn't answer (owner only).
   onTeach,
+  // The AI cost tab (owner only).
+  isOwner = false,
 }) => {
   const [view, setView] = useState(canStats ? "stats" : "carts");
   // Carts table order: by cart value or last chatted, either way (newest
@@ -177,6 +179,7 @@ const ChatResults = ({
     canCarts && ["carts", "Carts"],
     canStats && ["products", "Products"],
     canStats && ["gaps", "Couldn't answer"],
+    isOwner && ["cost", "AI cost"],
   ].filter(Boolean);
   const request = { ...bounds, hideTest, refreshKey };
 
@@ -420,6 +423,7 @@ const ChatResults = ({
       )}
 
       {view === "products" && <ChatProducts api={api} request={request} />}
+      {view === "cost" && isOwner && <ChatAiCost api={api} request={request} />}
       {view === "gaps" && (
         <ChatGaps api={api} request={request} onOpenChat={onOpenChat} onTeach={onTeach} />
       )}

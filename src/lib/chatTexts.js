@@ -110,6 +110,10 @@ export const TEXTS = {
   infoDimensions: "Dimensions of the {name}:\n{value}",
   infoVolume: "Volume of the {name}:\n{value}",
   infoWeight: "Weight of the {name}:\n{value}",
+  // When the detail is one line (a single piece): just the value.
+  infoDimensionsOne: "It measures {value}.",
+  infoVolumeOne: "It holds {value}.",
+  infoWeightOne: "It weighs {value}.",
   bespokeYes: "Yes, call me",
   bespokeFormTitle:
     "Share your name and number, and one of our designers will call you.",
@@ -130,6 +134,10 @@ export const TEXTS = {
   // Under replies giving the store's address
   storeMapLabel: "Get directions on Google Maps",
   storeMapUrl: "https://maps.app.goo.gl/xvfFKjgKcb9agCtc6",
+  // Under replies about returns, exchanges or a damaged / wrong piece.
+  returnsLabel: "Start a return or exchange",
+  returnsUrl: "https://www.wareinnovations.com/apps/return_prime",
+  returnsNote: "Available for 14 days after delivery.",
 
   // Team takeover
   teamJoined: "Ware team joined",

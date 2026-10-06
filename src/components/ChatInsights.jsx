@@ -165,3 +165,63 @@ export const ChatGaps = ({ api, request, onOpenChat, onTeach }) => {
     </section>
   );
 };
+
+// Stats → AI cost (owner only): what the AI (Gemini) cost, from chat-admin's
+// "ai-costs". Real customers apart from tests / internal chats and the
+// team's own AI tools (AI reply, Draft from chat, Bot Try, Improve AI).
+const COST_GROUPS = [
+  { id: "customers", label: "Real customers", sub: "Shoppers' typed questions" },
+  { id: "tests", label: "Tests & internal", sub: "Test-named and internal chats" },
+  { id: "team", label: "Team tools", sub: "AI reply, Draft from chat, Bot Try, Improve AI" },
+];
+const inr = (n) =>
+  `₹${n.toLocaleString("en-IN", { minimumFractionDigits: n < 10 ? 2 : 0, maximumFractionDigits: n < 10 ? 2 : 0 })}`;
+
+export const ChatAiCost = ({ api, request }) => {
+  const { loading, data } = useStatsData(api, "ai-costs", request);
+  if (loading) return <p className="chats-results-note">Loading…</p>;
+  if (data?.missingTable) {
+    return (
+      <p className="chats-results-note chats-results-warn">
+        Run scripts/supabase-ai-costs.sql in Supabase → SQL Editor to start
+        tracking the AI&apos;s cost.
+      </p>
+    );
+  }
+  if (!data) return null;
+  const monthTotal = COST_GROUPS.reduce((sum, g) => sum + data.month[g.id].rupees, 0);
+  const perReply = data.range.customers.calls
+    ? data.range.customers.rupees / data.range.customers.calls
+    : null;
+  return (
+    <section className="chats-card">
+      <h3>
+        AI cost
+        <span> · in this period</span>
+      </h3>
+      <div className="chats-funnel">
+        {COST_GROUPS.map((g) => (
+          <div
+            key={g.id}
+            className={`chats-funnel-step${g.id === "customers" ? " chats-funnel-good" : ""}`}
+            title={g.sub}
+          >
+            <span className="chats-funnel-label">{g.label}</span>
+            <strong>{inr(data.range[g.id].rupees)}</strong>
+            <span className="chats-funnel-sub">
+              {data.range[g.id].calls} AI {data.range[g.id].calls === 1 ? "call" : "calls"}
+            </span>
+          </div>
+        ))}
+      </div>
+      <p className="chats-card-sub chats-cost-notes">
+        {perReply != null && <>About {inr(perReply)} per customer reply. </>}
+        This month so far: {inr(monthTotal)} of the {inr(data.monthCap)} cap
+        ({Math.round((monthTotal / data.monthCap) * 100)}%).
+        {data.trackedSince && <> Counted since {formatWhen(data.trackedSince)}.</>}{" "}
+        Estimated from Gemini&apos;s token prices at ₹{data.usdToInr} to the dollar;
+        Google AI Studio&apos;s billing has the exact amount.
+      </p>
+    </section>
+  );
+};

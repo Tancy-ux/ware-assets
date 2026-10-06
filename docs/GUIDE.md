@@ -430,7 +430,12 @@ card. Masked like other contacts for logins without "contacts".
 are saved with `source = internal`; those and any chat whose name has "test"
 anywhere in it ("Tanu test", "Tester") are tagged **Internal** and shown only under
 the Internal filter (hidden when there are none), never in Needs reply /
-Leads / All; Stats counts them with the test chats.
+Leads / All; Stats counts them with the test chats. **Mark as internal**
+in the chat's ⋯ menu (edit tick) moves any chat there; on an internal chat
+it reads **Not internal (a real customer)**, which also overrides a "test"
+name. Both are kept in the chat's `source` (`internal` / `customer`): the
+store chat only sets `source` when a chat starts, so a mark isn't undone
+by the next message.
 
 The page fits the screen: header, summary, search and the open chat's
 header stay put; the list, the transcript and the side panel scroll inside
@@ -540,9 +545,21 @@ filter's range; internal and test chats are left out.
 - **Download CSV** (owner only): what's on screen, for Excel / a mailing
   list / a Zoho import.
 
-**Stats tab** (same date filter), with four tabs, **Overview**,
-**Carts**, **Products** and **Couldn't answer** (Carts needs the carts
-tick, the others the stats tick):
+**Stats tab** (same date filter), with tabs **Overview**, **Carts**,
+**Products**, **Couldn't answer** and, for the owner only, **AI cost**
+(Carts needs the carts tick, the others the stats tick):
+
+- **AI cost** (owner only): what Gemini cost in the period, as three
+  numbers: **Real customers** (shoppers' typed questions), **Tests &
+  internal** (test-named / internal chats, and replies with no chat, like
+  `scripts/bot-tests.mjs`) and **Team tools** (AI reply, Draft from chat,
+  Bot Try, Improve AI), each with its number of AI calls; then the average
+  per customer reply and this month so far against the ₹1,000 cap. Every
+  AI call writes a row to `ai_costs` (model and tokens); the rupees are
+  worked out from Gemini's prices per million tokens (`GEMINI_PRICES` in
+  `chat-admin`; 3.6–3.8 Flash double from 1 Jan 2027) at ₹88 to the
+  dollar, so it's an estimate: AI Studio's billing has the exact amount.
+  Calls from before `supabase-ai-costs.sql` was run aren't counted.
 
 - **Hide test and junk chats** (on by default, remembered per browser):
   leaves out chats named or labelled "test", "testing" or "junk" (rename
@@ -600,7 +617,8 @@ script for Shopify. All its wording lives in `src/lib/chatTexts.js`
 
 ### 5.1 The pill (closed chat)
 
-Bottom right, 120 px up (clear of the WhatsApp button), frosted, with a
+Bottom right, 120 px up (clear of the WhatsApp button), lightly frosted
+(mostly solid warm white, so it reads well over photos), with a
 twinkling sparkle. Always starts closed. Its text depends on the page:
 
 | Page | Pill text | Tapping it |
@@ -668,7 +686,15 @@ like to know about the {product}?" and one button per detail it has:
 | Volume | `my_fields.set_volumes` |
 | Weight | `my_fields.set_weight` |
 
-plus **Show me more like this** (§5.4). Empty metafields get no button. The
+plus **Show me more like this** (§5.4). Empty metafields get no button, and
+**What's in the set?** only shows when the title has "set" in it ("Set of
+2", "Serveware Set", "Table Setting"). A detail that's one line (a single
+piece, e.g. "Eclipse Pasta Bowl: 305ml") is answered with just the value:
+*"It holds 305ml."*, *"It weighs 610 g."*, *"It measures 23 x 23 x 5 cm /
+9 x 9 x 1.9 in."* (`infoVolumeOne` etc. in the snippet); sets keep one line
+per piece under "Volume of the {name}:". The chat tidies the text: "&amp;"
+shows as "&", "Uno Lid - 60 ml" as "Uno Lid: 60 ml", and lines with no
+value ("Hyphen Plate:") are left out. The
 answer is the metafield's own text, instantly and for free; used buttons
 drop off the next "Anything else about…". Each answer is logged to the
 Chats page (ask-faq mode `info`) and the AI sees it for follow-up
@@ -772,6 +798,13 @@ block at the top of `delivery.ts`.
   (`atelierCatalogUrl`).
 - **Get directions on Google Maps ↗** under any reply giving the store
   address, or when asked for directions / the showroom (`storeMapUrl`).
+- **Start a return or exchange ↗** (the store's Return Prime page,
+  `/apps/return_prime`) when they ask about returns, exchanges, refunds or
+  a piece that arrived damaged / broken / wrong (`returnsUrl`,
+  `RETURNS_WORDS` in `ask-faq`), with a note under it: *"Available for 14
+  days after delivery."* (`returnsNote`). There's no order-tracking link:
+  for "where's my order" / tracking the bot says tracking is emailed on
+  dispatch and gives the WhatsApp button to check with their order number.
 - **Chat with the Ware team** WhatsApp card when the shopper wants a person,
   pre-filled with a summary of what they need.
 
@@ -1032,6 +1065,7 @@ would need a code change (`zohoLeadFields` in `chat-admin`).
 | `chat_conversations` | one per browser: visitor_id, visitor_name, company, visitor_phone, visitor_email, label, first/last_question, first/last_page, takeover_at, started_at, last_message_at, visitor_number, requirement, lead_products, client_type, zoho_lead_id, zoho_lead_at | ask-faq, chat-admin |
 | `chat_messages` | question, answer, products (title/url/available), sender (ai / agent / customer / system), page, created_at | ask-faq, chat-admin |
 | `ai_usage` | rate-limit counters (and usage) | `ai_rate_check`, `rate_limit` |
+| `ai_costs` | one row per AI call: kind (reply / team-ai-reply / lead-draft / bot-try / tidy), model, chat, tokens | ask-faq, chat-admin |
 | `restock_requests` | never created; "Check restock" is switched off | – |
 
 Storage bucket `assets` (folder `uploads/`) for the Downloads page.
@@ -1047,8 +1081,9 @@ device, cart), `supabase-chat-users.sql` (team, email, agent_name),
 `supabase-bot-versions.sql`, `supabase-chat-source.sql` (internal chats),
 `supabase-chat-extras.sql` (what was shown under each reply),
 `supabase-quick-replies.sql` (saved messages),
-`supabase-chat-account.sql` (logged-in customer's account). (`supabase-restock-requests-table.sql` exists but was never
-run.)
+`supabase-chat-account.sql` (logged-in customer's account),
+`supabase-ai-costs.sql` (the AI cost tab; added Oct 2026, run it once if the tab asks).
+(`supabase-restock-requests-table.sql` exists but was never run.)
 
 ### Other scripts
 
@@ -1147,6 +1182,7 @@ a number, warm but short.
 | `npm run dev:ai` | `ask-faq` locally on :8000 (Deno via npx; needs `.env.local`) |
 | `npm run dev:chats` | `chat-admin` locally on :8002 |
 | `npx supabase functions deploy ask-faq --use-api` | Deploy the bot (same for `chat-admin`) |
+| `node scripts/bot-tests.mjs` | Before deploying a bot change: plays ~12 conversations against the local bot (`--live` for the deployed one, `--only Atelier` for one) and checks the rules: answers, "we" not "they", no typed links, no repeats, pincode ask, returns / maps links, call form, WhatsApp, Atelier never priced with the designers' number, no made-up products, stays on topic. ~₹15 a run; nothing is saved to Chats |
 
 - **Team site deploy**: push to `main` → GitHub Actions
   (`.github/workflows/deploy.yml`) builds and publishes to GitHub Pages
