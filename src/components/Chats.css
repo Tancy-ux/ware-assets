@@ -3239,6 +3239,173 @@
   font-size: 12px;
   color: var(--chats-text-secondary);
 }
+.chats-extra-unanswered {
+  color: #b4532a;
+}
+
+/* Contacts list: Send to Zoho in a row (pick the type of client, send). */
+.chats-contacts-push-btn {
+  gap: 4px;
+  cursor: pointer;
+  color: var(--chats-accent);
+  background: var(--chats-accent-soft);
+  font: inherit;
+  font-size: 11.5px;
+}
+.chats-tag.chats-contacts-skip-btn {
+  cursor: pointer;
+  color: var(--chats-text-secondary);
+  background: transparent;
+  border-color: var(--chats-border);
+  font: inherit;
+  font-size: 11.5px;
+}
+.chats-contacts-skip-btn:disabled,
+.chats-contacts-push-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.chats-contacts-push {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  min-width: 190px;
+}
+.chats-contacts-push select {
+  padding: 5px 8px;
+  border: 1px solid var(--chats-border-strong);
+  border-radius: var(--chats-radius);
+  background: var(--chats-panel);
+  color: var(--chats-text);
+  font: inherit;
+  font-size: 13px;
+}
+.chats-contacts-push small {
+  color: var(--chats-text-secondary);
+  font-size: 11.5px;
+}
+.chats-contacts-push-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.chats-contacts-push input[type="date"] {
+  padding: 4px 6px;
+  border: 1px solid var(--chats-border-strong);
+  border-radius: var(--chats-radius);
+  background: var(--chats-panel);
+  color: var(--chats-text);
+  font: inherit;
+  font-size: 12.5px;
+}
+.chats-contacts-skip-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Contacts: tick boxes, and the bar for what's ticked. */
+.chats-contacts-tick {
+  width: 28px;
+  padding-right: 0 !important;
+}
+.chats-contacts-tick input {
+  accent-color: var(--chats-accent);
+  cursor: pointer;
+}
+.chats-contacts-picked td {
+  background: var(--chats-accent-soft);
+}
+.chats-contacts-bulk {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--chats-border);
+  border-radius: var(--chats-radius);
+  background: var(--chats-panel);
+  box-shadow: 0 4px 14px rgba(30, 35, 32, 0.08);
+  font-size: 13px;
+}
+.chats-contacts-bulk select {
+  padding: 5px 8px;
+  border: 1px solid var(--chats-border-strong);
+  border-radius: var(--chats-radius);
+  background: var(--chats-panel);
+  color: var(--chats-text);
+  font: inherit;
+  font-size: 13px;
+}
+.chats-contacts-bulk .chats-contacts-push {
+  margin-top: 0;
+}
+
+/* Contacts: the team's note under a name, and how keen they are. */
+.chats-contacts-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: 260px;
+  margin-top: 4px;
+  color: #7a5c1e;
+  font-size: 12px;
+  white-space: normal;
+}
+.chats-contacts-note svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.chats-contacts-note button,
+.chats-contacts-note-add {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--chats-text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.chats-contacts-note-add {
+  display: block;
+  margin-top: 3px;
+}
+@media (hover: hover) {
+  .chats-contacts-note-add {
+    visibility: hidden;
+  }
+  tr:hover .chats-contacts-note-add,
+  .chats-contacts-note-add:focus-visible {
+    visibility: visible;
+  }
+}
+.chats-contacts-note-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 220px;
+  margin-top: 6px;
+}
+.chats-contacts-note-edit textarea {
+  padding: 6px 8px;
+  border: 1px solid var(--chats-border-strong);
+  border-radius: var(--chats-radius);
+  background: var(--chats-panel);
+  color: var(--chats-text);
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+.chats-contacts-interest {
+  font-size: 12.5px;
+  font-weight: 600;
+}
 .chats-bubble a {
   color: inherit;
   text-decoration: underline;

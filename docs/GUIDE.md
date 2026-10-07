@@ -463,9 +463,9 @@ runs **Lead** (warmth) → **Right now** (page, cart in bold, device, days chatt
 Meetha Ho Jaye Dessert Set").
 
 - **List**: newest activity first. At its top: the **search**, then "31
-  conversations" with the date filter on its right (Last 7 days default /
-  30 / 90 / All time / Custom dates), then the quick filters **All · Needs
-  reply · Leads · Taken over · In Zoho** (Internal when there are some),
+  conversations" with the date filter on its right (All time default /
+  Today / Yesterday / 7 / 30 / 90 days / Custom dates), then the quick
+  filters **All · Needs reply · Leads · Taken over · In Zoho** (Internal when there are some),
   each with its count (hidden at 0). Filters are soft filled chips, the selected
   one dark green. The title bar above holds just the section's name and
   **Refresh** on the right (on phones the Conversations title bar is
@@ -532,18 +532,48 @@ same phone (last 10 digits) or email are merged into one person, even
 from different browsers. Shows people **last chatted** in the date
 filter's range; internal and test chats are left out.
 
-- Columns: person (name, company, where the details came from), phone
-  (tap to call), email, what they asked about, number of chats, last
-  chatted (hover for first), latest cart value, and status tags:
-  **Ordered** (Shopify order from the same browser), **In Zoho** (opens
-  the lead), **Replied** (a team reply in any of their chats), **Follow
-  up**.
+- Columns: person (name, company, where the details came from, the
+  team's note), phone (tap to call), email, what they asked about,
+  **Interest** (the AI's hot / warm / cold, warmest across their chats),
+  number of chats, last chatted (hover for first), latest cart value, and
+  status tags: **Ordered** (Shopify order from the same browser), **In
+  Zoho · Lead Status** (opens the lead; the status is read from Zoho,
+  kept 5 minutes, refreshed by ↻; hover for when and who sent it), **AI
+  didn't answer** (messages that got the WhatsApp button instead),
+  **Replied** (a team reply in any of their chats), **Follow up**.
+- **Note** (with the edit tick): "+ Note" under a name (shows on hover),
+  saved on all their chats with who and when (`chat-admin`
+  "contact-note"). Search finds notes too.
 - Filters: All, **To follow up** (nobody replied, not in Zoho, no
-  order), Not in Zoho, Has a cart, Ordered. Search by name, number, email
+  order), **Not in Zoho** (not sent and not put aside), **Sent to Zoho**,
+  **Don't send now**, **AI didn't answer**, Has a cart, Ordered.
+- **Tick boxes** (with the Zoho tick) on people not in Zoho: a bar shows
+  "N selected" with one type of client and **Send to Zoho** (one after
+  the other, then one summary: new leads, matched leads, anything Zoho
+  refused; people with no name are left out), **Don't send now**, **Move
+  back** and Clear. Search by name, number, email
   or company. Sort by person, chats, last chatted (default, newest first)
   or cart. Tap a name to open their latest chat.
 - **Download CSV** (owner only): what's on screen, for Excel / a mailing
   list / a Zoho import.
+- **Send to Zoho** in the status column (with the "Send leads to Zoho"
+  tick, the same one as the chat's lead card): pick the type of client
+  (required here) and Send (`chat-admin` "contact-push"). Name, phone, email, company and
+  products come from all their chats (newest first). The requirement is
+  the one saved on a chat, or what they asked about when none was written.
+  Zoho matching works as on the lead card (an existing lead with the same
+  phone or email only gets its empty fields filled), and the lead is
+  linked to all their chats. Greyed out with no name: open the chat and
+  add one.
+- **Don't send** (same tick) puts someone in **Don't send now**: until
+  they chat again, for 1 week / 1 month, or until a date ("Snoozed till
+  15 Oct"); who and when on hover. **Move back** returns them. They also
+  come back to Not in Zoho on their own when they chat again or the
+  snooze runs out (`chat-admin` "contact-skip", `zoho_skip_*` on all
+  their chats).
+- Columns for these (notes, Don't send now, snooze, who sent a lead):
+  scripts/supabase-contacts.sql. Sending to Zoho works without it, just
+  without "who sent it".
 
 **Stats tab** (same date filter), with tabs **Overview**, **Carts**,
 **Products**, **Couldn't answer** and, for the owner only, **AI cost**
@@ -826,6 +856,18 @@ last few questions:
 asked: …".) Written in two places that must match: `fallbackWhatsAppUrl` in
 AskAi.jsx (the chat can't reach the bot) and `handoffText` in ask-faq. A
 message over 500 characters gets its own text sent as it is.
+
+**Every message still lands in the Chats page.** A message the AI didn't
+answer is saved with what the shopper saw, the WhatsApp card, and a
+*"Not answered by the AI · reason"* note (message too long, too many
+messages at once, AI busy, AI didn't respond, something went wrong, the
+chat couldn't reach us). ask-faq saves it when it can and tells the chat
+(`logged`). When it can't, because the connection dropped or the call
+failed first, the chat keeps the message in the browser (`askAiUnsaved`)
+and sends it the next time it can (the `log` mode). It's saved at the
+time it happened. Taps on a WhatsApp button are saved the same way, as
+*"Opened WhatsApp to chat with the team"*, and so is a product-details or
+Atelier reply the chat answered itself but couldn't log.
 
 ### 5.11 Team takeover (seen from the shopper's side)
 

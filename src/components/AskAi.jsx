@@ -226,6 +226,67 @@ const storeNamePrefs = (value) => {
   }
 };
 
+// Every message is saved for the team's Chats page. One the chat couldn't
+// get to us (no connection, or the call failed before the server saved
+// it) waits here, with what the chat showed for it, and is sent as soon
+// as it can be ("log" in ask-faq). So are taps on the WhatsApp button.
+const UNSAVED_KEY = "askAiUnsaved";
+const readUnsaved = () => {
+  try {
+    const v = JSON.parse(localStorage.getItem(UNSAVED_KEY));
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+};
+const writeUnsaved = (items) => {
+  try {
+    if (items.length) {
+      localStorage.setItem(UNSAVED_KEY, JSON.stringify(items.slice(-20)));
+    } else {
+      localStorage.removeItem(UNSAVED_KEY);
+    }
+  } catch {
+    // Storage unavailable: it can't wait for a retry.
+  }
+};
+let sendingUnsaved = false;
+const sendUnsaved = async () => {
+  const batch = readUnsaved().slice(0, 5);
+  if (sendingUnsaved || !batch.length) return;
+  sendingUnsaved = true;
+  const { data, error } = await callAskFaq({
+    mode: "log",
+    items: batch,
+    conversationId: getVisitorId(),
+    visitorId: getVisitorId(),
+  });
+  sendingUnsaved = false;
+  if (error || data?.error) return; // tried again with the next message
+  // Anything added meanwhile stays for the next round.
+  const sent = new Set(batch.map((i) => i.at + i.type + (i.question ?? "")));
+  const rest = readUnsaved().filter(
+    (i) => !sent.has(i.at + i.type + (i.question ?? "")),
+  );
+  writeUnsaved(rest);
+  if (rest.length) sendUnsaved();
+};
+// `answered`: the chat answered it itself (a product's details); otherwise
+// it got the WhatsApp button.
+const saveLater = (item) => {
+  writeUnsaved([
+    ...readUnsaved(),
+    {
+      type: "message",
+      ...item,
+      page: location.pathname,
+      at: new Date().toISOString(),
+    },
+  ]);
+  sendUnsaved();
+};
+const savedWhatsAppTap = () => saveLater({ type: "whatsapp" });
+
 // Tells the server the visitor started over ("reset" / clear chat): ends
 // any team takeover and marks the spot in the Chats transcript. Their chat
 // stays one conversation there.
@@ -613,6 +674,14 @@ const AskAi = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Anything a lost connection kept from the Chats page: sent now, and
+  // whenever the connection comes back.
+  useEffect(() => {
+    sendUnsaved();
+    window.addEventListener("online", sendUnsaved);
+    return () => window.removeEventListener("online", sendUnsaved);
+  }, []);
+
   // Keep nextId ahead of anything restored from storage so new messages
   // never collide with old ones.
   useEffect(() => {
@@ -782,6 +851,8 @@ const AskAi = ({
 
     if (error || data?.error) {
       console.error(error ?? data?.error);
+      // The server saves it when it can (`logged`); otherwise we do.
+      if (!data?.logged) saveLater({ question, answer: TEXTS.fallback });
       // Not a real answer: kept out of the AI's history (`failed`) and
       // without "Improve answer" (`isLocal`).
       patchMessage(id, {
@@ -973,7 +1044,9 @@ const AskAi = ({
       conversationId: getVisitorId(),
       visitorId: getVisitorId(),
     }).then(({ error, data }) => {
-      if (error || data?.error) console.error(error ?? data?.error);
+      if (!error && !data?.error) return;
+      console.error(error ?? data?.error);
+      saveLater({ question, answer, answered: true });
     });
     postLocalReply(
       question,
@@ -1023,6 +1096,7 @@ const AskAi = ({
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     if (error || data?.error) {
       console.error(error ?? data?.error);
+      saveLater({ question: TEXTS.moreLikeThisAsk, answer: TEXTS.fallback });
       patchMessage(id, {
         loading: false,
         answer: TEXTS.fallback,
@@ -1065,7 +1139,13 @@ const AskAi = ({
   const startBespoke = (product) => {
     const name = shortName(product.title);
     logBespoke(product, "start").then(({ error, data }) => {
-      if (error || data?.error) console.error(error ?? data?.error);
+      if (!error && !data?.error) return;
+      console.error(error ?? data?.error);
+      saveLater({
+        question: fillText(TEXTS.bespokeAsk, { name }),
+        answer: fillText(TEXTS.bespokeIntro, { name }),
+        answered: true,
+      });
     });
     postLocalReply(
       fillText(TEXTS.bespokeAsk, { name }),
@@ -1705,6 +1785,7 @@ const AskAi = ({
                     target="_blank"
                     rel="noopener noreferrer"
                     className="faq-chat-whatsapp-btn"
+                    onClick={savedWhatsAppTap}
                   >
                     <span className="faq-chat-whatsapp-icon">
                       <MessageCircle size={17} />
@@ -1925,6 +2006,7 @@ const AskAi = ({
                   target="_blank"
                   rel="noopener noreferrer"
                   className="faq-chat-contact-whatsapp"
+                  onClick={savedWhatsAppTap}
                 >
                   <MessageCircle size={14} />
                   {TEXTS.bespokeWhatsApp}

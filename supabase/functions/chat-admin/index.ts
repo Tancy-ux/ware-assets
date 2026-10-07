@@ -761,6 +761,176 @@ function splitName(name: string) {
 }
 
 const EMAIL_RE = /^[\w.+-]+@[\w-]+(\.[\w-]+)+$/;
+// Sends a lead to Zoho (the chat's lead card, or the Contacts list) and
+// links it to `chatIds`. If Zoho already has a lead with that phone or
+// email, only its empty fields are filled; otherwise a new one is made.
+// Zoho's own refusals throw a ZohoError, with its reason.
+async function sendLead(
+  // deno-lint-ignore no-explicit-any
+  db: any,
+  // deno-lint-ignore no-explicit-any
+  lead: Record<string, any>,
+  chatIds: string[],
+  // The team member sending it (zoho_lead_by).
+  by: string,
+): Promise<Record<string, unknown>> {
+  const f = await zohoLeadFields();
+  const record: Record<string, unknown> = {
+    ...splitName(nameCase(lead.visitor_name)),
+    Lead_Source: f.leadSource,
+    Tag: [{ name: LEAD_TAG }],
+  };
+  if (lead.visitor_phone) record.Phone = lead.visitor_phone;
+  if (lead.visitor_email) record.Email = lead.visitor_email;
+  if (lead.company) record.Company = lead.company;
+  if (f.requirement) record[f.requirement] = lead.requirement;
+  if (f.products && lead.lead_products) record[f.products] = lead.lead_products;
+  if (f.clientType && lead.client_type) record[f.clientType] = lead.client_type;
+  // Without a Requirement field, it goes in the description.
+  if (!f.requirement) record.Description = lead.requirement;
+
+  const at = new Date().toISOString();
+  const linkChat = async (leadId: string) => {
+    const link = (extra: Record<string, string>) =>
+      db
+        .from("chat_conversations")
+        .update({ zoho_lead_id: leadId, zoho_lead_at: at, ...extra })
+        .in("id", chatIds);
+    let { error } = await link({ zoho_lead_by: by });
+    // Before scripts/supabase-contacts.sql: link it without who sent it
+    // (the lead is in Zoho already, so it must still be linked).
+    if (error?.code === "PGRST204") ({ error } = await link({}));
+    if (error) throw error;
+  };
+
+  // Already a lead with this phone or email? Then that lead is kept as
+  // it is: only its empty fields get filled from the card (never
+  // overwriting anything), plus the ware-ai-chat tag.
+  const existing = await findZohoLead(lead.visitor_phone, lead.visitor_email);
+  if (existing) {
+    const { lead: found, matchedBy } = existing;
+    const isEmpty = (v: unknown) =>
+      v == null || (typeof v === "string" && !v.trim()) ||
+      (Array.isArray(v) && !v.length);
+    const fill: Record<string, unknown> = {};
+    const labels: Record<string, string> = {
+      Phone: "Phone",
+      Email: "Email",
+      Company: "Company",
+      Description: "Description",
+      // An existing lead keeps its own source; only an empty one is set.
+      Lead_Source: "Lead Source",
+      ...(f.requirement ? { [f.requirement]: "Requirement" } : {}),
+      ...(f.products ? { [f.products]: "Products enquired for" } : {}),
+      ...(f.clientType ? { [f.clientType]: "Type of client" } : {}),
+    };
+    for (const key of Object.keys(labels)) {
+      if (key in record && isEmpty(found[key])) fill[key] = record[key];
+    }
+    if (Object.keys(fill).length) {
+      const { res, data } = await zoho(`/Leads/${found.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ data: [fill] }),
+      });
+      if (!res.ok || data?.data?.[0]?.code !== "SUCCESS") {
+        console.error("Zoho update failed:", res.status, JSON.stringify(data).slice(0, 500));
+        throw new ZohoError(
+          `Found the lead in Zoho but couldn't fill its empty fields: ${
+            data?.data?.[0]?.message ?? res.status
+          }`,
+        );
+      }
+    }
+    // Adding the tag never removes the lead's other tags. Not worth
+    // failing over if it doesn't work.
+    const tagged = await zoho(`/Leads/actions/add_tags`, {
+      method: "POST",
+      // over_write false: appended to the lead's tags, never replacing.
+      body: JSON.stringify({
+        tags: [{ name: LEAD_TAG }],
+        ids: [found.id],
+        over_write: false,
+      }),
+    }).catch(() => null);
+    if (!tagged?.res.ok) console.error("Zoho tag failed:", JSON.stringify(tagged?.data ?? "").slice(0, 300));
+    await linkChat(found.id);
+    const filled = Object.keys(fill).map((k) => labels[k]);
+    return {
+      ok: true,
+      existing: true,
+      message: `Matched an existing lead (same ${matchedBy}). ` +
+        (filled.length
+          ? `Filled its empty ${filled.join(", ")}; nothing else changed.`
+          : "It already had everything, so nothing was changed."),
+      zohoLeadId: found.id,
+      zohoLeadAt: at,
+      zohoUrl: `${ZOHO_CRM}/tab/Leads/${found.id}`,
+    };
+  }
+
+  // Zoho may insist on fields this card doesn't have (e.g. Company):
+  // those get "-" and it tries again.
+  let result;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { res, data } = await zoho("/Leads", {
+      method: "POST",
+      body: JSON.stringify({ data: [record] }),
+    });
+    result = data?.data?.[0];
+    if (res.ok && result?.code === "SUCCESS") break;
+    const field = result?.details?.api_name;
+    if (result?.code === "MANDATORY_NOT_FOUND" && field && !(field in record)) {
+      record[field] = "-";
+      continue;
+    }
+    console.error("Zoho lead failed:", res.status, JSON.stringify(data).slice(0, 500));
+    throw new ZohoError(
+      `Zoho said no: ${result?.message ?? data?.message ?? res.status}` +
+        (field ? ` (${field})` : ""),
+    );
+  }
+  const leadId = result?.details?.id;
+  if (!leadId) throw new ZohoError("Zoho didn't return the new lead.");
+  await linkChat(leadId);
+  return {
+    ok: true,
+    existing: false,
+    message: "New lead created in Zoho.",
+    zohoLeadId: leadId,
+    zohoLeadAt: at,
+    zohoUrl: `${ZOHO_CRM}/tab/Leads/${leadId}`,
+  };
+}
+
+// Each lead's Lead Status in Zoho (Contacted, Qualified…) for the Contacts
+// list, kept for a few minutes. Null when Zoho has none, or no longer has
+// the lead (e.g. converted).
+const STATUS_TTL_MS = 5 * 60 * 1000;
+const statusCache = new Map<string, { status: string | null; at: number }>();
+async function zohoStatuses(ids: string[], fresh: boolean) {
+  const now = Date.now();
+  const need = [...new Set(ids)].filter((id) =>
+    fresh || !((statusCache.get(id)?.at ?? 0) > now - STATUS_TTL_MS)
+  );
+  for (let i = 0; i < need.length; i += 100) {
+    const chunk = need.slice(i, i + 100);
+    const { res, data } = await zoho(
+      `/Leads?ids=${chunk.join(",")}&fields=Lead_Status`,
+    );
+    if (!res.ok && res.status !== 204) {
+      throw new ZohoError(`Zoho status check failed (${res.status}).`);
+    }
+    const found = new Map<string, string | null>(
+      // deno-lint-ignore no-explicit-any
+      (data?.data ?? []).map((r: any) => [String(r.id), r.Lead_Status ?? null]),
+    );
+    for (const id of chunk) {
+      statusCache.set(id, { status: found.get(id) ?? null, at: now });
+    }
+  }
+  return new Map(ids.map((id) => [id, statusCache.get(id)?.status ?? null]));
+}
+
 const leadReady = (c: {
   visitor_name?: string | null;
   visitor_phone?: string | null;
@@ -1045,6 +1215,9 @@ Deno.serve(async (req) => {
       "lead-save": "edit",
       internal: "edit",
       "lead-push": "zoho",
+      "contact-push": "zoho",
+      "contact-skip": "zoho",
+      "contact-note": "edit",
       delete: "delete",
       "users-list": "users",
       "quick-list": "reply",
@@ -1069,6 +1242,13 @@ Deno.serve(async (req) => {
     // Only useful while replying, so it needs that too.
     if (body.action === "ai-reply" && !perms.reply) return notAllowed();
     if (body.action === "lead-options" && !perms.edit && !perms.zoho) {
+      return notAllowed();
+    }
+    // It's a button in the Contacts list, so it needs that too.
+    if (
+      ["contact-push", "contact-skip", "contact-note"].includes(body.action) &&
+      !perms.people
+    ) {
       return notAllowed();
     }
 
@@ -2002,6 +2182,21 @@ Deno.serve(async (req) => {
           q.eq("sender", "agent")
         )).map((m) => m.conversation_id),
       );
+      // Messages the AI didn't answer (ask-faq's "not_answered:…" extra).
+      const unanswered = new Map<string, number>();
+      try {
+        for (
+          const m of await messagesOf(db, rows.map((c) => c.id), "conversation_id, extras", (q) =>
+            q.not("extras", "is", null))
+        ) {
+          if ((m.extras ?? []).some((x: string) => x.startsWith("not_answered:"))) {
+            unanswered.set(m.conversation_id, (unanswered.get(m.conversation_id) ?? 0) + 1);
+          }
+        }
+      } catch (err) {
+        // Before scripts/supabase-chat-extras.sql: no flags.
+        console.error(err);
+      }
       // Who ordered (from the same browser, since tracking began).
       let ordersError: string | null = null;
       const orderedBy = new Set<string>();
@@ -2027,6 +2222,22 @@ Deno.serve(async (req) => {
           chats.some((c) => c.account_phone || c.account_email) && "Store account",
         ].filter(Boolean);
         const cartChat = chats.find((c) => c.cart);
+        const zohoChat = chats.find((c) => c.zoho_lead_id);
+        // "Don't send now", unless they've chatted since (then they're
+        // back in Not in Zoho).
+        const skip = chats
+          .filter((c) => c.zoho_skip_at)
+          .sort((a, b) => (a.zoho_skip_at < b.zoho_skip_at ? 1 : -1))[0];
+        // A snooze runs out on its date too.
+        const skipped = !zohoChat && !!skip && skip.zoho_skip_at >= latest.last_message_at &&
+          (!skip.zoho_skip_until || skip.zoho_skip_until > new Date().toISOString());
+        const noteChat = chats
+          .filter((c) => c.contact_note)
+          .sort((a, b) => (a.contact_note_at < b.contact_note_at ? 1 : -1))[0];
+        // The AI's read, the warmest across their chats.
+        const interest = ["hot", "warm", "cold"].find((i) =>
+          chats.some((c) => c.interest === i)
+        ) ?? null;
         return {
           conversationId: latest.id,
           name: (first((c) => c.visitor_name) && nameCase(first((c) => c.visitor_name)!)) ||
@@ -2050,15 +2261,181 @@ Deno.serve(async (req) => {
           cart: cartChat?.cart ?? null,
           cartValue: cartValue(cartChat?.cart),
           ordered: ordersError ? null : chats.some((c) => orderedBy.has(c.visitor_id)),
-          zohoUrl: chats.find((c) => c.zoho_lead_id)
-            ? `${ZOHO_CRM}/tab/Leads/${chats.find((c) => c.zoho_lead_id).zoho_lead_id}`
-            : null,
+          zohoUrl: zohoChat ? `${ZOHO_CRM}/tab/Leads/${zohoChat.zoho_lead_id}` : null,
+          zohoAt: zohoChat?.zoho_lead_at ?? null,
+          zohoBy: zohoChat?.zoho_lead_by ?? null,
+          zohoLeadId: zohoChat?.zoho_lead_id ?? null,
+          zohoStatus: null as string | null,
+          skippedAt: skipped ? skip.zoho_skip_at : null,
+          skippedBy: skipped ? skip.zoho_skip_by ?? null : null,
+          skippedUntil: skipped ? skip.zoho_skip_until ?? null : null,
+          note: noteChat?.contact_note ?? null,
+          noteBy: noteChat?.contact_note_by ?? null,
+          noteAt: noteChat?.contact_note_at ?? null,
+          interest,
+          // Messages in their chats the AI didn't answer (they got the
+          // WhatsApp button instead).
+          unanswered: chats.reduce((n, c) => n + (unanswered.get(c.id) ?? 0), 0),
           replied: chats.some((c) => replied.has(c.id)),
+          // For Send to Zoho from the list: all their chats, the type of
+          // client already picked, and whether there's a name to send.
+          chatIds: chats.map((c) => c.id),
+          clientType: first((c) => c.client_type) ?? null,
+          requirement: first((c) => c.requirement) ?? null,
+          hasName: !!(first((c) => c.visitor_name) || first((c) => c.account_name)),
         };
       }).filter((p) =>
         (!since || p.lastAt >= since) && (!until || p.lastAt < until)
       );
-      return json({ contacts: people, ordersError, canDownload: me.owner });
+      // Where each lead is in Zoho now. The list still loads without it.
+      let zohoError: string | null = null;
+      const inZoho = people.filter((p) => p.zohoLeadId);
+      if (inZoho.length) {
+        try {
+          const statuses = await zohoStatuses(
+            inZoho.map((p) => p.zohoLeadId!),
+            !!body.fresh,
+          );
+          for (const p of inZoho) p.zohoStatus = statuses.get(p.zohoLeadId!) ?? null;
+        } catch (err) {
+          console.error(err);
+          zohoError = "Couldn't check lead statuses in Zoho just now.";
+        }
+      }
+      return json({ contacts: people, ordersError, zohoError, canDownload: me.owner });
+    }
+
+    // The Contacts list's "Don't send now" (or "Move back"), on all of
+    // the person's chats.
+    if (body.action === "contact-skip") {
+      const ids = (Array.isArray(body.conversationIds) ? body.conversationIds : [])
+        .map(String)
+        .filter((id: string) => UUID_RE.test(id))
+        .slice(0, 500);
+      if (!ids.length) return json({ error: "Bad conversation id" }, 400);
+      const at = body.skip ? new Date().toISOString() : null;
+      // A snooze: back in Not in Zoho on this day (empty: when they chat
+      // again).
+      const until = body.skip && typeof body.until === "string" &&
+          !isNaN(Date.parse(body.until)) && Date.parse(body.until) > Date.now()
+        ? new Date(body.until).toISOString()
+        : null;
+      const { error } = await db
+        .from("chat_conversations")
+        .update({
+          zoho_skip_at: at,
+          zoho_skip_by: body.skip ? me.name : null,
+          zoho_skip_until: until,
+        })
+        .in("id", ids);
+      if (error) {
+        if (error.code === "PGRST204") {
+          return json(
+            { error: "Run scripts/supabase-contacts.sql in Supabase first." },
+            400,
+          );
+        }
+        throw error;
+      }
+      return json({
+        ok: true,
+        skippedAt: at,
+        skippedBy: body.skip ? me.name : null,
+        skippedUntil: until,
+      });
+    }
+
+    // The team's note on a person in the Contacts list ("called, wants a
+    // quote Monday"), on all their chats. Empty clears it.
+    if (body.action === "contact-note") {
+      const ids = (Array.isArray(body.conversationIds) ? body.conversationIds : [])
+        .map(String)
+        .filter((id: string) => UUID_RE.test(id))
+        .slice(0, 500);
+      if (!ids.length) return json({ error: "Bad conversation id" }, 400);
+      const note = typeof body.note === "string" ? body.note.trim().slice(0, 500) : "";
+      const at = note ? new Date().toISOString() : null;
+      const { error } = await db
+        .from("chat_conversations")
+        .update({
+          contact_note: note || null,
+          contact_note_by: note ? me.name : null,
+          contact_note_at: at,
+        })
+        .in("id", ids);
+      if (error) {
+        if (error.code === "PGRST204") {
+          return json(
+            { error: "Run scripts/supabase-contacts.sql in Supabase first." },
+            400,
+          );
+        }
+        throw error;
+      }
+      return json({ ok: true, note: note || null, noteBy: note ? me.name : null, noteAt: at });
+    }
+
+    // The Contacts list's "Send to Zoho": the person's details from all
+    // their chats (newest first), the type of client picked in the list,
+    // and what they asked about when nobody wrote a requirement. The lead
+    // is linked to all their chats.
+    if (body.action === "contact-push") {
+      const ids = (Array.isArray(body.conversationIds) ? body.conversationIds : [])
+        .map(String)
+        .filter((id: string) => UUID_RE.test(id))
+        .slice(0, 50);
+      if (!ids.length) return json({ error: "Bad conversation id" }, 400);
+      const { data: chats, error } = await db
+        .from("chat_conversations")
+        .select("*")
+        .in("id", ids)
+        .order("last_message_at", { ascending: false });
+      if (error) throw error;
+      if (!chats?.length) return json({ error: "Chat not found" }, 404);
+      if (!("requirement" in chats[0])) {
+        return json(
+          { error: "Run scripts/supabase-zoho-leads.sql in Supabase first." },
+          400,
+        );
+      }
+      if (chats.some((c) => c.zoho_lead_id)) {
+        return json({ error: "They're already in Zoho." }, 409);
+      }
+      const first = (key: string) =>
+        (chats.map((c) => c[key]).find((v) => typeof v === "string" && v.trim()) as
+          | string
+          | undefined) ?? null;
+      const clientType = typeof body.clientType === "string"
+        ? body.clientType.trim().slice(0, 100)
+        : "";
+      const lead = {
+        visitor_name: first("visitor_name") ?? first("account_name"),
+        visitor_phone: first("visitor_phone") ?? first("account_phone"),
+        visitor_email: first("visitor_email") ?? first("account_email"),
+        company: first("company"),
+        requirement: first("requirement") ?? first("topic") ?? askedAbout(chats[0]),
+        lead_products: first("lead_products"),
+        client_type: clientType || first("client_type"),
+      };
+      const missing = leadReady(lead);
+      if (missing.length) {
+        return json({ error: `Open the chat and add the ${missing.join(", ")} first.` }, 400);
+      }
+      // The type picked here is kept on their latest chat, as the chat's
+      // lead card would.
+      if (clientType) {
+        const { error: saveError } = await db
+          .from("chat_conversations")
+          .update({ client_type: clientType })
+          .eq("id", chats[0].id);
+        if (saveError) throw saveError;
+      }
+      try {
+        return json(await sendLead(db, lead, chats.map((c) => c.id), me.name));
+      } catch (err) {
+        if (err instanceof ZohoError) return json({ error: err.message }, 502);
+        throw err;
+      }
     }
 
     // ---- Products: what the bot showed, what they looked at, what sold ----
@@ -2311,125 +2688,7 @@ Deno.serve(async (req) => {
         return json({ error: `Add the ${missing.join(", ")} first.` }, 400);
       }
       try {
-        const f = await zohoLeadFields();
-        const record: Record<string, unknown> = {
-          ...splitName(nameCase(lead.visitor_name)),
-          Lead_Source: f.leadSource,
-          Tag: [{ name: LEAD_TAG }],
-        };
-        if (lead.visitor_phone) record.Phone = lead.visitor_phone;
-        if (lead.visitor_email) record.Email = lead.visitor_email;
-        if (lead.company) record.Company = lead.company;
-        if (f.requirement) record[f.requirement] = lead.requirement;
-        if (f.products && lead.lead_products) record[f.products] = lead.lead_products;
-        if (f.clientType && lead.client_type) record[f.clientType] = lead.client_type;
-        // Without a Requirement field, it goes in the description.
-        if (!f.requirement) record.Description = lead.requirement;
-
-        const at = new Date().toISOString();
-        const linkChat = (leadId: string) =>
-          db
-            .from("chat_conversations")
-            .update({ zoho_lead_id: leadId, zoho_lead_at: at })
-            .eq("id", convo.id);
-
-        // Already a lead with this phone or email? Then that lead is kept as
-        // it is: only its empty fields get filled from the card (never
-        // overwriting anything), plus the ware-ai-chat tag.
-        const existing = await findZohoLead(lead.visitor_phone, lead.visitor_email);
-        if (existing) {
-          const { lead: found, matchedBy } = existing;
-          const isEmpty = (v: unknown) =>
-            v == null || (typeof v === "string" && !v.trim()) ||
-            (Array.isArray(v) && !v.length);
-          const fill: Record<string, unknown> = {};
-          const labels: Record<string, string> = {
-            Phone: "Phone",
-            Email: "Email",
-            Company: "Company",
-            Description: "Description",
-            // An existing lead keeps its own source; only an empty one is set.
-            Lead_Source: "Lead Source",
-            ...(f.requirement ? { [f.requirement]: "Requirement" } : {}),
-            ...(f.products ? { [f.products]: "Products enquired for" } : {}),
-            ...(f.clientType ? { [f.clientType]: "Type of client" } : {}),
-          };
-          for (const key of Object.keys(labels)) {
-            if (key in record && isEmpty(found[key])) fill[key] = record[key];
-          }
-          if (Object.keys(fill).length) {
-            const { res, data } = await zoho(`/Leads/${found.id}`, {
-              method: "PUT",
-              body: JSON.stringify({ data: [fill] }),
-            });
-            if (!res.ok || data?.data?.[0]?.code !== "SUCCESS") {
-              console.error("Zoho update failed:", res.status, JSON.stringify(data).slice(0, 500));
-              throw new ZohoError(
-                `Found the lead in Zoho but couldn't fill its empty fields: ${
-                  data?.data?.[0]?.message ?? res.status
-                }`,
-              );
-            }
-          }
-          // Adding the tag never removes the lead's other tags. Not worth
-          // failing over if it doesn't work.
-          const tagged = await zoho(`/Leads/actions/add_tags`, {
-            method: "POST",
-            // over_write false: appended to the lead's tags, never replacing.
-            body: JSON.stringify({
-              tags: [{ name: LEAD_TAG }],
-              ids: [found.id],
-              over_write: false,
-            }),
-          }).catch(() => null);
-          if (!tagged?.res.ok) console.error("Zoho tag failed:", JSON.stringify(tagged?.data ?? "").slice(0, 300));
-          await linkChat(found.id);
-          const filled = Object.keys(fill).map((k) => labels[k]);
-          return json({
-            ok: true,
-            existing: true,
-            message: `Matched an existing lead (same ${matchedBy}). ` +
-              (filled.length
-                ? `Filled its empty ${filled.join(", ")}; nothing else changed.`
-                : "It already had everything, so nothing was changed."),
-            zohoLeadId: found.id,
-            zohoLeadAt: at,
-            zohoUrl: `${ZOHO_CRM}/tab/Leads/${found.id}`,
-          });
-        }
-
-        // Zoho may insist on fields this card doesn't have (e.g. Company):
-        // those get "-" and it tries again.
-        let result;
-        for (let attempt = 0; attempt < 3; attempt++) {
-          const { res, data } = await zoho("/Leads", {
-            method: "POST",
-            body: JSON.stringify({ data: [record] }),
-          });
-          result = data?.data?.[0];
-          if (res.ok && result?.code === "SUCCESS") break;
-          const field = result?.details?.api_name;
-          if (result?.code === "MANDATORY_NOT_FOUND" && field && !(field in record)) {
-            record[field] = "-";
-            continue;
-          }
-          console.error("Zoho lead failed:", res.status, JSON.stringify(data).slice(0, 500));
-          throw new ZohoError(
-            `Zoho said no: ${result?.message ?? data?.message ?? res.status}` +
-              (field ? ` (${field})` : ""),
-          );
-        }
-        const leadId = result?.details?.id;
-        if (!leadId) throw new ZohoError("Zoho didn't return the new lead.");
-        await linkChat(leadId);
-        return json({
-          ok: true,
-          existing: false,
-          message: "New lead created in Zoho.",
-          zohoLeadId: leadId,
-          zohoLeadAt: at,
-          zohoUrl: `${ZOHO_CRM}/tab/Leads/${leadId}`,
-        });
+        return json(await sendLead(db, lead, [convo.id], me.name));
       } catch (err) {
         if (err instanceof ZohoError) return json({ error: err.message }, 502);
         throw err;

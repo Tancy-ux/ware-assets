@@ -1807,6 +1807,8 @@ async function logTurn(turn: {
   // What the chat showed under the reply besides text and cards (links,
   // buttons, forms), so the Chats page can show the same.
   extras?: string[];
+  // When it happened, for one the chat could only send us later.
+  createdAt?: string;
 }) {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const { conversationId, visitorId } = turn;
@@ -1863,7 +1865,23 @@ async function logTurn(turn: {
     })),
     page: turn.page,
     ...(turn.extras?.length ? { extras: turn.extras } : {}),
+    ...(turn.createdAt ? { created_at: turn.createdAt } : {}),
   });
+}
+
+// The chat's words when the AI can't answer (chatTexts fallback).
+const FALLBACK_REPLY =
+  "So sorry, I'm having a little trouble answering right now. We'd love to help though! Tap below to chat with us on WhatsApp.";
+
+// A time the chat sent with a late message: kept if it's believable (the
+// last week, not the future), so it lands in the right place in the chat.
+function pastTime(raw: unknown) {
+  if (typeof raw !== "string") return undefined;
+  const t = Date.parse(raw);
+  if (isNaN(t) || t > Date.now() + 60_000 || t < Date.now() - 7 * 864e5) {
+    return undefined;
+  }
+  return new Date(t).toISOString();
 }
 
 Deno.serve(async (req) => {
@@ -1874,6 +1892,10 @@ Deno.serve(async (req) => {
   if (!originAllowed(req)) {
     return json({ error: "Not allowed" }, 403);
   }
+
+  // Once there's a question: saves it if anything below goes wrong, so
+  // the Chats page still shows it (see logUnanswered).
+  let saveFailed: (() => Promise<boolean>) | null = null;
 
   try {
     const payload = await req.json();
@@ -1933,12 +1955,12 @@ Deno.serve(async (req) => {
     // conversation in the Chats page, so: end any takeover, and leave a
     // marker in the transcript showing where they started over.
     if (
-      ["reset", "contact", "name", "similar", "bespoke", "info"].includes(
+      ["reset", "contact", "name", "similar", "bespoke", "info", "log"].includes(
         payload.mode,
       ) &&
       !(await formAllowed(
         req,
-        ["similar", "bespoke", "info"].includes(payload.mode) ? "tap" : "form",
+        ["similar", "bespoke", "info", "log"].includes(payload.mode) ? "tap" : "form",
       ))
     ) {
       return json(
@@ -2191,6 +2213,60 @@ Deno.serve(async (req) => {
       return json({ ok: true });
     }
 
+    // What the chat couldn't save when it happened (no connection, or the
+    // call failed before anything was saved), sent once it can: a message
+    // and what the chat showed for it, or a tap on the WhatsApp button.
+    // Saved at the time it happened, so the Chats page shows everything.
+    if (payload.mode === "log") {
+      const { conversationId, visitorId } = payload;
+      if (!validIds(conversationId, visitorId) || !Array.isArray(payload.items)) {
+        return json({ error: "Can't save that right now" }, 400);
+      }
+      const text = (v: unknown, max: number) =>
+        typeof v === "string" ? v.trim().slice(0, max) : "";
+      // deno-lint-ignore no-explicit-any
+      const items = payload.items.slice(0, 5) as any[];
+      let conversation = await ownConversation(conversationId, visitorId);
+      for (const item of items.filter((i) => i?.type !== "whatsapp")) {
+        const question = text(item?.question, MAX_QUESTION_CHARS);
+        if (!question) continue;
+        await logTurn({
+          conversationId,
+          visitorId,
+          question,
+          answer: text(item?.answer, 800) || FALLBACK_REPLY,
+          cards: [],
+          visitorName: "",
+          company: "",
+          isFirst: !conversation?.first_question,
+          page: readPage(item?.page),
+          extra: visitorInfo(req, payload),
+          // Answered in the chat itself (a product's details) or not at
+          // all (the chat couldn't reach us: the WhatsApp button).
+          extras: item?.answered ? [] : ["whatsapp", "not_answered:offline"],
+          createdAt: pastTime(item?.at),
+        });
+        conversation ??= { first_question: question };
+      }
+      const taps = items.filter((i) => i?.type === "whatsapp");
+      if (taps.length) {
+        // A tap before any message was saved has nothing to go with.
+        const saved = await ownConversation(conversationId, visitorId);
+        for (const tap of saved ? taps : []) {
+          const at = pastTime(tap?.at);
+          await insertMessage(adminClient(), {
+            conversation_id: saved.id,
+            question: "",
+            answer: "Opened WhatsApp to chat with the team",
+            sender: "system",
+            page: readPage(tap?.page),
+            ...(at ? { created_at: at } : {}),
+          });
+        }
+      }
+      return json({ ok: true });
+    }
+
     // The pill on a Ware Atelier (bespoke) piece: "we'd love to call you".
     // Each step lands in the Chats page so the team sees the interest, and
     // "call" saves their name and number like the details form does.
@@ -2349,10 +2425,39 @@ Deno.serve(async (req) => {
       return json({ takeover: true, contactSaved });
     }
 
+    // A message the AI didn't answer (the shopper got the WhatsApp button
+    // instead) is saved all the same, with why, so the Chats page shows
+    // every message. `logged` tells the chat it needn't save it itself.
+    const logUnanswered = async (reason: string, answer: string) => {
+      try {
+        await logTurn({
+          conversationId: payload.conversationId,
+          visitorId: payload.visitorId,
+          question,
+          answer,
+          cards: [],
+          visitorName: "",
+          company: "",
+          isFirst: !conversation?.first_question,
+          page: readPage(payload.page),
+          extra: visitorInfo(req, payload),
+          extras: ["whatsapp", `not_answered:${reason}`],
+        });
+        return true;
+      } catch (err) {
+        console.error("Chat log failed:", err);
+        return false;
+      }
+    };
+    // Not for the Bot page's Try or a team draft (those are never logged).
+    if (!isServiceRole(req)) {
+      saveFailed = () => logUnanswered("error", FALLBACK_REPLY);
+    }
+
     // Before any AI: an overly long message, or too many of them, gets a
     // friendly nudge to WhatsApp instead. `fallback` tells the chat it's
     // not a real answer (kept out of the AI's memory).
-    const toWhatsApp = (answer: string) =>
+    const toWhatsApp = async (answer: string, reason: string) =>
       json({
         answer,
         whatsappUrl: whatsAppLink(handoffText(
@@ -2361,14 +2466,17 @@ Deno.serve(async (req) => {
         )),
         contactSaved,
         fallback: true,
+        logged: await logUnanswered(reason, answer),
       });
     if (question.length > MAX_QUESTION_CHARS) {
+      const answer =
+        "That's a long message! Could you share it in a shorter one? Or send it straight to our team on WhatsApp.";
       return json({
-        answer:
-          "That's a long message! Could you share it in a shorter one? Or send it straight to our team on WhatsApp.",
+        answer,
         whatsappUrl: whatsAppLink(question.slice(0, 1500)),
         contactSaved,
         fallback: true,
+        logged: await logUnanswered("too_long", answer),
       });
     }
     // Shoppers' limits; not for chat-admin (Bot's "Try it", "AI reply"),
@@ -2378,12 +2486,11 @@ Deno.serve(async (req) => {
     if (verdict === "person") {
       return toWhatsApp(
         "You've sent quite a few messages in a short while! Let's continue on WhatsApp, where our team can help you properly.",
+        "too_many",
       );
     }
     if (verdict === "global") {
-      return toWhatsApp(
-        "So sorry, I'm having a little trouble answering right now. We'd love to help though! Tap below to chat with us on WhatsApp.",
-      );
+      return toWhatsApp(FALLBACK_REPLY, "busy");
     }
 
     const supabase = createClient(
@@ -2782,7 +2889,10 @@ ${details || "(none)"}${
       teamDraft || draft ? null : payload.conversationId,
     );
     if (text === null) {
-      return json({ error: "AI request failed" }, 502);
+      const logged = saveFailed
+        ? await logUnanswered("ai_failed", FALLBACK_REPLY)
+        : false;
+      return json({ error: "AI request failed", logged }, 502);
     }
 
     let answer = "";
@@ -3078,6 +3188,7 @@ ${details || "(none)"}${
     });
   } catch (err) {
     console.error(err);
-    return json({ error: "Something went wrong" }, 500);
+    const logged = saveFailed ? await saveFailed() : false;
+    return json({ error: "Something went wrong", logged }, 500);
   }
 });

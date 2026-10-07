@@ -30,6 +30,7 @@ import {
   Send,
   Sparkles,
   Trash2,
+  TriangleAlert,
   UserPlus,
   UserRound,
   Users,
@@ -264,7 +265,7 @@ const ChatLogs = () => {
   // One of VIEWS' ids.
   const [view, setView] = useState("all");
   // Date filter: one of RANGES' ids; "custom" uses the two dates.
-  const [range, setRange] = useState("7d");
+  const [range, setRange] = useState("all");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [editingLabel, setEditingLabel] = useState(null);
@@ -340,9 +341,17 @@ const ChatLogs = () => {
     [logout],
   );
 
+  // `quiet`: no error toast; a failure comes back as { error } for the
+  // caller to report (e.g. one summary after sending several).
   const api = useCallback(
-    (body) =>
-      callFunction("chat-admin", { ...body, token }).then(handleResponse),
+    (body, { quiet = false } = {}) =>
+      callFunction("chat-admin", { ...body, token }).then((res) =>
+        quiet && !(res.error?.context?.status === 401)
+          ? res.error || res.data?.error
+            ? { error: res.data?.error ?? "Something went wrong." }
+            : res.data
+          : handleResponse(res),
+      ),
     [token, handleResponse],
   );
 
@@ -954,6 +963,9 @@ const ChatLogs = () => {
             refreshKey={statsRefresh}
             toolbar={<div className="chats-stats-filter">{dateFilter}</div>}
             onOpenChat={openFromResults}
+            canPush={can("zoho")}
+            canEdit={can("edit")}
+            onPushed={patchConversation}
           />
         </div>
       ) : tab === "stats" && (can("stats") || can("carts")) ? (
@@ -1793,12 +1805,26 @@ const linkify = (text) =>
     ),
   );
 
+// Why the AI didn't answer a message (the "not_answered:…" extra from
+// ask-faq): the shopper got the WhatsApp button instead.
+const NOT_ANSWERED = {
+  too_long: "message too long",
+  too_many: "too many messages at once",
+  busy: "AI busy",
+  ai_failed: "AI didn't respond",
+  error: "something went wrong",
+  offline: "the chat couldn't reach us",
+};
+
 // What the store chat showed under an AI reply besides its text and
 // cards, drawn the way the shopper saw it (links work; buttons and forms
 // are only pictures of them). Saved since scripts/supabase-chat-extras.sql.
 const ReplyExtras = ({ extras }) => {
   if (!extras?.length) return null;
   const has = (x) => extras.includes(x);
+  const notAnswered = extras
+    .find((x) => x.startsWith("not_answered:"))
+    ?.slice("not_answered:".length);
   const link = (href, label) => (
     <a href={href} target="_blank" rel="noopener noreferrer" className="chats-extra-link">
       <BookOpen size={13} />
@@ -1808,6 +1834,12 @@ const ReplyExtras = ({ extras }) => {
   );
   return (
     <div className="chats-extras" aria-label="Also shown to the shopper">
+      {notAnswered && (
+        <div className="chats-extra-note chats-extra-unanswered">
+          <TriangleAlert size={13} /> Not answered by the AI ·{" "}
+          {NOT_ANSWERED[notAnswered] ?? notAnswered}
+        </div>
+      )}
       {has("atelier_catalog") && link(TEXTS.atelierCatalogUrl, TEXTS.bespokeCatalog)}
       {has("horeca_catalog") && link(TEXTS.horecaCatalogUrl, TEXTS.horecaCatalog)}
       {has("store_map") && (
