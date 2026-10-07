@@ -575,6 +575,35 @@ filter's range; internal and test chats are left out.
   scripts/supabase-contacts.sql. Sending to Zoho works without it, just
   without "who sent it".
 
+**WhatsApp** (built but switched off until the Meta app is connected:
+`WHATSAPP_ON` in src/lib/features.js hides the menu item and the Team tick;
+needs the "See WhatsApp chats" tick; `ChatWhatsApp.jsx`,
+`chat-admin` "wa-list" / "wa-thread" / "wa-media"): the WhatsApp number's
+chats, read only, newest first, with unread counts, a search, and a
+**Website** tag (plus a "Website chat" button) when the same number chatted
+on the site. The open chat looks like WhatsApp: photos, voice notes,
+videos, documents, locations, replies-to and reactions. Messages come from
+Meta to the `whatsapp-hook` function as they arrive (nothing from before
+it was connected). Our own Meta app listens next to TechMonk, so replies
+typed in TechMonk only show as "Reply sent from another app" with its
+ticks. Photos and files are copied to the private `whatsapp-media` bucket
+(Meta keeps them 30 days); bigger ones (over 15 MB) open from Meta while it
+has them. Numbers show in full only with "See phone numbers & emails".
+
+Setting it up (owner): run scripts/supabase-whatsapp.sql; make a Meta app
+(Business type, WhatsApp product) in Ware's business account; a system
+user with the app and the WhatsApp account, and a never-expiring token
+with whatsapp_business_messaging + whatsapp_business_management; then
+
+    npx supabase secrets set WA_VERIFY_TOKEN=<any long random text> WA_APP_SECRET=<App secret> WA_TOKEN=<system user token> WA_BUSINESS_ACCOUNT_ID=<WhatsApp Business Account ID>
+    npx supabase functions deploy whatsapp-hook --use-api --no-verify-jwt
+
+In the Meta app: WhatsApp → Configuration → Callback URL
+`https://lauvnmdepcdjxilglubn.supabase.co/functions/v1/whatsapp-hook`, the
+same verify token, subscribe to **messages**. Until messages arrive, the
+owner's WhatsApp section shows each step ticked off, and a button that
+subscribes our app to the WhatsApp account (`chat-admin` "wa-setup").
+
 **Stats tab** (same date filter), with tabs **Overview**, **Carts**,
 **Products**, **Couldn't answer** and, for the owner only, **AI cost**
 (Carts needs the carts tick, the others the stats tick):
@@ -789,6 +818,14 @@ block at the top of `delivery.ts`.
 
 - **"What should we call you?"** box under the first 4 AI replies, until the
   name is known or closed (×).
+- Right after they give a name there: **"Would you like us to WhatsApp you a
+  few ideas? Add your number (optional)."** under the "Lovely to meet you"
+  message, once (`numberBoxTitle` / `numberBoxNote` / `noThanks`). It goes
+  when they write again or tap ×; a number saved here works like the
+  details form (no details card after it).
+- The Chats transcript shows each of these as a grey note: *Shared their
+  name: …*, *Closed the name box without a name*, *Left their number (in
+  the box after their name / details form)*, *Skipped the number box*.
 - **"Want our team to follow up with you?" → Enter your details** (name +
   phone) from the shopper's 6th typed message, or straight away for bulk /
   corporate / custom / Atelier enquiries. **Not now** hides it. It shows

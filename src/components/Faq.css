@@ -724,6 +724,11 @@
 .faq-chat-name-card-row .faq-btn {
   flex-shrink: 0;
 }
+.faq-chat-name-card-note {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--faq-text-muted, #8a8a80);
+}
 
 /* "Leave your details" card */
 .faq-chat-bubble.faq-chat-contact {

@@ -43,6 +43,8 @@ import ChatResults from "./ChatResults";
 import LeadCard from "./LeadCard";
 import ChatTeam from "./ChatTeam";
 import ChatBot from "./ChatBot";
+import ChatWhatsApp from "./ChatWhatsApp";
+import { WHATSAPP_ON } from "../lib/features";
 import ChatQuickReplies from "./ChatQuickReplies";
 import ChatContacts from "./ChatContacts";
 import ChatProductPicker from "./ChatProductPicker";
@@ -861,7 +863,21 @@ const ChatLogs = () => {
     { id: "team", label: "Team", icon: Users, show: can("users") },
     // The bot's instructions: the owner login only.
     { id: "bot", label: "Bot", icon: Bot, show: !!me?.owner },
+    // Its own group in the menu, apart from WareBot's: the WhatsApp
+    // number's chats (read only for now).
+    {
+      id: "whatsapp",
+      label: "Chats",
+      title: "WhatsApp chats",
+      icon: MessageCircle,
+      show: WHATSAPP_ON && can("whatsapp"),
+      group: "whatsapp",
+    },
   ];
+  const NAV_GROUPS = [
+    { id: "warebot", label: null, items: NAV.filter((n) => n.show && !n.group) },
+    { id: "whatsapp", label: "WhatsApp", items: NAV.filter((n) => n.show && n.group === "whatsapp") },
+  ].filter((g) => g.items.length);
 
   return (
     // On phones an open chat takes the whole screen (chats-chat-open).
@@ -883,14 +899,16 @@ const ChatLogs = () => {
           </div>
         </div>
 
-        <div className="chats-nav-section">
-          {NAV.filter((n) => n.show).map((n) => (
+        {NAV_GROUPS.map((g) => (
+        <div key={g.id} className={`chats-nav-section chats-nav-group-${g.id}`}>
+          {g.label && <p className="chats-nav-label chats-nav-group-label">{g.label}</p>}
+          {g.items.map((n) => (
             <button
               key={n.id}
               type="button"
               className={`chats-nav-item${tab === n.id ? " chats-nav-item-active" : ""}`}
               aria-current={tab === n.id ? "page" : undefined}
-              title={n.label}
+              title={n.title ?? n.label}
               onClick={() => setTab(n.id)}
             >
               <n.icon size={17} />
@@ -904,6 +922,7 @@ const ChatLogs = () => {
             </button>
           ))}
         </div>
+        ))}
 
         <div className="chats-nav-foot">
           {/* Back to the rest of the site (WareBot has no site header). */}
@@ -940,7 +959,7 @@ const ChatLogs = () => {
             return (
               <>
                 <current.icon size={18} />
-                {current.label}
+                {current.title ?? current.label}
               </>
             );
           })()}
@@ -955,6 +974,8 @@ const ChatLogs = () => {
         <div className="chats-stats">
           <ChatTeam api={api} me={me} />
         </div>
+      ) : tab === "whatsapp" && WHATSAPP_ON && can("whatsapp") ? (
+        <ChatWhatsApp api={api} isOwner={!!me?.owner} onOpenChat={openFromResults} />
       ) : tab === "contacts" && can("people") ? (
         <div className="chats-stats">
           <ChatContacts

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { callFunction } from "../lib/askFaq";
 import { ChatGaps, ChatProducts, ChatAiCost } from "./ChatInsights";
+import ChatDashboard from "./ChatDashboard";
 import { pageKind, pageKindLabel, pageLabel, pageUrl } from "../lib/storePages";
 
 // The Chats page's Stats tab: how the store chat did in the chosen date
@@ -67,7 +68,8 @@ const ChatResults = ({
   // The AI cost tab (owner only).
   isOwner = false,
 }) => {
-  const [view, setView] = useState(canStats ? "stats" : "carts");
+  // The owner starts on the Dashboard.
+  const [view, setView] = useState(isOwner ? "dashboard" : canStats ? "stats" : "carts");
   // Carts table order: by cart value or last chatted, either way (newest
   // first to start with).
   const [cartSort, setCartSort] = useState({ by: "date", desc: true });
@@ -175,6 +177,7 @@ const ChatResults = ({
   };
 
   const tabs = [
+    isOwner && ["dashboard", "Dashboard"],
     canStats && ["stats", "Overview"],
     canCarts && ["carts", "Carts"],
     canStats && ["products", "Products"],
@@ -424,6 +427,7 @@ const ChatResults = ({
 
       {view === "products" && <ChatProducts api={api} request={request} />}
       {view === "cost" && isOwner && <ChatAiCost api={api} request={request} />}
+      {view === "dashboard" && isOwner && <ChatDashboard api={api} request={request} />}
       {view === "gaps" && (
         <ChatGaps api={api} request={request} onOpenChat={onOpenChat} onTeach={onTeach} />
       )}

@@ -1295,11 +1295,24 @@ const AskAi = ({
         id: nextId++,
         answer: fillText(TEXTS.nameBoxThanks, { name }),
         isLocal: true,
+        // The optional number box shows under it (until they move on).
+        askNumber: true,
         time: Date.now(),
       },
     ]);
     return true;
   };
+
+  // Straight after they give their name, once: an optional number, under
+  // the "Lovely to meet you" message. Gone once they write again.
+  const numberAskMsg = messages[messages.length - 1]?.askNumber
+    ? messages[messages.length - 1]
+    : null;
+  const showNumberCard = !!numberAskMsg && !contactPrefs.saved;
+  const endNumberAsk = () =>
+    setMessages((prev) =>
+      prev.map((m) => (m.id === numberAskMsg?.id ? { ...m, askNumber: false } : m)),
+    );
 
   // The latest reply asked "can our team give you a quick call?": show
   // the name / number form open under it rather than the one-liner.
@@ -1402,10 +1415,12 @@ const AskAi = ({
     return () => clearInterval(timer);
   }, [open, currentConversationId, teamActive, lastAgentTime, lastActivity]);
 
-  const saveContact = async (details) => {
+  // `from`: "number-box" for the box after their name (for the Chats note).
+  const saveContact = async (details, from) => {
     const { data, error } = await callAskFaq({
       mode: "contact",
       contact: details,
+      ...(from ? { from } : {}),
       conversationId: getVisitorId(),
       visitorId: getVisitorId(),
     });
@@ -2059,7 +2074,27 @@ const AskAi = ({
         {showNameCard && (
           <NameCard
             onSave={saveName}
-            onDismiss={() => updateNamePrefs({ dismissed: true })}
+            onDismiss={() => {
+              updateNamePrefs({ dismissed: true });
+              saveLater({ type: "event", kind: "name-closed" });
+            }}
+          />
+        )}
+        {showNumberCard && (
+          <NameCard
+            phone
+            title={TEXTS.numberBoxTitle}
+            note={TEXTS.numberBoxNote}
+            closeLabel={TEXTS.noThanks}
+            onSave={async (phone) => {
+              const ok = await saveContact({ name: knownName, phone }, "number-box");
+              if (ok) endNumberAsk();
+              return ok;
+            }}
+            onDismiss={() => {
+              endNumberAsk();
+              saveLater({ type: "event", kind: "number-skipped" });
+            }}
           />
         )}
         {contactThanks && (

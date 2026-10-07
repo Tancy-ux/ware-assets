@@ -41,6 +41,10 @@ export const TEXTS = {
   // "What should we call you?" box
   nameBoxTitle: "What should we call you?",
   nameBoxThanks: "Lovely to meet you, {name}!",
+  // Right after they give their name: an optional number, asked once
+  numberBoxTitle: "Would you like us to WhatsApp you a few ideas? Add your number (optional).",
+  numberBoxNote: "Only for your enquiry, never spam.",
+  noThanks: "No thanks",
 
   // "Leave your details" prompt and form
   contactPrompt: "Want our team to follow up with you?",

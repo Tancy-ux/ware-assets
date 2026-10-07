@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { GraduationCap } from "lucide-react";
 import { SortHead } from "./chatTable";
+import { useStatsData } from "./useStatsData";
 import { formatWhen, rupees, sortRows } from "./chatTableUtils";
 
 // Two more Stats tabs, each loaded from chat-admin when opened:
@@ -11,23 +12,6 @@ import { formatWhen, rupees, sortRows } from "./chatTableUtils";
 
 const STORE = "https://www.wareinnovations.com";
 const thumb = (url) => (url ? `${url}${url.includes("?") ? "&" : "?"}width=120` : url);
-
-// Loads `action` for the Stats date range and test-chat switch.
-const useStatsData = (api, action, request) => {
-  const [result, setResult] = useState({ key: null, data: null });
-  const key = JSON.stringify(request);
-  useEffect(() => {
-    let cancelled = false;
-    const { refreshKey: refreshed, ...body } = JSON.parse(key);
-    api({ action, ...body, fresh: refreshed > 0 }).then((data) => {
-      if (!cancelled) setResult({ key, data });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [api, action, key]);
-  return result.key === key ? { loading: false, data: result.data } : { loading: true, data: null };
-};
 
 const PRODUCT_GET = {
   title: (p) => p.title.toLowerCase(),

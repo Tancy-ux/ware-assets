@@ -143,6 +143,7 @@ const PERMISSIONS = [
   "draft", // "Draft from chat": the AI writes the requirement (with edit)
   "aireply", // "AI reply" in a taken-over chat (with reply): one AI answer a click
   "zoho", // send leads to Zoho
+  "whatsapp", // the WhatsApp section: the number's chats
   "stats", // the Stats tab (orders, revenue)
   "carts", // Stats' Carts tab: who has things in their cart
   "delete", // delete chats
@@ -386,6 +387,210 @@ const isTestChat = (c: { label?: string | null; visitor_name?: string | null; co
   isInternal(c) ||
   (c.source !== "customer" &&
     [c.label, c.visitor_name, c.company].some((s) => s && TEST_RE.test(s)));
+
+// ---- Dashboard (Stats → Dashboard, owner only) ----
+// India time, for "which hour" (istDay, below, for "which day").
+const istHour = (iso: string) => new Date(Date.parse(iso) + 5.5 * 60 * 60 * 1000).getUTCHours();
+// Longer ranges are shown by week (Monday), so the chart stays readable.
+const DASHBOARD_DAILY_MAX = 92;
+const weekOf = (day: string) => {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+};
+
+type DashTotals = {
+  chats: number;
+  realChats: number;
+  leads: number;
+  carts: number;
+  cartValue: number;
+  orders: number;
+  revenue: number;
+  zoho: number;
+  unanswered: number;
+  replies: number;
+  messages: number;
+};
+
+// The dashboard's numbers for chats that started in [since, until), with
+// their messages, orders and Zoho leads in the same window. Test and junk
+// chats are left out unless `withTest`.
+async function dashboardNumbers(
+  // deno-lint-ignore no-explicit-any
+  db: any,
+  since: string | null,
+  until: string | null,
+  withTest: boolean,
+  fresh: boolean,
+  detail: boolean,
+) {
+  // Chats active in the window (a message in it means their last one is
+  // after its start).
+  let q = db.from("chat_conversations").select("*, chat_messages(count)");
+  if (since) q = q.gte("last_message_at", since);
+  if (until) q = q.lt("started_at", until);
+  const { data: rows, error } = await q.limit(LIST_LIMIT);
+  if (error) throw error;
+  // deno-lint-ignore no-explicit-any
+  const convs = ((rows ?? []) as any[]).filter((c) => withTest || !isTestChat(c));
+  const inWindow = (iso: string | null | undefined) =>
+    !!iso && (!since || iso >= since) && (!until || iso < until);
+  const started = convs.filter((c) => inWindow(c.started_at));
+  // deno-lint-ignore no-explicit-any
+  const turns = (c: any) => c.chat_messages?.[0]?.count ?? 0;
+  const hasCart = (c: { cart?: string | null }) => !!c.cart && !/^empty$/i.test(c.cart);
+
+  // Their messages in the window: shoppers', the team's, and the ones
+  // the AI didn't answer.
+  const ids = convs.map((c) => c.id);
+  const inRange = (m: unknown) => {
+    // deno-lint-ignore no-explicit-any
+    let r = m as any;
+    if (since) r = r.gte("created_at", since);
+    if (until) r = r.lt("created_at", until);
+    return r;
+  };
+  // deno-lint-ignore no-explicit-any
+  let messages: any[];
+  try {
+    messages = await messagesOf(db, ids, "conversation_id, sender, created_at, extras, agent_name, question", inRange);
+  } catch {
+    // Before agent_name / extras existed.
+    messages = await messagesOf(db, ids, "conversation_id, sender, created_at, question", inRange);
+  }
+  const fromShopper = messages.filter((m) =>
+    m.sender !== "agent" && m.sender !== "system" && (m.question ?? "").trim()
+  );
+  const notAnswered = messages.filter((m) =>
+    (m.extras ?? []).some((x: string) => x.startsWith("not_answered:"))
+  );
+  const teamReplies = messages.filter((m) => m.sender === "agent");
+
+  // Orders from people who chatted (as Stats counts them).
+  let ordersError: string | null = null;
+  // deno-lint-ignore no-explicit-any
+  let orders: any[] = [];
+  try {
+    const shop = await cachedOrders(since, until, fresh);
+    const visitorIds = [...new Set(shop.orders.map((o) => o.visitorId).filter(Boolean))];
+    const { data: linked } = visitorIds.length
+      ? await db
+        .from("chat_conversations")
+        .select("visitor_id, label, visitor_name, company, source")
+        .in("visitor_id", visitorIds)
+      : { data: [] };
+    // An order counts unless every chat from its browser is a test one.
+    const real = new Set(
+      // deno-lint-ignore no-explicit-any
+      ((linked ?? []) as any[]).filter((c) => !isTestChat(c)).map((c) => c.visitor_id),
+    );
+    orders = shop.orders.filter((o) =>
+      !o.cancelled &&
+      (withTest || !o.visitorId || real.has(o.visitorId) ||
+        // deno-lint-ignore no-explicit-any
+        !((linked ?? []) as any[]).some((c) => c.visitor_id === o.visitorId))
+    );
+  } catch (err) {
+    console.error(err);
+    ordersError = /isn't set/.test(String(err))
+      ? "Orders need the Shopify token, which isn't set here."
+      : "Couldn't load orders from Shopify just now.";
+  }
+
+  // Leads sent to Zoho in the window (one per lead, though it's on every
+  // chat of the person).
+  const zohoLeads = new Map<string, { at: string; by: string | null }>();
+  for (const c of convs) {
+    if (c.zoho_lead_id && inWindow(c.zoho_lead_at) && !zohoLeads.has(c.zoho_lead_id)) {
+      zohoLeads.set(c.zoho_lead_id, { at: c.zoho_lead_at, by: c.zoho_lead_by ?? null });
+    }
+  }
+
+  const totals: DashTotals = {
+    chats: started.length,
+    realChats: started.filter((c) => turns(c) >= 2).length,
+    leads: started.filter((c) => c.visitor_phone || c.visitor_email).length,
+    carts: started.filter(hasCart).length,
+    cartValue: started.filter(hasCart).reduce((s, c) => s + cartValue(c.cart), 0),
+    orders: orders.length,
+    revenue: orders.reduce((s, o) => s + o.total, 0),
+    zoho: zohoLeads.size,
+    unanswered: notAnswered.length,
+    replies: teamReplies.length,
+    messages: fromShopper.length,
+  };
+  if (!detail) return { totals, ordersError };
+
+  // Day by day (week by week for long ranges), every day shown even when
+  // nothing happened.
+  const earliest = [...started.map((c) => c.started_at), ...orders.map((o) => o.createdAt)]
+    .filter(Boolean)
+    .sort()[0];
+  const firstDay = istDay(since ?? earliest ?? new Date().toISOString());
+  const lastDay = istDay(
+    until ? new Date(Date.parse(until) - 1).toISOString() : new Date().toISOString(),
+  );
+  const days: string[] = [];
+  for (
+    let d = new Date(`${firstDay}T00:00:00Z`);
+    d.toISOString().slice(0, 10) <= lastDay && days.length < 2000;
+    d.setUTCDate(d.getUTCDate() + 1)
+  ) days.push(d.toISOString().slice(0, 10));
+  const weekly = days.length > DASHBOARD_DAILY_MAX;
+  const bucketOf = (iso: string) => (weekly ? weekOf(istDay(iso)) : istDay(iso));
+  const buckets = new Map<string, Record<string, number>>();
+  for (const day of days) {
+    const b = weekly ? weekOf(day) : day;
+    if (!buckets.has(b)) {
+      buckets.set(b, { chats: 0, leads: 0, carts: 0, orders: 0, revenue: 0, messages: 0, unanswered: 0 });
+    }
+  }
+  const add = (iso: string, key: string, n = 1) => {
+    const b = buckets.get(bucketOf(iso));
+    if (b) b[key] += n;
+  };
+  for (const c of started) {
+    add(c.started_at, "chats");
+    if (c.visitor_phone || c.visitor_email) add(c.started_at, "leads");
+    if (hasCart(c)) add(c.started_at, "carts");
+  }
+  for (const o of orders) {
+    if (!o.createdAt) continue;
+    add(o.createdAt, "orders");
+    add(o.createdAt, "revenue", o.total);
+  }
+  for (const m of fromShopper) add(m.created_at, "messages");
+  for (const m of notAnswered) add(m.created_at, "unanswered");
+
+  // When shoppers write, by hour of the day.
+  const hours = Array.from({ length: 24 }, () => 0);
+  for (const m of fromShopper) hours[istHour(m.created_at)]++;
+
+  // The team: replies, chats they replied in, leads they sent to Zoho.
+  const team = new Map<string, { replies: number; chats: Set<string>; zoho: number }>();
+  const member = (name: string) => {
+    if (!team.has(name)) team.set(name, { replies: 0, chats: new Set(), zoho: 0 });
+    return team.get(name)!;
+  };
+  for (const m of teamReplies) {
+    const t = member(m.agent_name || "Ware team");
+    t.replies++;
+    t.chats.add(m.conversation_id);
+  }
+  for (const { by } of zohoLeads.values()) if (by) member(by).zoho++;
+
+  return {
+    totals,
+    ordersError,
+    weekly,
+    series: [...buckets].map(([day, n]) => ({ day, ...n })),
+    hours,
+    team: [...team]
+      .map(([name, t]) => ({ name, replies: t.replies, chats: t.chats.size, zoho: t.zoho }))
+      .sort((a, b) => b.replies + b.zoho - (a.replies + a.zoho)),
+  };
+}
 
 // ---- AI cost (Stats → AI cost) ----
 // Gemini's paid-tier prices, US$ per million tokens (Google AI pricing page,
@@ -1226,6 +1431,9 @@ Deno.serve(async (req) => {
       "ai-reply": "aireply",
       "product-search": "reply",
       contacts: "people",
+      "wa-list": "whatsapp",
+      "wa-thread": "whatsapp",
+      "wa-media": "whatsapp",
       products: "stats",
       gaps: "stats",
       "user-save": "users",
@@ -1975,6 +2183,192 @@ Deno.serve(async (req) => {
     }
 
     // The Chats page's Results panel, for the same date range as the list.
+    // ---- WhatsApp: the number's chats, saved by whatsapp-hook ----
+    // (scripts/supabase-whatsapp.sql). Read only for now. Numbers are shown
+    // only with "See phone numbers & emails"; otherwise the last 4 digits.
+    if (["wa-list", "wa-thread", "wa-media"].includes(body.action)) {
+      const showNumber = (waId: string) =>
+        perms.contacts ? `+${waId}` : `•••• ${waId.slice(-4)}`;
+      const missing = (error: { message?: string; code?: string } | null) =>
+        !!error && (error.code === "42P01" || /wa_chats|wa_messages/.test(error.message ?? ""));
+
+      if (body.action === "wa-list") {
+        const { data, error } = await db
+          .from("wa_chats")
+          .select("*")
+          .order("last_at", { ascending: false })
+          .limit(LIST_LIMIT);
+        if (missing(error)) return json({ missingTable: true, chats: [] });
+        if (error) throw error;
+        // The same person on the site chat (by the last 10 digits).
+        const { data: siteChats } = await db
+          .from("chat_conversations")
+          .select("id, visitor_phone, account_phone, last_message_at, source, label, visitor_name, company")
+          .or("visitor_phone.not.is.null,account_phone.not.is.null")
+          .order("last_message_at", { ascending: false })
+          .limit(LIST_LIMIT);
+        const siteByPhone = new Map<string, string>();
+        for (const c of siteChats ?? []) {
+          if (isTestChat(c)) continue;
+          for (const p of [c.visitor_phone, c.account_phone]) {
+            const k = phoneKey(p);
+            if (k && !siteByPhone.has(k)) siteByPhone.set(k, c.id);
+          }
+        }
+        return json({
+          connected: !!Deno.env.get("WA_APP_SECRET"),
+          chats: (data ?? []).map((c) => ({
+            waId: c.wa_id,
+            name: c.name,
+            phone: showNumber(c.wa_id),
+            businessPhone: c.business_phone,
+            firstAt: c.first_at,
+            lastAt: c.last_at,
+            lastText: perms.contacts ? c.last_text : hideContacts(c.last_text),
+            lastFrom: c.last_from,
+            unread: c.unread ?? 0,
+            siteChatId: siteByPhone.get(phoneKey(c.wa_id) ?? "") ?? null,
+          })),
+        });
+      }
+
+      if (!/^\d{6,20}$/.test(String(body.waId ?? "")) && body.action === "wa-thread") {
+        return json({ error: "Bad WhatsApp number" }, 400);
+      }
+
+      // One chat's messages, oldest first; opening it clears its unread.
+      if (body.action === "wa-thread") {
+        const { data, error } = await db
+          .from("wa_messages")
+          .select("id, direction, type, body, media, status, context_id, sent_at")
+          .eq("wa_id", body.waId)
+          .order("sent_at", { ascending: true })
+          .limit(2000);
+        if (missing(error)) return json({ missingTable: true, messages: [] });
+        if (error) throw error;
+        if (body.markRead !== false) {
+          await db.from("wa_chats").update({ unread: 0 }).eq("wa_id", body.waId);
+        }
+        // Photos and files we've copied: a link that works for an hour.
+        const paths = (data ?? []).map((m) => m.media?.path).filter(Boolean) as string[];
+        const signed = new Map<string, string>();
+        if (paths.length) {
+          const { data: urls } = await db.storage
+            .from("whatsapp-media")
+            .createSignedUrls(paths, 60 * 60);
+          for (const u of urls ?? []) if (u.signedUrl && u.path) signed.set(u.path, u.signedUrl);
+        }
+        return json({
+          messages: (data ?? []).map((m) => ({
+            id: m.id,
+            direction: m.direction,
+            type: m.type,
+            body: perms.contacts ? m.body : hideContacts(m.body),
+            status: m.status,
+            replyTo: m.context_id,
+            at: m.sent_at,
+            media: m.media
+              ? {
+                mime: m.media.mime ?? null,
+                filename: m.media.filename ?? null,
+                voice: !!m.media.voice,
+                lat: m.media.lat ?? null,
+                lng: m.media.lng ?? null,
+                url: m.media.path ? signed.get(m.media.path) ?? null : null,
+                // Not copied (too big, or before the token was set): fetched
+                // from Meta when opened, while Meta still has it.
+                mediaId: !m.media.path && m.media.id ? m.media.id : null,
+              }
+              : null,
+          })),
+        });
+      }
+
+      // wa-media: a photo / file still only at Meta, passed through.
+      const token = Deno.env.get("WA_TOKEN");
+      if (!token) return json({ error: "WA_TOKEN isn't set yet." }, 400);
+      if (!/^\d{5,30}$/.test(String(body.mediaId ?? ""))) {
+        return json({ error: "Bad media id" }, 400);
+      }
+      const info = await fetch(`https://graph.facebook.com/v23.0/${body.mediaId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then((r) => r.json()).catch(() => null);
+      if (!info?.url) {
+        return json({ error: "WhatsApp no longer has this file (it keeps them 30 days)." }, 404);
+      }
+      if ((info.file_size ?? 0) > 8 * 1024 * 1024) {
+        return json({ error: "This file is too big to open here." }, 413);
+      }
+      const file = await fetch(info.url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!file.ok) return json({ error: "Couldn't get the file from WhatsApp." }, 502);
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let bin = "";
+      for (let i = 0; i < bytes.length; i += 0x8000) {
+        bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      }
+      return json({ dataUrl: `data:${info.mime_type ?? "application/octet-stream"};base64,${btoa(bin)}` });
+    }
+
+    // The owner's setup check for WhatsApp: which secrets are set, the
+    // webhook address for the Meta app, and (`connect`) subscribing our app
+    // to the WhatsApp Business Account so Meta sends us its messages.
+    if (body.action === "wa-setup") {
+      if (!me.owner) return notAllowed();
+      const token = Deno.env.get("WA_TOKEN");
+      const wabaId = Deno.env.get("WA_BUSINESS_ACCOUNT_ID");
+      const status = {
+        webhookUrl: `${Deno.env.get("SUPABASE_URL")}/functions/v1/whatsapp-hook`,
+        verifyTokenSet: !!Deno.env.get("WA_VERIFY_TOKEN"),
+        appSecretSet: !!Deno.env.get("WA_APP_SECRET"),
+        tokenSet: !!token,
+        wabaIdSet: !!wabaId,
+        subscribed: false,
+        message: null as string | null,
+      };
+      if (token && wabaId) {
+        const base = `https://graph.facebook.com/v23.0/${encodeURIComponent(wabaId)}/subscribed_apps`;
+        const auth = { Authorization: `Bearer ${token}` };
+        if (body.connect) {
+          const res = await fetch(base, { method: "POST", headers: auth });
+          const out = await res.json().catch(() => ({}));
+          if (!res.ok || out?.success === false) {
+            status.message = `Meta said: ${out?.error?.message ?? res.status}`;
+          }
+        }
+        const list = await fetch(base, { headers: auth }).then((r) => r.json()).catch(() => null);
+        if (list?.error) status.message ??= `Meta said: ${list.error.message}`;
+        // Our app is the one the token belongs to; any app listed with a
+        // WhatsApp link counts as subscribed (TechMonk's is there too).
+        const appId = await fetch(
+          `https://graph.facebook.com/v23.0/app?access_token=${encodeURIComponent(token)}`,
+        ).then((r) => r.json()).then((a) => a?.id).catch(() => null);
+        // deno-lint-ignore no-explicit-any
+        const apps = (list?.data ?? []).map((a: any) => a.whatsapp_business_api_data ?? a);
+        // deno-lint-ignore no-explicit-any
+        status.subscribed = !!appId && apps.some((a: any) => String(a.id) === String(appId));
+      }
+      return json(status);
+    }
+
+    // Stats → Dashboard: the period's numbers day by day, against the
+    // period before (same length), the busiest hours and the team. Owner
+    // only for now.
+    if (body.action === "dashboard") {
+      if (!me.owner) return notAllowed();
+      const withTest = body.hideTest === false;
+      const now = await dashboardNumbers(db, since, until, withTest, !!body.fresh, true);
+      // The period before, as long as this one ("All time" has none).
+      let before = null;
+      if (since) {
+        const end = until ?? new Date().toISOString();
+        const length = Date.parse(end) - Date.parse(since);
+        const prevSince = new Date(Date.parse(since) - length).toISOString();
+        before = (await dashboardNumbers(db, prevSince, since, withTest, !!body.fresh, false))
+          .totals;
+      }
+      return json({ ...now, before });
+    }
+
     if (body.action === "results") {
       const loadOrders = () => cachedOrders(since, until, !!body.fresh);
       let chatsQuery = db

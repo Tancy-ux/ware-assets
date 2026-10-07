@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "react-toastify";
+import { WHATSAPP_ON } from "../lib/features";
 
 // The Chats page's Team section: who may sign in (with their
 // @wareinnovations.com Google account) and what each may do. Checked on the
@@ -16,12 +17,16 @@ const PERMISSION_LABELS = {
   draft: 'Zoho requirement with AI ("Draft from chat")',
   aireply: 'Agent reply with AI ("AI reply", with Take over & reply)',
   zoho: "Send leads to Zoho",
+  whatsapp: "See WhatsApp chats",
   stats: "See Stats (orders, revenue)",
   carts: "See who has items in their cart (in Stats)",
   delete: "Delete chats",
   users: "Manage team logins",
 };
-const PERMISSION_KEYS = Object.keys(PERMISSION_LABELS);
+// The WhatsApp tick only while that section is on (lib/features.js).
+const PERMISSION_KEYS = Object.keys(PERMISSION_LABELS).filter(
+  (k) => k !== "whatsapp" || WHATSAPP_ON,
+);
 
 // Quick starting points; each box can still be changed.
 const PRESETS = [

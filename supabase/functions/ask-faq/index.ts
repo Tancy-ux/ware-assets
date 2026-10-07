@@ -1785,6 +1785,27 @@ function readContact(raw: unknown) {
   };
 }
 
+// What the chat can report as a note in the Chats transcript (the "log"
+// mode's "event" items): choices that save nothing else.
+const CHAT_EVENTS: Record<string, string> = {
+  "name-closed": "Closed the name box without a name",
+  "number-skipped": "Skipped the number box",
+};
+
+// A grey note in the Chats transcript (like "Visitor reset the chat").
+async function systemNote(conversationId: string, text: string, page = "", at?: string) {
+  const admin = adminClient();
+  if (!admin) return;
+  await insertMessage(admin, {
+    conversation_id: conversationId,
+    question: "",
+    answer: text,
+    sender: "system",
+    page,
+    ...(at ? { created_at: at } : {}),
+  });
+}
+
 // Saves one question/answer to chat_conversations + chat_messages for the
 // Chats page. Uses the service role key, since those tables have no anon
 // access at all. Skipped quietly if the key or IDs are missing (e.g. a
@@ -2013,6 +2034,15 @@ Deno.serve(async (req) => {
         createClient(Deno.env.get("SUPABASE_URL") ?? "", serviceKey),
         row,
       );
+      // Where it came from: the optional number box after their name, or
+      // the "leave your details" form.
+      await systemNote(
+        conversationId,
+        payload.from === "number-box"
+          ? "Left their number (in the box after their name)"
+          : "Left their number (details form)",
+        readPage(payload.page),
+      ).catch((err) => console.error("Note failed:", err));
       return json({ ok: true });
     }
 
@@ -2104,6 +2134,9 @@ Deno.serve(async (req) => {
         createClient(Deno.env.get("SUPABASE_URL") ?? "", serviceKey),
         { id: conversationId, visitor_id: visitorId, visitor_name: nameCase(name) },
       );
+      // So the Chats page shows where the name came from.
+      await systemNote(conversationId, `Shared their name: ${nameCase(name)}`, readPage(payload.page))
+        .catch((err) => console.error("Note failed:", err));
       return json({ ok: true });
     }
 
@@ -2227,7 +2260,7 @@ Deno.serve(async (req) => {
       // deno-lint-ignore no-explicit-any
       const items = payload.items.slice(0, 5) as any[];
       let conversation = await ownConversation(conversationId, visitorId);
-      for (const item of items.filter((i) => i?.type !== "whatsapp")) {
+      for (const item of items.filter((i) => (i?.type ?? "message") === "message")) {
         const question = text(item?.question, MAX_QUESTION_CHARS);
         if (!question) continue;
         await logTurn({
@@ -2248,20 +2281,23 @@ Deno.serve(async (req) => {
         });
         conversation ??= { first_question: question };
       }
-      const taps = items.filter((i) => i?.type === "whatsapp");
-      if (taps.length) {
-        // A tap before any message was saved has nothing to go with.
+      // Taps and choices in the chat, as notes in the transcript (only
+      // these fixed texts: the chat can't write its own).
+      const notes = items
+        .map((i) => ({
+          item: i,
+          text: i?.type === "whatsapp"
+            ? "Opened WhatsApp to chat with the team"
+            : i?.type === "event"
+            ? CHAT_EVENTS[String(i.kind)]
+            : undefined,
+        }))
+        .filter((n) => n.text);
+      if (notes.length) {
+        // One before any message was saved has nothing to go with.
         const saved = await ownConversation(conversationId, visitorId);
-        for (const tap of saved ? taps : []) {
-          const at = pastTime(tap?.at);
-          await insertMessage(adminClient(), {
-            conversation_id: saved.id,
-            question: "",
-            answer: "Opened WhatsApp to chat with the team",
-            sender: "system",
-            page: readPage(tap?.page),
-            ...(at ? { created_at: at } : {}),
-          });
+        for (const { item, text } of saved ? notes : []) {
+          await systemNote(saved.id, text!, readPage(item?.page), pastTime(item?.at));
         }
       }
       return json({ ok: true });
