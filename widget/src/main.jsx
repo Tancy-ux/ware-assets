@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import { Sparkles, X } from "lucide-react";
 import AskAi from "../../src/components/AskAi";
 import { TEXTS, setTexts } from "../../src/lib/chatTexts";
+import { startTracking, trackTap } from "./track";
+import { tidyDimensions } from "./dimensions";
 
 // The Ware chat on the Shopify store: a floating button that opens the
 // same Ask AI chat as the ware-assets site, minus the team tools. It lives
@@ -18,13 +20,21 @@ import { TEXTS, setTexts } from "../../src/lib/chatTexts";
 
 const STYLES_ID = "ware-chat-styles";
 
-// A metafield's text, tidied: "&amp;" back to "&", one line per piece
+// Shopify's metafield_text escapes the text for HTML: back to the plain
+// characters ("3.4&quot;" -> 3.4"). &amp; goes last, so "&amp;quot;"
+// stays as typed.
+const ENTITIES = { "&quot;": '"', "&#34;": '"', "&#39;": "'", "&#x27;": "'", "&lt;": "<", "&gt;": ">" };
+const unescapeHtml = (text) =>
+  text.replace(/&(quot|#34|#39|#x27|lt|gt);/gi, (m) => ENTITIES[m.toLowerCase()]).replace(/&amp;/g, "&");
+
+// A metafield's text, tidied: HTML escapes undone, one line per piece
 // ("Uno Lid - 60 ml" reads "Uno Lid: 60 ml"), and lines with no value
-// ("Hyphen Plate:") left out.
-function tidyInfo(text) {
-  return text
-    .replace(/&amp;/g, "&")
+// ("Hyphen Plate:") left out. Dimensions are also written one way (see
+// dimensions.js).
+function tidyInfo(text, dimensions = false) {
+  return unescapeHtml(text)
     .split(/\r?\n/)
+    .map((line) => (dimensions ? tidyDimensions(line) : line))
     .map((line) => line.trim().replace(/^([^:\d]+?)\s+-\s+(?=\d)/, "$1: ").replace(/\s+:\s*/, ": "))
     .filter((line) => line && !/[:-]$/.test(line))
     .join("\n");
@@ -37,7 +47,7 @@ function productInfo(handle) {
   if (!info || info.handle !== handle) return null;
   const found = {};
   for (const key of ["includes", "dimensions", "volume", "weight"]) {
-    const value = typeof info[key] === "string" ? tidyInfo(info[key]) : "";
+    const value = typeof info[key] === "string" ? tidyInfo(info[key], key === "dimensions") : "";
     if (value) found[key] = value;
   }
   return Object.keys(found).length ? found : null;
@@ -93,6 +103,7 @@ const WareChat = () => {
         : TEXTS.pillProduct;
   const openChat = () => {
     setOpen(true);
+    trackTap();
     if (product) chat.current?.productTap(product);
   };
 
@@ -154,6 +165,7 @@ const mount = () => {
   const container = document.createElement("div");
   shadow.appendChild(container);
   createRoot(container).render(<WareChat />);
+  startTracking();
 };
 
 if (document.body) mount();

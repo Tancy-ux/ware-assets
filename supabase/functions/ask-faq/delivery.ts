@@ -35,14 +35,14 @@ const CITY_RULES: {
   {
     name: "Mumbai",
     match: (p) => /^mumbai( suburban)?$/i.test(p.district),
-    days: "2–3 business days",
+    days: "2–3 working days",
     extra: SAME_DAY_MUMBAI,
   },
   {
     // India Post calls it "New Mumbai" (Vashi, Belapur, Kharghar, Panvel).
     name: "Navi Mumbai",
     match: (p) => /\b(new|navi) mumbai\b/i.test(p.division),
-    days: "2–3 business days",
+    days: "2–3 working days",
     extra: SAME_DAY_MUMBAI,
   },
 ];
@@ -56,13 +56,13 @@ const FAST_STATES = [
   "Telangana", "Uttar Pradesh",
 ];
 const STATE_DAYS: Record<string, string> = Object.fromEntries(
-  FAST_STATES.map((s) => [s, "3–5 business days"]),
+  FAST_STATES.map((s) => [s, "3–5 working days"]),
 );
 
 // Everywhere else in India: Andhra Pradesh, Arunachal Pradesh, Dadra and
 // Nagar Haveli and Daman and Diu, Himachal Pradesh, the islands, the
 // North East zone, Odisha, Puducherry, Uttarakhand, West Bengal.
-const DEFAULT_TRANSIT = "5–8 business days";
+const DEFAULT_TRANSIT = "4–7 working days";
 // ===============================================================
 
 const LOOKUP_TIMEOUT_MS = 5000;
@@ -130,7 +130,7 @@ export type Rate = {
   price: number; // rupees; 0 = free
   minOrder: number | null; // order value conditions, rupees
   maxOrder: number | null;
-  days: string; // e.g. "5–8 business days", "" if not set
+  days: string; // e.g. "4–7 working days", "" if not set
 };
 export type Zone = { name: string; states: string[]; rates: Rate[] };
 
@@ -210,7 +210,7 @@ function toZones(zoneNodes: any[]): Zone[] {
   return zones;
 }
 
-// "5–8 business days" wherever Shopify keeps it (the rate's description,
+// "4–7 working days" wherever Shopify keeps it (the rate's description,
 // or its name).
 function transitDays(text: string) {
   const m = text.match(/(\d+\s*(?:-|–|to)\s*\d+|\d+)\s*(business|working)?\s*days?/i);

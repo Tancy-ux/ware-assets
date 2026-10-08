@@ -288,6 +288,9 @@ function stripHtml(html: string) {
   return (html || "")
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/g, " ")
+    // Inch marks (10&quot; plate) and apostrophes stay what they were.
+    .replace(/&(quot|#34);/g, '"')
+    .replace(/&(#39|#x27|rsquo|lsquo);/g, "'")
     .replace(/&amp;/g, "&")
     .replace(/&[a-z#0-9]+;/g, " ")
     .replace(/\s+/g, " ")
@@ -1894,6 +1897,11 @@ async function logTurn(turn: {
 const FALLBACK_REPLY =
   "So sorry, I'm having a little trouble answering right now. We'd love to help though! Tap below to chat with us on WhatsApp.";
 
+// Stats -> Journeys events (scripts/supabase-chat-visits.sql), and the most
+// one browser may save in a day (a busy shopper sees maybe 50 pages).
+const VISIT_KINDS = ["open", "page", "cart", "checkout"];
+const VISITS_PER_DAY = 300;
+
 // A time the chat sent with a late message: kept if it's believable (the
 // last week, not the future), so it lands in the right place in the chat.
 function pastTime(raw: unknown) {
@@ -1920,6 +1928,41 @@ Deno.serve(async (req) => {
 
   try {
     const payload = await req.json();
+
+    // A shopper who tapped the chat button opening a page, adding to cart
+    // or heading to checkout (widget/src/track.js), for Stats -> Journeys.
+    // No AI; capped per browser per day so a stuck page can't flood it.
+    if (payload.mode === "visit") {
+      const admin = adminClient();
+      const { visitorId, kind, page } = payload;
+      if (
+        !admin || typeof visitorId !== "string" || !UUID_RE.test(visitorId) ||
+        !VISIT_KINDS.includes(kind) ||
+        (page != null && (typeof page !== "string" || !page.startsWith("/")))
+      ) {
+        return json({ ok: false }, 400);
+      }
+      const { count } = await admin
+        .from("chat_visits")
+        .select("id", { count: "exact", head: true })
+        .eq("visitor_id", visitorId)
+        .gte("at", new Date(Date.now() - 864e5).toISOString());
+      if ((count ?? 0) >= VISITS_PER_DAY) return json({ ok: true });
+      const info = visitorInfo(req, {});
+      const cartCount = Number(payload.cart?.count);
+      const total = Number(payload.cart?.total);
+      const { error } = await admin.from("chat_visits").insert({
+        visitor_id: visitorId,
+        kind,
+        page: page ? page.split(/[?#]/)[0].slice(0, 200) : null,
+        cart_count: Number.isInteger(cartCount) && cartCount >= 0 && cartCount < 10000 ? cartCount : null,
+        cart_total: Number.isInteger(total) && total >= 0 && total < 1e10 ? total : null,
+        device: info.device ?? null,
+        internal: info.source === "internal",
+      });
+      if (error) console.error("visit", error.message);
+      return json({ ok: !error });
+    }
 
     // The chat window checking in: is the team handling this chat, and
     // have they replied since `after`? Cheap (no AI), so it can poll.
@@ -2777,7 +2820,7 @@ Only products that are directly relevant get shown, so don't attach products to 
 
 If someone asks about a specific product that's sold out, still include it in "products" and lead with the positive, then the stock status, for example: "The Bites and Delights Lime Green is a lovely pick for corporate gifting, but it's currently sold out." Don't suggest alternatives to it yourself and don't ask whether they'd like to see similar items; the app automatically offers similar in-stock products under a sold-out card. Mention that our team can reconfirm whether any stock is left. Pre-orders aren't available, and never promise a restock or a date; if they ask when it'll be back, suggest contacting the team.
 
-Team hours: the Ware team replies on WhatsApp and returns calls Monday to Saturday, 10 am to 7 pm (India time). The first time you hand them to the team on WhatsApp, or ask whether the team can call them, mention the hours briefly and naturally in the same reply (for example "The team's around Monday to Saturday, 10 to 7."), and never promise a reply outside those hours. These are the team's hours, not the store's: the store in Lower Parel (visits, pickup) is open Monday to Saturday, 10:30 am to 7 pm, so use those for anything about visiting or collecting.
+Team hours: the Ware team replies on WhatsApp and returns calls Monday to Saturday, 10 am to 7 pm (India time). The first time you hand them to the team on WhatsApp, or ask whether the team can call them, mention the hours briefly and naturally in the same reply (for example "We're around Monday to Saturday, 10 to 7."), and never promise a reply outside those hours. These are the team's hours, not the store's: the store in Lower Parel (visits, pickup) is open Monday to Saturday, 10:30 am to 7 pm, so use those for anything about visiting or collecting.
 
 Returns and exchanges: when they want to return or exchange something, or a piece arrived damaged or wrong, answer from the FAQ (the policy and what to do) and say they can start it from the "Start a return or exchange" link just below your reply. That link is added automatically, so never write a link yourself. The window is 14 days after delivery (not dispatch).
 

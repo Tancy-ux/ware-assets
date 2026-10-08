@@ -605,7 +605,7 @@ owner's WhatsApp section shows each step ticked off, and a button that
 subscribes our app to the WhatsApp account (`chat-admin` "wa-setup").
 
 **Stats tab** (same date filter), with tabs **Overview**, **Carts**,
-**Products**, **Couldn't answer** and, for the owner only, **AI cost**
+**Journeys**, **Products**, **Couldn't answer** and, for the owner only, **AI cost**
 (Carts needs the carts tick, the others the stats tick):
 
 - **AI cost** (owner only): what Gemini cost in the period, as three
@@ -647,6 +647,17 @@ subscribes our app to the WhatsApp account (`chat-admin` "wa-setup").
   **Ordered from chat** (pieces and ₹ added with the chat card's + button
   and then ordered; matched by the order line's product title). Sort by
   any column; most shown first.
+- **Journeys tab** (`chat-admin` "journeys", from `chat_visits`): people
+  who tapped the chat button in the period. A funnel (Tapped the chat
+  button -> Got to the cart -> Tapped checkout), the same split into
+  **Tapped and chatted** / **Tapped but didn't chat**, then one row per
+  browser (name or Visitor N if they chatted, device, pages, cart with its
+  value, checkout, last seen) with filters Everyone / Chatted / Didn't
+  chat. Tap a row for their timeline (each page with its time, the tap,
+  adds to cart, checkout taps) and **Open their chat**. "Got to the cart"
+  = added something, opened /cart, or a page view showed items in the
+  cart. Hide test and junk drops internal visits and browsers whose
+  chats are all tests. Up to 300 people listed, 80 events each. See §7.
 - **Couldn't answer tab** (`chat-admin` "gaps"): AI replies that said it
   didn't know / couldn't find / wasn't sure, or that sent them to WhatsApp
   when they hadn't asked for a person. Replies to gibberish ("didn't
@@ -751,8 +762,12 @@ plus **Show me more like this** (§5.4). Empty metafields get no button, and
 piece, e.g. "Eclipse Pasta Bowl: 305ml") is answered with just the value:
 *"It holds 305ml."*, *"It weighs 610 g."*, *"It measures 23 x 23 x 5 cm /
 9 x 9 x 1.9 in."* (`infoVolumeOne` etc. in the snippet); sets keep one line
-per piece under "Volume of the {name}:". The chat tidies the text: "&amp;"
-shows as "&", "Uno Lid - 60 ml" as "Uno Lid: 60 ml", and lines with no
+per piece under "Volume of the {name}:". The chat tidies the text: Shopify's HTML
+codes are undone ("&amp;" shows as "&"); dimensions are written one way
+(`widget/src/dimensions.js`: `3.4"` -> "3.4 in", "4.2in x 4.2in" -> "4.2 x
+4.2 in", " / " between the two) and when the cm/mm and inch figures
+clearly disagree (over 1.5x and 1.5 cm apart, e.g. "3.4" / 860mm") only
+the one written first shows; "Uno Lid - 60 ml" as "Uno Lid: 60 ml", and lines with no
 value ("Hyphen Plate:") are left out. The
 answer is the metafield's own text, instantly and for free; used buttons
 drop off the next "Anything else about…". Each answer is logged to the
@@ -802,11 +817,11 @@ The bot asks for a pincode and then quotes exactly what code works out:
   within ₹1 of a round hundred are rounded down).
 - **Place**: India Post pincode API (town, district, state; state spelling
   differences like Orissa/Odisha are handled).
-- **Days**: Mumbai and Navi Mumbai 2–3 business days, plus *same-day delivery
+- **Days**: Mumbai and Navi Mumbai 2–3 working days, plus *same-day delivery
   for ₹350 extra*; these states 3–5: Bihar, Chandigarh, Chhattisgarh, Delhi,
   Goa, Gujarat, Haryana, Jharkhand, Karnataka, Kerala, Madhya Pradesh,
   Maharashtra, Punjab, Rajasthan, Tamil Nadu, Telangana, Uttar Pradesh;
-  everywhere else 5–8. *All orders are dispatched within 24 hours.*
+  everywhere else 4–7 (matches the FAQ). *All orders are dispatched within 24 hours.*
 - **Outside India**: prices differ (products are roughly +95%), so the team
   quotes them (WhatsApp); the bot may share times after dispatch: Dubai
   12–15, UK 15–20, USA 20–45 business days.
@@ -1053,6 +1068,17 @@ Test locally without Shopify: serve `widget/dist/` (e.g.
 - **Pages**: every chat call sends the page path (never the query string).
   Saved as `first_page` / `last_page` on the chat and `page` on each
   message.
+- **Journeys** (`widget/src/track.js` -> ask-faq "visit" -> `chat_visits`):
+  only for someone who tapped the chat button, for 30 days after their
+  last tap (`wareChatTappedAt` in localStorage; `TRACK_DAYS`). Saved: the
+  tap (`open`, with the page), every page load (`page`, with the cart's
+  item count / total from /cart.js), adding to cart (`cart`: any request
+  to /cart/add, seen with a PerformanceObserver, so drawer adds count
+  too) and checkout taps (`checkout`: name="checkout" buttons, checkout
+  links, Buy it now / Shop Pay buttons; sent with keepalive as the page
+  leaves). Shopify's checkout pages themselves can't run the script, and
+  PayPal's framed button can't be seen. Paths only, nothing typed. Max
+  300 events per browser per day. No AI, so no AI cost.
 - **Visitor numbers**: computed daily by `chat-admin` (see §4). The old
   running number column `visitor_number` still exists but isn't shown.
 
@@ -1143,6 +1169,7 @@ would need a code change (`zohoLeadFields` in `chat-admin`).
 | `download_assets` | Home → Assets links (name, url) | Team |
 | `chat_conversations` | one per browser: visitor_id, visitor_name, company, visitor_phone, visitor_email, label, first/last_question, first/last_page, takeover_at, started_at, last_message_at, visitor_number, requirement, lead_products, client_type, zoho_lead_id, zoho_lead_at | ask-faq, chat-admin |
 | `chat_messages` | question, answer, products (title/url/available), sender (ai / agent / customer / system), page, created_at | ask-faq, chat-admin |
+| `chat_visits` | Journeys: visitor_id, kind (open / page / cart / checkout), page, cart_count, cart_total (paise), device, internal, at | ask-faq ("visit") |
 | `ai_usage` | rate-limit counters (and usage) | `ai_rate_check`, `rate_limit` |
 | `ai_costs` | one row per AI call: kind (reply / team-ai-reply / lead-draft / bot-try / tidy), model, chat, tokens | ask-faq, chat-admin |
 | `restock_requests` | never created; "Check restock" is switched off | – |
@@ -1161,7 +1188,8 @@ device, cart), `supabase-chat-users.sql` (team, email, agent_name),
 `supabase-chat-extras.sql` (what was shown under each reply),
 `supabase-quick-replies.sql` (saved messages),
 `supabase-chat-account.sql` (logged-in customer's account),
-`supabase-ai-costs.sql` (the AI cost tab; added Oct 2026, run it once if the tab asks).
+`supabase-ai-costs.sql` (the AI cost tab; added Oct 2026, run it once if the tab asks),
+`supabase-chat-visits.sql` (Stats -> Journeys; added 8 Oct 2026, run it once if the tab asks).
 (`supabase-restock-requests-table.sql` exists but was never run.)
 
 ### Other scripts

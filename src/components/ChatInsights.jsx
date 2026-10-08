@@ -1,14 +1,17 @@
-import { useState } from "react";
-import { GraduationCap } from "lucide-react";
+import { Fragment, useState } from "react";
+import { ArrowRight, ChevronDown, ChevronUp, GraduationCap } from "lucide-react";
 import { SortHead } from "./chatTable";
 import { useStatsData } from "./useStatsData";
-import { formatWhen, rupees, sortRows } from "./chatTableUtils";
+import { formatDay, formatWhen, rupees, sortRows } from "./chatTableUtils";
+import { pageLabel, pageUrl } from "../lib/storePages";
 
 // Two more Stats tabs, each loaded from chat-admin when opened:
 //   - Products: what the bot showed, which pages they chatted on, and what
 //     was ordered after being added from a chat card.
 //   - Couldn't answer: questions where the bot said it didn't know, or sent
 //     them to WhatsApp without them asking for a person.
+//   - Journeys: where people went after tapping the chat button, and
+//     whether they got to the cart and checkout.
 
 const STORE = "https://www.wareinnovations.com";
 const thumb = (url) => (url ? `${url}${url.includes("?") ? "&" : "?"}width=120` : url);
@@ -207,5 +210,252 @@ export const ChatAiCost = ({ api, request }) => {
         Google AI Studio&apos;s billing has the exact amount.
       </p>
     </section>
+  );
+};
+
+// Stats -> Journeys, from chat-admin's "journeys" (the store chat records
+// pages only for people who tapped its button; widget/src/track.js).
+const percent = (n, of) => (of ? `${Math.round((n / of) * 100)}%` : "–");
+const formatTime = (iso) =>
+  new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+const WHO = [
+  { id: "all", label: "Everyone" },
+  { id: "chatted", label: "Chatted" },
+  { id: "tappedOnly", label: "Didn't chat" },
+];
+
+// One step of their journey, as a line of the timeline.
+const JourneyStep = ({ e }) => {
+  const page = e.page && (
+    <a href={pageUrl(e.page)} target="_blank" rel="noopener noreferrer">
+      {pageLabel(e.page)}
+    </a>
+  );
+  if (e.kind === "open") return <>Tapped the chat button{page && <> on {page}</>}</>;
+  if (e.kind === "cart") {
+    return (
+      <strong>
+        Added to cart
+        {e.items != null && ` (${e.items} item${e.items === 1 ? "" : "s"} in cart)`}
+      </strong>
+    );
+  }
+  if (e.kind === "checkout") return <strong>Tapped checkout{page && <> on {page}</>}</strong>;
+  return page;
+};
+
+const Journey = ({ events }) => (
+  <ol className="chats-journey">
+    {events.map((e, i) => (
+      <Fragment key={i}>
+        {(i === 0 || formatDay(e.at) !== formatDay(events[i - 1].at)) && (
+          <li className="chats-journey-day">{formatDay(e.at)}</li>
+        )}
+        <li className={`chats-journey-step chats-journey-${e.kind}`}>
+          <time>{formatTime(e.at)}</time>
+          <span>
+            <JourneyStep e={e} />
+          </span>
+        </li>
+      </Fragment>
+    ))}
+  </ol>
+);
+
+export const ChatJourneys = ({ api, request, onOpenChat }) => {
+  const { loading, data } = useStatsData(api, "journeys", request);
+  const [who, setWho] = useState("all");
+  const [openId, setOpenId] = useState(null);
+
+  if (loading) return <p className="chats-results-note">Loading…</p>;
+  if (data?.missingTable) {
+    return (
+      <p className="chats-results-note chats-results-warn">
+        Run scripts/supabase-chat-visits.sql in Supabase → SQL Editor to start
+        recording journeys.
+      </p>
+    );
+  }
+  if (!data) return null;
+
+  const { chatted, tappedOnly } = data.groups;
+  const all = {
+    people: chatted.people + tappedOnly.people,
+    cart: chatted.cart + tappedOnly.cart,
+    checkout: chatted.checkout + tappedOnly.checkout,
+  };
+  const steps = [
+    { label: "Tapped the chat button", n: all.people },
+    {
+      label: "Got to the cart",
+      n: all.cart,
+      title: "Added something, opened the cart, or had items in it",
+    },
+    { label: "Tapped checkout", n: all.checkout },
+  ];
+  const people = data.people.filter(
+    (p) => who === "all" || (who === "chatted") === !!p.conversationId,
+  );
+
+  return (
+    <>
+      <section className="chats-card">
+        <h3>
+          After tapping the chat button
+          <span> · how many people get to each step</span>
+        </h3>
+        <div className="chats-funnel">
+          {steps.map((s, i) => (
+            <Fragment key={s.label}>
+              {i > 0 && (
+                <span className="chats-funnel-arrow" aria-hidden="true">
+                  <ArrowRight size={16} />
+                </span>
+              )}
+              <div
+                className={`chats-funnel-step${i === 2 && s.n > 0 ? " chats-funnel-good" : ""}`}
+                title={s.title}
+              >
+                <span className="chats-funnel-label">{s.label}</span>
+                <strong>{s.n}</strong>
+                {i > 0 && (
+                  <span className="chats-funnel-sub">{percent(s.n, all.people)} of them</span>
+                )}
+              </div>
+            </Fragment>
+          ))}
+        </div>
+        <div className="chats-table-scroll">
+          <table className="chats-results-orders chats-journey-compare">
+            <thead>
+              <tr>
+                <th />
+                <th>People</th>
+                <th>Got to the cart</th>
+                <th>Tapped checkout</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                ["Tapped and chatted", chatted],
+                ["Tapped but didn't chat", tappedOnly],
+              ].map(([label, g]) => (
+                <tr key={label}>
+                  <td>{label}</td>
+                  <td>{g.people}</td>
+                  <td>
+                    {g.cart} <small>({percent(g.cart, g.people)})</small>
+                  </td>
+                  <td>
+                    {g.checkout} <small>({percent(g.checkout, g.people)})</small>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="chats-card chats-orders-card">
+        <h3>
+          Each person&apos;s journey
+          <span> · newest first, tap a row to see the pages</span>
+        </h3>
+        <div className="chats-views chats-page-filters">
+          {WHO.map((w) => (
+            <button
+              key={w.id}
+              type="button"
+              className={`chats-view${who === w.id ? " chats-view-active" : ""}`}
+              onClick={() => setWho(w.id)}
+            >
+              {w.label}
+            </button>
+          ))}
+        </div>
+        {!people.length ? (
+          <p className="chats-results-note">Nobody in this period.</p>
+        ) : (
+          <div className="chats-table-scroll">
+            <table className="chats-results-orders">
+              <thead>
+                <tr>
+                  <th>Person</th>
+                  <th>Pages</th>
+                  <th>Cart</th>
+                  <th>Checkout</th>
+                  <th>Last seen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {people.map((p) => {
+                  const shown = openId === p.visitorId;
+                  const Chevron = shown ? ChevronUp : ChevronDown;
+                  return (
+                    <Fragment key={p.visitorId}>
+                      <tr
+                        className="chats-journey-row"
+                        onClick={() => setOpenId(shown ? null : p.visitorId)}
+                      >
+                        <td>
+                          <button
+                            type="button"
+                            className="chats-journey-toggle"
+                            aria-expanded={shown}
+                          >
+                            <Chevron size={14} />
+                            {p.title ?? "Didn't chat"}
+                          </button>{" "}
+                          <span className="chats-carts-tag">#{p.visitorId.slice(0, 6)}</span>
+                          {p.device && <small className="chats-journey-device">{p.device}</small>}
+                        </td>
+                        <td>{p.pages}</td>
+                        <td>
+                          {p.cart ? (
+                            <span className="chats-tag chats-tag-lead">
+                              Yes{p.cartValue ? ` · ${rupees(p.cartValue)}` : ""}
+                            </span>
+                          ) : (
+                            "–"
+                          )}
+                        </td>
+                        <td>
+                          {p.checkout ? <span className="chats-tag chats-tag-lead">Yes</span> : "–"}
+                        </td>
+                        <td className="chats-nowrap">{formatWhen(p.lastAt)}</td>
+                      </tr>
+                      {shown && (
+                        <tr className="chats-journey-detail">
+                          <td colSpan={5}>
+                            <Journey events={p.events} />
+                            {p.conversationId && (
+                              <button
+                                type="button"
+                                className="chats-results-chat"
+                                onClick={() => onOpenChat(p.conversationId)}
+                              >
+                                Open their chat
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="chats-results-note">
+          {data.total > data.people.length &&
+            `Showing the latest ${data.people.length} of ${data.total}. `}
+          Recorded only for people who tapped the chat button, for 30 days
+          after their last tap, on the browser they tapped it on. Checkout
+          means they tapped a checkout or Buy it now button; Stats → Overview
+          has the orders.
+        </p>
+      </section>
+    </>
   );
 };

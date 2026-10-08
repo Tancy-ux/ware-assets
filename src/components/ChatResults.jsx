@@ -9,7 +9,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { callFunction } from "../lib/askFaq";
-import { ChatGaps, ChatProducts, ChatAiCost } from "./ChatInsights";
+import { ChatGaps, ChatJourneys, ChatProducts, ChatAiCost } from "./ChatInsights";
 import ChatDashboard from "./ChatDashboard";
 import { pageKind, pageKindLabel, pageLabel, pageUrl } from "../lib/storePages";
 
@@ -180,6 +180,7 @@ const ChatResults = ({
     isOwner && ["dashboard", "Dashboard"],
     canStats && ["stats", "Overview"],
     canCarts && ["carts", "Carts"],
+    canStats && ["journeys", "Journeys"],
     canStats && ["products", "Products"],
     canStats && ["gaps", "Couldn't answer"],
     isOwner && ["cost", "AI cost"],
@@ -425,6 +426,9 @@ const ChatResults = ({
         </section>
       )}
 
+      {view === "journeys" && (
+        <ChatJourneys api={api} request={request} onOpenChat={onOpenChat} />
+      )}
       {view === "products" && <ChatProducts api={api} request={request} />}
       {view === "cost" && isOwner && <ChatAiCost api={api} request={request} />}
       {view === "dashboard" && isOwner && <ChatDashboard api={api} request={request} />}

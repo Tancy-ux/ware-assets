@@ -28,10 +28,25 @@ export const callFunction = async (name, body) => {
   }
 };
 
+// A Journeys event (see track.js). keepalive lets it finish even when the
+// page is already moving on (a checkout tap); nobody waits on the answer.
+export const sendVisit = (body) => {
+  fetch(scriptApi || `${SUPABASE_URL}/functions/v1/ask-faq`, {
+    method: "POST",
+    keepalive: true,
+    headers: {
+      "Content-Type": "application/json",
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    },
+    body: JSON.stringify({ mode: "visit", ...body }),
+  }).catch(() => {});
+};
+
 // The store cart right now (item count and total in paise), for the Chats
 // page's side panel. Never holds a message up for long: null if slow.
 const CART_WAIT_MS = 700;
-const readCart = () =>
+export const readCart = () =>
   Promise.race([
     fetch("/cart.js", { headers: { Accept: "application/json" } })
       .then((res) => (res.ok ? res.json() : null))

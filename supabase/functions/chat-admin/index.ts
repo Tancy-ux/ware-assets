@@ -204,6 +204,11 @@ const CHAT_ATTRIBUTE = "_ware_chat";
 const VIA_PROPERTY = "_via";
 // Nothing is tagged before the chat started tagging carts.
 const TRACKING_FROM = "2026-09-29T00:00:00Z";
+// Stats -> Journeys: how many saved events one load reads (a busy month is
+// a few thousand), how many people it lists and the events kept for each.
+const MAX_VISIT_ROWS = 50000;
+const MAX_JOURNEY_PEOPLE = 300;
+const MAX_JOURNEY_EVENTS = 80;
 const MAX_ORDER_PAGES = 25; // x 80 orders
 // Shopify's orders are cached briefly (reading them takes a few calls);
 // the chat counts are always fresh.
@@ -1436,6 +1441,7 @@ Deno.serve(async (req) => {
       "wa-media": "whatsapp",
       products: "stats",
       gaps: "stats",
+      journeys: "stats",
       "user-save": "users",
       "user-delete": "users",
     };
@@ -2963,6 +2969,118 @@ Deno.serve(async (req) => {
           .slice(0, 300)
           .map(({ chats: c, ...g }) => ({ ...g, chats: c.size })),
         canTeach: me.owner,
+      });
+    }
+
+    // ---- Stats -> Journeys ----
+    // Shoppers who tapped the chat button, from chat_visits (ask-faq
+    // "visit"): the pages they opened after, and whether they got to the
+    // cart and to checkout, split by whether they also chatted.
+    if (body.action === "journeys") {
+      const hideTest = body.hideTest !== false;
+      // deno-lint-ignore no-explicit-any
+      const rows: any[] = [];
+      for (let from = 0; from < MAX_VISIT_ROWS; from += 1000) {
+        let q = db
+          .from("chat_visits")
+          .select("visitor_id, kind, page, cart_count, cart_total, device, internal, at")
+          .order("at")
+          .order("id")
+          .range(from, from + 999);
+        if (since) q = q.gte("at", since);
+        if (until) q = q.lt("at", until);
+        const { data, error } = await q;
+        if (error) {
+          if (/chat_visits/.test(error.message)) return json({ missingTable: true });
+          throw error;
+        }
+        rows.push(...data);
+        if (data.length < 1000) break;
+      }
+
+      type Person = {
+        visitorId: string; firstAt: string; lastAt: string; device: string | null;
+        pages: number; cart: boolean; checkout: boolean; cartValue: number | null;
+        events: { kind: string; page: string | null; at: string; items: number | null }[];
+      };
+      const people = new Map<string, Person>();
+      for (const r of rows) {
+        if (hideTest && r.internal) continue;
+        let p = people.get(r.visitor_id);
+        if (!p) {
+          p = {
+            visitorId: r.visitor_id, firstAt: r.at, lastAt: r.at, device: null,
+            pages: 0, cart: false, checkout: false, cartValue: null, events: [],
+          };
+          people.set(r.visitor_id, p);
+        }
+        p.lastAt = r.at;
+        p.device = r.device ?? p.device;
+        if (r.kind === "page") p.pages++;
+        // In the cart: added something, opened the cart page, or a page
+        // view showed items in it.
+        if (
+          r.kind === "cart" || r.cart_count > 0 ||
+          (r.kind === "page" && /^\/([a-z]{2}(-[a-z]{2})?\/)?cart\/?$/i.test(r.page ?? ""))
+        ) {
+          p.cart = true;
+        }
+        if (r.kind === "checkout") p.checkout = true;
+        if (r.cart_total != null) p.cartValue = r.cart_total / 100;
+        p.events.push({ kind: r.kind, page: r.page, at: r.at, items: r.cart_count });
+      }
+
+      // Their chats (from any time), for names and "chatted".
+      const ids = [...people.keys()];
+      // deno-lint-ignore no-explicit-any
+      const chats: any[] = [];
+      for (let i = 0; i < ids.length; i += 200) {
+        const { data, error } = await db
+          .from("chat_conversations")
+          .select("id, visitor_id, visitor_name, company, label, source, started_at, last_message_at")
+          .in("visitor_id", ids.slice(i, i + 200));
+        if (error) throw error;
+        chats.push(...data);
+      }
+      const chatsOf = new Map<string, typeof chats>();
+      for (const c of chats) chatsOf.set(c.visitor_id, [...(chatsOf.get(c.visitor_id) ?? []), c]);
+      const numbers = await dailyNumbers(db, chats);
+
+      const blank = () => ({ people: 0, cart: 0, checkout: 0 });
+      const groups = { chatted: blank(), tappedOnly: blank() };
+      const list = [];
+      for (const p of people.values()) {
+        const own = chatsOf.get(p.visitorId) ?? [];
+        // A browser whose chats are all tests is left out with them.
+        if (hideTest && own.length && own.every(isTestChat)) continue;
+        const latest = own.sort((a, b) =>
+          String(b.last_message_at).localeCompare(String(a.last_message_at))
+        )[0];
+        const g = latest ? groups.chatted : groups.tappedOnly;
+        g.people++;
+        if (p.cart) g.cart++;
+        if (p.checkout) g.checkout++;
+        list.push({
+          ...p,
+          events: p.events.slice(-MAX_JOURNEY_EVENTS),
+          conversationId: latest?.id ?? null,
+          title: latest
+            ? latest.label || (latest.visitor_name && nameCase(latest.visitor_name)) ||
+              `Visitor ${numbers.get(latest.id) ?? ""} · ${
+                new Date(latest.started_at).toLocaleDateString("en-IN", {
+                  day: "numeric",
+                  month: "short",
+                  timeZone: "Asia/Kolkata",
+                })
+              }`
+            : null,
+        });
+      }
+      list.sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+      return json({
+        groups,
+        people: list.slice(0, MAX_JOURNEY_PEOPLE),
+        total: list.length,
       });
     }
 

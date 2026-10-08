@@ -27,6 +27,7 @@ import { toast } from "react-toastify";
 import { supabase } from "./supabase";
 import { callAskFaq } from "../lib/askFaq";
 import { TEXTS, fillText } from "../lib/chatTexts";
+import { getVisitorId } from "../lib/visitorId";
 import { WARE_MARK } from "./wareMark";
 import AiGuidelines from "./AiGuidelines";
 import RestockForm from "./RestockForm";
@@ -47,22 +48,6 @@ const STORAGE_KEY = "askAiChat";
 // function caps turns too; this just avoids sending what it'd drop.
 const HISTORY_MAX_TURNS = 10;
 const HISTORY_MAX_AGE_MS = 30 * 60 * 60 * 1000;
-
-// One anonymous ID per browser, so the Chats page can group a person's
-// conversations together. Falls back to a throwaway ID if storage is off.
-const VISITOR_KEY = "askAiVisitorId";
-const getVisitorId = () => {
-  try {
-    let id = localStorage.getItem(VISITOR_KEY);
-    if (!id) {
-      id = crypto.randomUUID();
-      localStorage.setItem(VISITOR_KEY, id);
-    }
-    return id;
-  } catch {
-    return crypto.randomUUID();
-  }
-};
 
 // Whether the drawer is expanded to take most of the screen (like Gmail's
 // full-screen compose). Remembered per browser.

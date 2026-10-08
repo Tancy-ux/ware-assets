@@ -5038,3 +5038,64 @@
 .chats-cost-notes {
   margin-top: 14px;
 }
+
+/* Stats → Journeys: tap a person's row for their pages as a timeline. */
+.chats-journey-compare {
+  margin-top: 14px;
+}
+.chats-journey-compare small {
+  color: var(--chats-text-muted);
+}
+.chats-journey-row {
+  cursor: pointer;
+}
+.chats-journey-row:hover td {
+  background: var(--chats-accent-soft);
+}
+.chats-journey-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--chats-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.chats-journey-device {
+  display: block;
+  margin-left: 18px;
+  color: var(--chats-text-muted);
+}
+.chats-journey-detail td {
+  background: var(--chats-bg);
+}
+.chats-journey {
+  margin: 4px 0 10px;
+  padding: 0 0 0 18px;
+  list-style: none;
+}
+.chats-journey-day {
+  margin: 8px 0 4px;
+  color: var(--chats-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+.chats-journey-step {
+  display: flex;
+  gap: 12px;
+  padding: 3px 0 3px 12px;
+  border-left: 2px solid var(--chats-border);
+}
+.chats-journey-step time {
+  flex: 0 0 64px;
+  color: var(--chats-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.chats-journey-open,
+.chats-journey-cart,
+.chats-journey-checkout {
+  border-left-color: var(--chats-accent);
+}
