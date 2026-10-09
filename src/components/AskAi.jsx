@@ -21,6 +21,7 @@ import {
   ChevronLeft,
   ChevronRight,
   MoreHorizontal,
+  Package,
   Plus,
 } from "lucide-react";
 import { toast } from "react-toastify";
@@ -137,6 +138,13 @@ const fallbackWhatsAppUrl = (questions, name = "") => {
     ].join("\n"),
   );
 };
+// The "Track my order" chip; typed ("where is my order?") too when we have
+// their orders, otherwise the assistant answers that (WhatsApp).
+const ORDER_RE =
+  /\b(track|tracking)\b.*\b(order|parcel|package)\b|\bwhere('?s| is) my (order|parcel|package)\b|\border status\b/i;
+const isOrderQuestion = (question) =>
+  question.toLowerCase() === TEXTS.trackOrder.toLowerCase() ||
+  (!!window.WareChatConfig?.orders?.length && ORDER_RE.test(question));
 // Their questions so far in this chat (since the last "start over").
 const askedSoFar = (messages) =>
   messages
@@ -601,7 +609,16 @@ const loadStoredMessages = () => {
     // A message still "loading" or mid-edit when the page closed can
     // never resolve on its own — settle it into a plain state instead of
     // showing a permanent "Thinking..." bubble.
-    return parsed.map((m) => ({
+    // "Anything you'd like to know about the Aurora…?" belongs to that
+    // piece's page: on any other page it's dropped (an otherwise empty
+    // chat then shows the welcome and its chips again).
+    const handle = location.pathname.match(/\/products\/([^/?#]+)/)?.[1];
+    const pageHandle = handle
+      ? decodeURIComponent(handle)
+      : (window.WareChatConfig?.product?.handle ?? null);
+    return parsed.filter((m) =>
+      !m.productOptions || m.productOptions.product?.handle === pageHandle
+    ).map((m) => ({
       ...m,
       loading: false,
       error: m.loading ? "Interrupted — try asking again." : m.error,
@@ -764,6 +781,11 @@ const AskAi = ({
           time: Date.now(),
         },
       ]);
+      return;
+    }
+
+    if (customer && isOrderQuestion(question)) {
+      showOrder(question);
       return;
     }
 
@@ -1202,6 +1224,56 @@ const AskAi = ({
     ]);
     const delay = LOCAL_REPLY_MIN_MS + Math.random() * LOCAL_REPLY_JITTER_MS;
     setTimeout(() => patchMessage(id, { loading: false, ...reply }), delay);
+  };
+
+  // "Track my order", answered here (no AI): a logged-in shopper's latest
+  // order with its tracking and order page links; logged out, the log-in
+  // link and WhatsApp. Saved for the team like any reply (order number
+  // and status only).
+  const showOrder = (question) => {
+    const config = window.WareChatConfig ?? {};
+    const order = config.orders?.[0];
+    let reply;
+    if (!config.customer) {
+      reply = {
+        answer: TEXTS.orderLoggedOut,
+        orderLinks: config.loginUrl ? [{ label: TEXTS.orderLoginLabel, url: config.loginUrl }] : [],
+        whatsappUrl: fallbackWhatsAppUrl([question], namePrefs.name),
+      };
+    } else if (!order) {
+      reply = {
+        answer: TEXTS.orderNone,
+        whatsappUrl: fallbackWhatsAppUrl([question], knownName),
+      };
+    } else {
+      const shipped = !!order.trackingNumber ||
+        order.status === "fulfilled" || order.status === "partial";
+      const date = new Date(`${order.date}T12:00:00`).toLocaleDateString("en-IN", {
+        day: "numeric",
+        month: "short",
+      });
+      reply = {
+        answer: fillText(
+          order.cancelled
+            ? TEXTS.orderCancelled
+            : shipped
+              ? TEXTS.orderShipped
+              : TEXTS.orderConfirmed,
+          { order: order.name, date },
+        ),
+        orderNote: !order.cancelled &&
+          [order.trackingCompany, order.trackingNumber].filter(Boolean).join(" · "),
+        orderLinks: [
+          !order.cancelled && order.trackingUrl &&
+            { label: TEXTS.orderTrackLabel, url: order.trackingUrl },
+          order.url && { label: TEXTS.orderDetailsLabel, url: order.url },
+          config.orders.length > 1 && config.accountUrl &&
+            { label: TEXTS.orderAllLabel, url: config.accountUrl },
+        ].filter(Boolean),
+      };
+    }
+    saveLater({ question, answer: reply.answer, answered: !!order });
+    postLocalReply(question, { ...reply, conversationId: getVisitorId() }, { skipHistory: true });
   };
 
   // The conversation the details card attaches to: the latest one the
@@ -1913,6 +1985,20 @@ const AskAi = ({
                 {m.showReturns && TEXTS.returnsUrl && TEXTS.returnsNote && (
                   <small className="faq-chat-link-note">{TEXTS.returnsNote}</small>
                 )}
+                {m.orderNote && <small className="faq-chat-link-note">{m.orderNote}</small>}
+                {m.orderLinks?.map((l) => (
+                  <a
+                    key={l.url}
+                    href={l.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="faq-chat-catalog-link"
+                  >
+                    <Package size={14} />
+                    {l.label}
+                    <ArrowUpRight size={13} />
+                  </a>
+                ))}
                 {m.productOptions && (
                   // The details first, "Show me more like this" last; they
                   // wrap onto a new line only when they don't fit.

@@ -90,6 +90,15 @@ export const trackTap = () => {
     // Storage off: just this page then.
   }
   send("open");
+  const root = window.Shopify?.routes?.root;
+  if (root) {
+    fetch(`${root}cart/update.js`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ attributes: { _ware_chat: getVisitorId() } }),
+    }).catch(() => {});
+  }
+
   watch();
 };
 

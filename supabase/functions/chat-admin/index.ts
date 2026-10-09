@@ -192,7 +192,8 @@ function takeoverActive(takeoverAt: string | null | undefined) {
 // ---- Results: orders the chat played a part in ----
 // The store chat tags the shopper's cart (see tagCart in AskAi.jsx):
 //   cart attribute  _ware_chat = their chat's visitor ID  -> "chatted, then
-//                                                            ordered"
+//                                ordered" (see chattedOrder; just tapping
+//                                the button tags it too)
 //   line property   _via = "Ware chat"   -> "added from the chat"
 // Both carry through to the order. Shopify can't search orders by them, so
 // this reads the orders in the date range (read-only, SHOPIFY_ADMIN_TOKEN
@@ -490,11 +491,11 @@ async function dashboardNumbers(
       // deno-lint-ignore no-explicit-any
       ((linked ?? []) as any[]).filter((c) => !isTestChat(c)).map((c) => c.visitor_id),
     );
+    // deno-lint-ignore no-explicit-any
+    const chatted = new Set(((linked ?? []) as any[]).map((c) => c.visitor_id));
     orders = shop.orders.filter((o) =>
-      !o.cancelled &&
-      (withTest || !o.visitorId || real.has(o.visitorId) ||
-        // deno-lint-ignore no-explicit-any
-        !((linked ?? []) as any[]).some((c) => c.visitor_id === o.visitorId))
+      !o.cancelled && chattedOrder(o, chatted) &&
+      (withTest || !o.visitorId || real.has(o.visitorId) || !chatted.has(o.visitorId))
     );
   } catch (err) {
     console.error(err);
@@ -740,6 +741,15 @@ async function cachedOrders(since: string | null, until: string | null, fresh = 
   ordersCache.set(key, { at: Date.now(), value });
   return value;
 }
+
+// _ware_chat goes on the cart as soon as someone taps the chat button,
+// whether they chat or not. An order counts as "from a chat" when that
+// browser has a chat with us, or something in it was added with the
+// chat's + button; the rest only tapped the button (Stats -> Journeys).
+const chattedOrder = (
+  o: { visitorId: string | null; fromChatTotal: number },
+  chatted: Set<string>,
+) => !o.visitorId || o.fromChatTotal > 0 || chatted.has(o.visitorId);
 
 // A phone number's last 10 digits, so "+91 98200 12345" and "9820012345"
 // are the same person.
@@ -1442,6 +1452,7 @@ Deno.serve(async (req) => {
       products: "stats",
       gaps: "stats",
       journeys: "stats",
+      dashboard: "stats",
       "user-save": "users",
       "user-delete": "users",
     };
@@ -2356,11 +2367,10 @@ Deno.serve(async (req) => {
       return json(status);
     }
 
-    // Stats → Dashboard: the period's numbers day by day, against the
-    // period before (same length), the busiest hours and the team. Owner
-    // only for now.
+    // Stats → Overview: the period's numbers day by day, against the
+    // period before (same length), the busiest hours and (owner only) the
+    // team.
     if (body.action === "dashboard") {
-      if (!me.owner) return notAllowed();
       const withTest = body.hideTest === false;
       const now = await dashboardNumbers(db, since, until, withTest, !!body.fresh, true);
       // The period before, as long as this one ("All time" has none).
@@ -2372,7 +2382,7 @@ Deno.serve(async (req) => {
         before = (await dashboardNumbers(db, prevSince, since, withTest, !!body.fresh, false))
           .totals;
       }
-      return json({ ...now, before });
+      return json({ ...now, team: me.owner ? now.team : null, before });
     }
 
     if (body.action === "results") {
@@ -2421,9 +2431,10 @@ Deno.serve(async (req) => {
       const realVisitors = new Set(
         (linked ?? []).filter((c) => !isTestChat(c)).map((c) => c.visitor_id),
       );
+      const chatted = new Set((linked ?? []).map((c) => c.visitor_id));
       const orders = shopOrders.orders.filter((o) =>
-        !hideTest || !o.visitorId || realVisitors.has(o.visitorId) ||
-        !(linked ?? []).some((c) => c.visitor_id === o.visitorId)
+        chattedOrder(o, chatted) &&
+        (!hideTest || !o.visitorId || realVisitors.has(o.visitorId) || !chatted.has(o.visitorId))
       );
       // Each order's chat: a real one over a test one from the same browser.
       const byVisitor = new Map<string, NonNullable<typeof linked>[number]>();
@@ -3046,7 +3057,24 @@ Deno.serve(async (req) => {
       for (const c of chats) chatsOf.set(c.visitor_id, [...(chatsOf.get(c.visitor_id) ?? []), c]);
       const numbers = await dailyNumbers(db, chats);
 
-      const blank = () => ({ people: 0, cart: 0, checkout: 0 });
+      // Their orders in the period (the cart's _ware_chat ID), chatted or
+      // not; cancelled ones left out.
+      let ordersError: string | null = null;
+      const ordersOf = new Map<string, { name: string; total: number; adminUrl: string }[]>();
+      try {
+        for (const o of (await cachedOrders(since, until, !!body.fresh)).orders) {
+          if (o.cancelled || !o.visitorId || !people.has(o.visitorId)) continue;
+          ordersOf.set(o.visitorId, [
+            ...(ordersOf.get(o.visitorId) ?? []),
+            { name: o.name, total: o.total, adminUrl: o.adminUrl },
+          ]);
+        }
+      } catch (err) {
+        console.error(err);
+        ordersError = "Couldn't load Shopify orders just now.";
+      }
+
+      const blank = () => ({ people: 0, cart: 0, checkout: 0, ordered: 0 });
       const groups = { chatted: blank(), tappedOnly: blank() };
       const list = [];
       for (const p of people.values()) {
@@ -3060,8 +3088,11 @@ Deno.serve(async (req) => {
         g.people++;
         if (p.cart) g.cart++;
         if (p.checkout) g.checkout++;
+        const orders = ordersOf.get(p.visitorId) ?? [];
+        if (orders.length) g.ordered++;
         list.push({
           ...p,
+          orders,
           events: p.events.slice(-MAX_JOURNEY_EVENTS),
           conversationId: latest?.id ?? null,
           title: latest
@@ -3081,6 +3112,7 @@ Deno.serve(async (req) => {
         groups,
         people: list.slice(0, MAX_JOURNEY_PEOPLE),
         total: list.length,
+        ordersError,
       });
     }
 

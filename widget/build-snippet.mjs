@@ -70,6 +70,49 @@ const [texts, theme, faqCss, widgetCss] = await Promise.all([
   read("widget/src/widget.css"),
 ]);
 
+// The logged-in shopper and their latest orders, from Liquid (the same block
+// is in the store copy, widget/ware-chat.liquid). Only what "Track my
+// order" shows: no address or contact details.
+const CUSTOMER_BLOCK = `  /* The logged-in shopper (nothing when logged out): the chat knows their
+     name and saves their phone / email for the team, without saying so.
+     Their latest orders are for "Track my order" (newest first). */
+  window.WareChatConfig.accountUrl = {{ routes.account_url | json }};
+  window.WareChatConfig.loginUrl = {{ routes.account_login_url | json }};
+  {%- if customer -%}
+  window.WareChatConfig.customer = {
+    id: {{ customer.id | json }},
+    name: {{ customer.first_name | default: customer.name | json }},
+    phone: {{ customer.phone | json }},
+    email: {{ customer.email | json }}
+  };
+  window.WareChatConfig.orders = [
+    {%- for order in customer.orders limit: 3 -%}
+      {%- liquid
+        assign ware_company = ''
+        assign ware_number = ''
+        assign ware_url = ''
+        for item in order.line_items
+          if item.fulfillment and ware_number == ''
+            assign ware_company = item.fulfillment.tracking_company | default: ''
+            assign ware_number = item.fulfillment.tracking_number | default: ''
+            assign ware_url = item.fulfillment.tracking_url | default: ''
+          endif
+        endfor
+      -%}
+    {
+      name: {{ order.name | json }},
+      date: {{ order.created_at | date: '%Y-%m-%d' | json }},
+      status: {{ order.fulfillment_status | json }},
+      cancelled: {{ order.cancelled | json }},
+      url: {{ order.customer_order_url | default: order.customer_url | json }},
+      trackingCompany: {{ ware_company | json }},
+      trackingNumber: {{ ware_number | json }},
+      trackingUrl: {{ ware_url | json }}
+    }{%- unless forloop.last -%},{%- endunless -%}
+    {%- endfor -%}
+  ];
+  {%- endif -%}`;
+
 const snippet = `{% comment %}
   WARE CHAT (the "Ware concierge" on the store)
 
@@ -100,16 +143,7 @@ const snippet = `{% comment %}
   };
 </script>
 <script>
-  /* The logged-in shopper (nothing when logged out): the chat knows their
-     name and saves their phone / email for the team, without saying so. */
-  {%- if customer -%}
-  window.WareChatConfig.customer = {
-    id: {{ customer.id | json }},
-    name: {{ customer.first_name | default: customer.name | json }},
-    phone: {{ customer.phone | json }},
-    email: {{ customer.email | json }}
-  };
-  {%- endif -%}
+${CUSTOMER_BLOCK}
 </script>
 <script>
   /* The product's details for the chat's options (product pages only;

@@ -1,0 +1,76 @@
+{%- comment -%}
+  The store's robots.txt (Online Store > Themes > Edit code > Templates >
+  robots.txt.liquid). Shopify's own rules stay exactly as they are (the
+  loop below); after them, data scrapers and SEO tools are asked to stay
+  away. Search engines, every major AI assistant's crawler (so Ware can be
+  recommended: GPTBot, Google-Extended, ClaudeBot, Applebot, Meta,
+  Amazon, Common Crawl), AI search (ChatGPT search, Perplexity) and link
+  previews (WhatsApp, Instagram) are NOT blocked. Only well-behaved crawlers read this; it doesn't stop bots that
+  ignore it. Copy kept in the ware-assets repo: shopify/robots.txt.liquid.
+  The comment block below is Shopify's own header (copied from the default
+  robots.txt, Oct 2026), which the default_groups loop doesn't include.
+{%- endcomment -%}
+# Shopify storefront. Public product, collection, page, blog, policy, cart, and localized HTML is crawlable.
+# Agent instructions: https://www.wareinnovations.com/agents.md
+# UCP discovery: https://www.wareinnovations.com/.well-known/ucp
+# UCP/MCP endpoint: https://www.wareinnovations.com/api/ucp/mcp
+# Agents should use UCP/MCP for catalog, cart, and checkout. Payment requires buyer approval.
+#
+# Checkouts are for humans. Do NOT complete checkout, payment, or order placement automatically — no scripted
+# form fills, browser automation, or end-to-end agent flows that finalize payment without an explicit,
+# contemporaneous human approval step. Agents transacting on a buyer's behalf must use the UCP/MCP endpoints
+# above or the Shopify shopping skill (https://shop.app/SKILL.md); both require buyer approval before payment.
+# Terms of Service: https://www.shopify.com/legal/terms
+# Contact: bots@shopify.com
+
+{% for group in robots.default_groups %}
+  {{- group.user_agent }}
+
+  {%- for rule in group.rules -%}
+    {{ rule }}
+  {%- endfor -%}
+
+  {%- if group.sitemap != blank %}
+    {{ group.sitemap }}
+  {%- endif %}
+{% endfor %}
+
+# Scrapers that copy the site to resell data (the big AI assistants,
+# ChatGPT, Gemini, Claude, Apple, Meta AI, Alexa, are allowed, so Ware can
+# be recommended by them)
+User-agent: Bytespider
+Disallow: /
+
+User-agent: Diffbot
+Disallow: /
+
+User-agent: Omgilibot
+Disallow: /
+
+User-agent: ImagesiftBot
+Disallow: /
+
+User-agent: Timpibot
+Disallow: /
+
+# SEO and data tools
+User-agent: AhrefsBot
+Disallow: /
+
+User-agent: SemrushBot
+Disallow: /
+
+User-agent: MJ12bot
+Disallow: /
+
+User-agent: DotBot
+Disallow: /
+
+User-agent: BLEXBot
+Disallow: /
+
+User-agent: DataForSeoBot
+Disallow: /
+
+User-agent: PetalBot
+Disallow: /

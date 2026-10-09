@@ -61,6 +61,42 @@
       })();
     </script>
     <script>
+      // Their latest order for "Track my order" (made up):
+      // &order=shipped | confirmed | cancelled | none (default shipped).
+      // Logged out (no ?customer=), the chat offers the log-in link.
+      (function () {
+        var q = new URLSearchParams(location.search);
+        window.WareChatConfig = window.WareChatConfig || {};
+        window.WareChatConfig.accountUrl = "https://www.wareinnovations.com/account";
+        window.WareChatConfig.loginUrl = "https://www.wareinnovations.com/account/login";
+        if (!q.get("customer")) return;
+        var kind = q.get("order") || "shipped";
+        var shipped = kind === "shipped";
+        window.WareChatConfig.orders = kind === "none" ? [] : [
+          {
+            name: "#1001",
+            date: "2026-10-07",
+            status: shipped ? "fulfilled" : "unfulfilled",
+            cancelled: kind === "cancelled",
+            url: "https://www.wareinnovations.com/account/orders/1001",
+            trackingCompany: shipped ? "BlueDart" : "",
+            trackingNumber: shipped ? "12345678901" : "",
+            trackingUrl: shipped ? "https://www.bluedart.com/tracking" : "",
+          },
+          {
+            name: "#0990",
+            date: "2026-09-12",
+            status: "fulfilled",
+            cancelled: false,
+            url: "https://www.wareinnovations.com/account/orders/990",
+            trackingCompany: "",
+            trackingNumber: "",
+            trackingUrl: "",
+          },
+        ];
+      })();
+    </script>
+    <script>
       // Pretend to be a product page: test.html?product=<handle>&title=<name>
       // (add &bespoke=1 for a Ware Atelier piece, and &includes=…,
       // &dimensions=…, &volume=…, &weight=… for its details).

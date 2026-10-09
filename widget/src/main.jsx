@@ -79,6 +79,9 @@ async function pageProduct() {
   }
 }
 
+// The gift page (Premium Gifts) gets the gift pill; everywhere else the usual.
+const GIFT_PAGE_RE = /\/collections\/premium-handmade-diwali-gifts\/?$/i;
+
 // eslint-disable-next-line react-refresh/only-export-components -- an entry script, not a module
 const WareChat = () => {
   // Always starts closed, on every page: shoppers open it themselves. (The
@@ -95,7 +98,7 @@ const WareChat = () => {
     pageProduct().then(setProduct);
   }, []);
   const pillText = !product
-    ? TEXTS.pill
+    ? GIFT_PAGE_RE.test(location.pathname) ? TEXTS.pillGifts : TEXTS.pill
     : product.bespoke
       ? TEXTS.pillBespoke
       : product.info

@@ -8,6 +8,8 @@
 export const TEXTS = {
   // Closed chat and header
   pill: "Ask me anything",
+  // The same, on the gift page (/collections/premium-handmade-diwali-gifts)
+  pillGifts: "Find the perfect gift",
   title: "Ware concierge",
   inputPlaceholder: "Ask about a piece",
   menuNewChat: "Start a new chat",
@@ -22,7 +24,10 @@ export const TEXTS = {
     "Gifts below ₹5,000",
     "Bulk or corporate gifting",
     "How long does delivery take?",
+    "Track my order",
   ],
+  // The chip above that the chat answers itself (keep the two the same).
+  trackOrder: "Track my order",
 
   // When the team can be reached (WhatsApp card, details form, thanks,
   // and under the store chat's title)
@@ -142,6 +147,22 @@ export const TEXTS = {
   returnsLabel: "Start a return or exchange",
   returnsUrl: "https://www.wareinnovations.com/apps/return_prime",
   returnsNote: "Available for 14 days after delivery.",
+
+  // "Track my order": a logged-in shopper's latest order ({order}, {date})
+  orderShipped: "Your order {order} from {date} is on its way.",
+  orderConfirmed:
+    "Your order {order} from {date} is confirmed. We dispatch within 24 hours and email you the tracking details.",
+  orderCancelled: "Your order {order} from {date} was cancelled.",
+  orderTrackLabel: "Track your parcel",
+  orderDetailsLabel: "Order details",
+  orderAllLabel: "All your orders",
+  // Logged in, but no orders on the account
+  orderNone:
+    "I can't see any orders on your account yet. If you ordered with another email or number, log in with that one, or message us on WhatsApp with your order number.",
+  // Not logged in
+  orderLoggedOut:
+    "Log in to see your orders and their tracking. Or message us on WhatsApp with your order number and we'll check for you.",
+  orderLoginLabel: "Log in to your account",
 
   // Team takeover
   teamJoined: "Ware team joined",

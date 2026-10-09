@@ -283,6 +283,7 @@ export const ChatJourneys = ({ api, request, onOpenChat }) => {
     people: chatted.people + tappedOnly.people,
     cart: chatted.cart + tappedOnly.cart,
     checkout: chatted.checkout + tappedOnly.checkout,
+    ordered: chatted.ordered + tappedOnly.ordered,
   };
   const steps = [
     { label: "Tapped the chat button", n: all.people },
@@ -292,6 +293,7 @@ export const ChatJourneys = ({ api, request, onOpenChat }) => {
       title: "Added something, opened the cart, or had items in it",
     },
     { label: "Tapped checkout", n: all.checkout },
+    { label: "Ordered", n: all.ordered, title: "Placed an order in this period (cancelled ones don't count)" },
   ];
   const people = data.people.filter(
     (p) => who === "all" || (who === "chatted") === !!p.conversationId,
@@ -304,7 +306,7 @@ export const ChatJourneys = ({ api, request, onOpenChat }) => {
           After tapping the chat button
           <span> · how many people get to each step</span>
         </h3>
-        <div className="chats-funnel">
+        <div className="chats-funnel chats-funnel-four">
           {steps.map((s, i) => (
             <Fragment key={s.label}>
               {i > 0 && (
@@ -313,7 +315,7 @@ export const ChatJourneys = ({ api, request, onOpenChat }) => {
                 </span>
               )}
               <div
-                className={`chats-funnel-step${i === 2 && s.n > 0 ? " chats-funnel-good" : ""}`}
+                className={`chats-funnel-step${i === steps.length - 1 && s.n > 0 ? " chats-funnel-good" : ""}`}
                 title={s.title}
               >
                 <span className="chats-funnel-label">{s.label}</span>
@@ -333,6 +335,7 @@ export const ChatJourneys = ({ api, request, onOpenChat }) => {
                 <th>People</th>
                 <th>Got to the cart</th>
                 <th>Tapped checkout</th>
+                <th>Ordered</th>
               </tr>
             </thead>
             <tbody>
@@ -348,6 +351,9 @@ export const ChatJourneys = ({ api, request, onOpenChat }) => {
                   </td>
                   <td>
                     {g.checkout} <small>({percent(g.checkout, g.people)})</small>
+                  </td>
+                  <td>
+                    {g.ordered} <small>({percent(g.ordered, g.people)})</small>
                   </td>
                 </tr>
               ))}
@@ -384,6 +390,7 @@ export const ChatJourneys = ({ api, request, onOpenChat }) => {
                   <th>Pages</th>
                   <th>Cart</th>
                   <th>Checkout</th>
+                  <th>Order</th>
                   <th>Last seen</th>
                 </tr>
               </thead>
@@ -422,11 +429,29 @@ export const ChatJourneys = ({ api, request, onOpenChat }) => {
                         <td>
                           {p.checkout ? <span className="chats-tag chats-tag-lead">Yes</span> : "–"}
                         </td>
+                        <td>
+                          {p.orders?.length
+                            ? p.orders.map((o, i) => (
+                                <Fragment key={o.name}>
+                                  {i > 0 && ", "}
+                                  <a
+                                    href={o.adminUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {o.name}
+                                  </a>{" "}
+                                  <small>{rupees(o.total)}</small>
+                                </Fragment>
+                              ))
+                            : "–"}
+                        </td>
                         <td className="chats-nowrap">{formatWhen(p.lastAt)}</td>
                       </tr>
                       {shown && (
                         <tr className="chats-journey-detail">
-                          <td colSpan={5}>
+                          <td colSpan={6}>
                             <Journey events={p.events} />
                             {p.conversationId && (
                               <button
@@ -452,8 +477,10 @@ export const ChatJourneys = ({ api, request, onOpenChat }) => {
             `Showing the latest ${data.people.length} of ${data.total}. `}
           Recorded only for people who tapped the chat button, for 30 days
           after their last tap, on the browser they tapped it on. Checkout
-          means they tapped a checkout or Buy it now button; Stats → Overview
-          has the orders.
+          means they tapped a checkout or Buy it now button. Orders are the
+          ones placed in this period on that browser; Stats → Overview counts
+          only the ones from people who chatted.
+          {data.ordersError && ` ${data.ordersError}`}
         </p>
       </section>
     </>

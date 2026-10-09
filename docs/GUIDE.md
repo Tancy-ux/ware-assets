@@ -1054,6 +1054,17 @@ Test locally without Shopify: serve `widget/dist/` (e.g.
 `?product=<handle>&title=<name>` to pretend to be a product page, plus
 `&bespoke=1` for an Atelier piece. It uses the deployed `ask-faq`.
 
+### 6.6 robots.txt (crawlers)
+
+`shopify/robots.txt.liquid` is the store's robots.txt template (pasted by
+hand into Edit code → Templates → robots.txt.liquid). It keeps Shopify's
+default rules and asks data scrapers (Bytespider, Diffbot, Omgilibot,
+ImagesiftBot, Timpibot) and SEO tools (Ahrefs, Semrush, MJ12, DotBot…) to
+stay away. Every major AI assistant's crawler stays allowed so Ware can be
+recommended (GPTBot, Google-Extended, ClaudeBot, Applebot, Meta, Amazon,
+Common Crawl), as do Google, Bing, ChatGPT search, Perplexity and link
+previews (facebookexternalhit, for WhatsApp and Instagram). Bots that ignore robots.txt aren't stopped by it.
+
 ---
 
 ## 7. Tracking: orders, pages, visitor numbers

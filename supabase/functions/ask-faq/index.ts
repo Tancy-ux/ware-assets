@@ -1949,6 +1949,9 @@ Deno.serve(async (req) => {
         .gte("at", new Date(Date.now() - 864e5).toISOString());
       if ((count ?? 0) >= VISITS_PER_DAY) return json({ ok: true });
       const info = visitorInfo(req, {});
+      // The team's own tests (local test page, the ware-assets site) aren't
+      // journeys: not saved at all.
+      if (info.source === "internal") return json({ ok: true });
       const cartCount = Number(payload.cart?.count);
       const total = Number(payload.cart?.total);
       const { error } = await admin.from("chat_visits").insert({

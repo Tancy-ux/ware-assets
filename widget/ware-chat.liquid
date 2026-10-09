@@ -1,21 +1,21 @@
-{% comment %}
-  WARE CHAT (the "Ware concierge" on the store)
-
-  Everything you might want to change is in this file:
-  1. WORDS - every text the chat window shows, as a labelled list.
-  2. STYLING  - colours, fonts, sizes and position ("EASY EDITS" first).
-  Edit, save, and refresh the store. No rebuild needed.
-
-  Tips:
-  - Keep the quotes around each text. {name}, {phone} and {hours} are
-  filled in automatically; leave them as they are.
-  - The assistant's own replies come from its FAQs and AI guidelines (on
-  the ware-assets site), not from here.
-  - assets/ware-chat.js is the engine; it only needs replacing when the
-  developer changes how the chat works.
-
-  Added to the theme (layout/theme.liquid) with a render tag for
-  'ware-chat'; see widget/README.md in the ware-assets project.
+{% comment %} 
+    WARE CHAT (the "Ware concierge" on the store)
+   
+    Everything you might want to change is in this file: 
+    1. WORDS - every text the chat window shows, as a labelled list. 
+    2. STYLING  - colours, fonts, sizes and position ("EASY EDITS" first).
+    Edit, save, and refresh the store. No rebuild needed.
+   
+    Tips: 
+    - Keep the quotes around each text. {name}, {phone} and {hours} are
+    filled in automatically; leave them as they are. 
+    - The assistant's own replies come from its FAQs and AI guidelines (on
+    the ware-assets site), not from here. 
+    - assets/ware-chat.js is the engine; it only needs replacing when the
+    developer changes how the chat works.
+   
+    Added to the theme (layout/theme.liquid) with a render tag for
+    'ware-chat'; see widget/README.md in the ware-assets project. 
 {% endcomment %}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link
@@ -29,7 +29,9 @@
   window.WareChatConfig = {
     texts: {
       // Closed chat and header
-      pill: "Need help choosing?",
+      pill: "Ask me anything",
+      // The same, on the gift page (/collections/premium-handmade-diwali-gifts)
+      pillGifts: "Find the perfect gift",
       title: "Ware concierge",
       // The line under the title ("" for none)
       status: "Online · usually replies in minutes",
@@ -37,28 +39,31 @@
       menuNewChat: "Start a new chat",
       menuFullScreen: "Full screen",
       menuSmaller: "Smaller window",
-
+  
       // Empty chat
       welcome:
         "Hi there! Welcome to Ware Innovations. I'm here to help you find the perfect piece, gift ideas, bulk orders or anything delivery related.",
       suggestions: [
         "Gift ideas below ₹2,500",
-        "Gifts below ₹5,000",
-        "Bulk or corporate gifting",
         "How long does delivery take?",
+        "Gifts below ₹5,000",
+        "Track my order",
+        "Bulk or corporate gifting",
       ],
-
+      // The chip above that the chat answers itself (keep the two the same).
+      trackOrder: "Track my order",
+  
       // When the team can be reached (WhatsApp card, details form, thanks)
       teamHours: "Mon–Sat, 10 am – 7 pm",
-
+  
       // WhatsApp card
       whatsappTitle: "Chat with the Ware team",
       whatsappSubtitle: "Continue on WhatsApp · {hours}",
-
+  
       // When the assistant can't answer (AI down or out of quota)
       fallback:
         "So sorry, I'm having a little trouble answering right now. We'd love to help though! Tap below to chat with us on WhatsApp.",
-
+  
       // "What should we call you?" box
       nameBoxTitle: "What should we call you?",
       nameBoxThanks: "Lovely to meet you, {name}!",
@@ -66,7 +71,7 @@
       numberBoxTitle: "Would you like us to WhatsApp you a few ideas? Add your number (optional).",
       numberBoxNote: "Only for your enquiry, never spam.",
       noThanks: "No thanks",
-
+  
       // "Leave your details" prompt and form
       contactPrompt: "Want our team to follow up with you?",
       contactPromptButton: "Enter your details",
@@ -78,7 +83,7 @@
         "We'll only use this to get back to you about your enquiry. Our team is available {hours}.",
       contactThanks: "Thanks, {name}! Our team will reach you on {phone} ({hours}).",
       contactThanksNoName: "Thanks! Our team will reach you on {phone} ({hours}).",
-
+  
       // Shared form bits
       namePlaceholder: "Your name",
       phonePlaceholder: "Phone number",
@@ -87,7 +92,7 @@
       notNow: "Not now",
       saveFailed: "Couldn't save that just now. Please try again.",
       invalidPhone: "Please enter a valid phone number.",
-
+  
       // Product cards and follow-ups
       soldOut: "Sold out",
       enquire: "Enquire",
@@ -96,7 +101,7 @@
       similarOffer: "Would you like to see similar products that are in stock?",
       similarButton: "Yes, show me",
       similarIntro: "Here are some pieces similar to the {name} that are in stock:",
-
+  
       // On a product page: the pill, the message it sends, and the reply
       pillProduct: "Show me more products like this",
       moreLikeThisAsk: "Show me more products like this",
@@ -104,7 +109,7 @@
         "If the {name} caught your eye, you might love these too:",
       moreLikeThisNone:
         "I couldn't find anything close to the {name} in stock right now. Our team would be glad to suggest something, just tap below.",
-
+  
       // On a Ware Atelier (bespoke) piece
       pillBespoke: "Love this piece? Let's talk",
       bespokeAsk: "I'd love to know more about the {name}",
@@ -149,11 +154,11 @@
         "Wonderful, thank you! One of our designers will call you shortly from +91 96196 20099 ({hours}). Do save the number so you know it's us.",
       bespokeLater:
         "Of course, no rush at all. Take your time with it, and whenever you'd like to talk it through, I'm right here.",
-
+  
       // Notice after adding a piece from a card
       addedToCart: "Added to your cart",
       viewCart: "View cart",
-
+  
       // Under replies giving the store's address
       storeMapLabel: "Get directions on Google Maps",
       storeMapUrl: "https://maps.app.goo.gl/xvfFKjgKcb9agCtc6",
@@ -161,7 +166,23 @@
       returnsLabel: "Start a return or exchange",
       returnsUrl: "https://www.wareinnovations.com/apps/return_prime",
       returnsNote: "Available for 14 days after delivery.",
-
+  
+      // "Track my order": a logged-in shopper's latest order ({order}, {date})
+      orderShipped: "Your order {order} from {date} is on its way.",
+      orderConfirmed:
+        "Your order {order} from {date} is confirmed. We dispatch within 24 hours and email you the tracking details.",
+      orderCancelled: "Your order {order} from {date} was cancelled.",
+      orderTrackLabel: "Track your parcel",
+      orderDetailsLabel: "Order details",
+      orderAllLabel: "All your orders",
+      // Logged in, but no orders on the account
+      orderNone:
+        "I can't see any orders on your account yet. If you ordered with another email or number, log in with that one, or message us on WhatsApp with your order number.",
+      // Not logged in
+      orderLoggedOut:
+        "Log in to see your orders and their tracking. Or message us on WhatsApp with your order number and we'll check for you.",
+      orderLoginLabel: "Log in to your account",
+  
       // Team takeover
       teamJoined: "Ware team joined",
       teamLabel: "Ware team",
@@ -173,7 +194,10 @@
 </script>
 <script>
   /* The logged-in shopper (nothing when logged out): the chat knows their
-     name and saves their phone / email for the team, without saying so. */
+     name and saves their phone / email for the team, without saying so.
+     Their latest orders are for "Track my order" (newest first). */
+  window.WareChatConfig.accountUrl = {{ routes.account_url | json }};
+  window.WareChatConfig.loginUrl = {{ routes.account_login_url | json }};
   {%- if customer -%}
   window.WareChatConfig.customer = {
     id: {{ customer.id | json }},
@@ -181,6 +205,32 @@
     phone: {{ customer.phone | json }},
     email: {{ customer.email | json }}
   };
+  window.WareChatConfig.orders = [
+    {%- for order in customer.orders limit: 3 -%}
+      {%- liquid
+        assign ware_company = ''
+        assign ware_number = ''
+        assign ware_url = ''
+        for item in order.line_items
+          if item.fulfillment and ware_number == ''
+            assign ware_company = item.fulfillment.tracking_company | default: ''
+            assign ware_number = item.fulfillment.tracking_number | default: ''
+            assign ware_url = item.fulfillment.tracking_url | default: ''
+          endif
+        endfor
+      -%}
+    {
+      name: {{ order.name | json }},
+      date: {{ order.created_at | date: '%Y-%m-%d' | json }},
+      status: {{ order.fulfillment_status | json }},
+      cancelled: {{ order.cancelled | json }},
+      url: {{ order.customer_order_url | default: order.customer_url | json }},
+      trackingCompany: {{ ware_company | json }},
+      trackingNumber: {{ ware_number | json }},
+      trackingUrl: {{ ware_url | json }}
+    }{%- unless forloop.last -%},{%- endunless -%}
+    {%- endfor -%}
+  ];
   {%- endif -%}
 </script>
 <script>
@@ -221,11 +271,12 @@
 
 
     /*
-   ============================================================
-   EASY EDITS: colours, fonts, sizes and position of the chat.
-   Change a value, save the snippet, refresh the store. Colours
-   are hex codes (#rrggbb).
-   ============================================================
+
+   ============================================================ 
+   EASY EDITS: colours, fonts, sizes and position of the chat. 
+   Change a value, save the snippet, refresh the store. Colours 
+   are hex codes (#rrggbb). 
+   ============================================================ 
 */.ware-chat-root.faq-page {
       /* --- Colours --- */
       --faq-accent: #bf5e35;
@@ -258,9 +309,11 @@
 
       /* --- Fonts --- */
 
+
       /*
-   The serif is loaded at the top of this snippet (Google Fonts link);
-   change both together if you swap it.
+
+   The serif is loaded at the top of this snippet (Google Fonts link); 
+   change both together if you swap it. 
 */
       --ware-serif: "Source Serif 4"
       , "Iowan Old Style"
@@ -293,10 +346,11 @@
 
 
     /*
-   ------------------------------------------------------------
-   Everything below is the chat's detailed styling. Fine to tweak,
-   but the EASY EDITS above cover colours, fonts and sizes.
-   ------------------------------------------------------------
+
+   ------------------------------------------------------------ 
+   Everything below is the chat's detailed styling. Fine to tweak, 
+   but the EASY EDITS above cover colours, fonts and sizes. 
+   ------------------------------------------------------------ 
 */
 
     @media (min-width: 701px) {
@@ -540,8 +594,13 @@
       color: var(--faq-text);
       border-bottom-left-radius: 4px;
     }
-    /* A team reply: a warm bubble with the sender's initial beside it and
-       their name above ("Tanisha · Ware team"). */
+
+
+    /*
+
+   A team reply: a warm bubble with the sender's initial beside it and 
+   their name above ("Tanisha · Ware team"). 
+*/
     .faq-chat-bubble.faq-chat-team {
       position: relative;
       margin: 18px 0 0 34px;
@@ -1148,17 +1207,19 @@
 
 
     /*
-   Store-only layout for the chat, on top of the shared Faq.css. Everything
-   lives in the widget's shadow root, so none of this reaches the theme.
+
+   Store-only layout for the chat, on top of the shared Faq.css. Everything 
+   lives in the widget's shadow root, so none of this reaches the theme. 
 */
 
 
     /*
-   The shared styles hang off .faq-page (colours, box-sizing); undo its
-   page layout so it's just a wrapper here. Colours, fonts and sizes are
-   variables set in theme.css (the "easy edits" at the top of the
-   snippet). Fonts are set rather than inherited from the store's theme: a
-   serif for the concierge's voice and a clean sans for everything else.
+
+   The shared styles hang off .faq-page (colours, box-sizing); undo its 
+   page layout so it's just a wrapper here. Colours, fonts and sizes are 
+   variables set in theme.css (the "easy edits" at the top of the 
+   snippet). Fonts are set rather than inherited from the store's theme: a 
+   serif for the concierge's voice and a clean sans for everything else. 
 */.ware-chat-root.faq-page {
       font-family: var(--ware-sans);
       width: auto;
@@ -1227,9 +1288,11 @@
       font-weight: 500;
       line-height: 1;
 
+
       /*
-   Lightly frosted: mostly solid warm white with a soft blur, so it reads
-   well over any part of the page. Solid white where blur isn't supported.
+
+   Lightly frosted: mostly solid warm white with a soft blur, so it reads 
+   well over any part of the page. Solid white where blur isn't supported. 
 */
       border: 1px solid var(--faq-border);
       border-radius: 999px;
@@ -1265,8 +1328,13 @@
       outline: 2px solid var(--faq-accent);
       outline-offset: 3px;
     }
-    /* Sparkle in the main colour that gently twinkles (fades, shrinks and
-       tilts a little, then back). */
+
+
+    /*
+
+   Sparkle in the main colour that gently twinkles (fades, shrinks and 
+   tilts a little, then back). 
+*/
     .ware-chat-pill-icon {
       display: inline-flex;
       flex-shrink: 0;
@@ -1303,9 +1371,10 @@
 
 
     /*
-   ---------- The chat window ----------
-   A floating panel above the button, instead of the site's full-height
-   side drawer under a navbar.
+
+   ---------- The chat window ---------- 
+   A floating panel above the button, instead of the site's full-height 
+   side drawer under a navbar. 
 */
     .ware-chat-root .faq-chat-popup {
       top: auto;
@@ -1379,8 +1448,12 @@
       border-color: var(--ware-line);
     }
 
-    /* Header: the Ware mark, the name with "Online · …" under it, and
-       the menu (⋯) and close (✕) together on the right. */
+
+    /*
+
+   Header: the Ware mark, the name with "Online · …" under it, and 
+   the menu (⋯) and close (✕) together on the right. 
+*/
     .ware-chat-root .ware-chat-header {
       display: grid;
       grid-template-columns: auto 1fr auto;
@@ -1488,8 +1561,9 @@
 
 
     /*
-   Full screen / smaller window only means something on a computer: phones
-   already get the whole screen. (Selector as specific as the one above,
+
+   Full screen / smaller window only means something on a computer: phones 
+   already get the whole screen. (Selector as specific as the one above, 
    or that one's display: flex would win.) */
     @media (max-width: 700px),
     (hover: none) {
@@ -1500,8 +1574,9 @@
 
 
     /*
-   Messages: the concierge writes in serif straight on the cream; the
-   shopper's messages are peach pills. No timestamps.
+
+   Messages: the concierge writes in serif straight on the cream; the 
+   shopper's messages are peach pills. No timestamps. 
 */
     .ware-chat-root .faq-chat-messages {
       padding: 20px 16px;
@@ -1548,8 +1623,13 @@
     .faq-chat-team-cont .faq-chat-team-label {
       display: none;
     }
-    /* Team replies look like the concierge's own (no box, same serif); the
-       name above and the round initial beside them say who wrote them. */
+
+
+    /*
+
+   Team replies look like the concierge's own (no box, same serif); the 
+   name above and the round initial beside them say who wrote them. 
+*/
     .ware-chat-root .faq-chat-bubble.faq-chat-team {
       max-width: calc(100% - 34px);
       padding: 0;
@@ -1584,9 +1664,11 @@
       display: none;
     }
 
+
     /*
-   Everything inside a reply other than the words themselves goes back to
-   the sans at a normal size.
+
+   Everything inside a reply other than the words themselves goes back to 
+   the sans at a normal size. 
 */
     .ware-chat-root .faq-chat-products,
     .ware-chat-root .faq-chat-similar-offer,
@@ -1620,8 +1702,12 @@
       color: var(--ware-brown);
     }
 
-    /* A product's options: the details, then "Show me more like this" on its
-       own line. */
+
+    /*
+
+   A product's options: the details, then "Show me more like this" on its 
+   own line. 
+*/
     .ware-chat-options {
       display: flex;
       flex-direction: column;
@@ -1852,8 +1938,13 @@
         font-size: 16px;
       }
     }
-    /* "Added to your cart" notice above the typing box, fading out after
-       4.5s (CART_NOTICE_MS in AskAi.jsx) */
+
+
+    /*
+
+   "Added to your cart" notice above the typing box, fading out after 
+   4.5s (CART_NOTICE_MS in AskAi.jsx) 
+*/
     .ware-cart-notice {
       position: absolute;
       left: 50%;
