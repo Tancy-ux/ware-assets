@@ -196,6 +196,10 @@ type Product = {
   // size/colour choice; multi-variant products link to their page instead.
   variantId: number | null;
   description: string;
+  // From the metafields (Admin catalogue only): how many it serves, and
+  // what's in the set (also searchable).
+  serves: number | null;
+  includes: string;
   searchText: string;
   nameWords: Set<string>;
   colors: Set<string>;
@@ -342,7 +346,9 @@ function toProduct(p: any): Product {
     available: (p.variants ?? []).some((v: any) => v.available),
     variantId: p.variants?.length === 1 ? p.variants[0].id : null,
     description,
-    searchText: `${p.title} ${type} ${(p.tags ?? []).join(" ")} ${description}`
+    serves: typeof p.serves === "number" ? p.serves : null,
+    includes: typeof p.includes === "string" ? p.includes : "",
+    searchText: `${p.title} ${type} ${(p.tags ?? []).join(" ")} ${description} ${p.includes ?? ""}`
       .toLowerCase(),
     ...splitTitle(p.title),
     line: productLine(p),
@@ -601,6 +607,8 @@ async function catalogFromAdmin(): Promise<RawProduct[]> {
                   nodes { legacyResourceId title price availableForSale }
                 }
                 images(first: 12) { nodes { url } }
+                serves: metafield(namespace: "custom", key: "serves") { value }
+                includes: metafield(namespace: "custom", key: "this_set_includes") { value type }
               }
             }
           }`,
@@ -629,6 +637,8 @@ async function catalogFromAdmin(): Promise<RawProduct[]> {
           available: v.availableForSale,
         })),
         images: n.images.nodes.map((i: RawProduct) => ({ src: i.url })),
+        serves: Number(n.serves?.value) || null,
+        includes: metafieldText(n.includes),
       });
     }
     if (!pageInfo.hasNextPage) break;
@@ -699,18 +709,18 @@ async function writeSnapshot(raw: RawProduct[]) {
   if (error) console.error("Catalogue snapshot not saved:", error.message);
 }
 
-// A fresh catalogue from Shopify (Admin API, else the feed), saved as the
-// shared copy.
+// A fresh catalogue from Shopify (Admin API, else the feed). Only the
+// Admin one is saved as the shared copy: the feed has no metafields
+// (serves, what's in the set), so it never replaces a fuller copy.
 async function refreshCatalog(): Promise<RawProduct[]> {
-  let raw: RawProduct[];
   try {
-    raw = await catalogFromAdmin();
+    const raw = await catalogFromAdmin();
+    await writeSnapshot(raw);
+    return raw;
   } catch (err) {
     console.error("Catalogue via Admin API failed:", String(err));
-    raw = await catalogFromFeed();
+    return await catalogFromFeed();
   }
-  await writeSnapshot(raw);
-  return raw;
 }
 
 function buildProducts(raw: RawProduct[]): Product[] {
@@ -1752,6 +1762,69 @@ function readPage(raw: unknown) {
 
 // The product a store page is for ("/products/lilo-cup", or under a
 // collection: "/collections/mugs/products/lilo-cup"), if it's in the feed.
+// The collection page they're browsing ("/collections/bulk-gifting"; not
+// a product inside one, and not "all"): its name, description and which
+// products are in it. Admin API first, the public feed as a fallback;
+// cached like the catalogue. Null if it isn't a collection page or can't
+// be loaded.
+type PageCollection = { title: string; description: string; handles: Set<string> };
+const collectionCache = new Map<string, { at: number; info: PageCollection | null }>();
+async function pageCollection(page: string): Promise<PageCollection | null> {
+  const handle = page.match(/^\/collections\/([^/]+)\/?$/)?.[1];
+  if (!handle || handle === "all") return null;
+  const cached = collectionCache.get(handle);
+  if (cached && Date.now() - cached.at < PRODUCT_CACHE_MS) return cached.info;
+  let info: PageCollection | null = null;
+  try {
+    const handles = new Set<string>();
+    let after: string | null = null;
+    let title = "";
+    let description = "";
+    for (let page = 0; page < 4; page++) {
+      const d = await shopifyAdmin(
+        `query($handle: String!, $after: String) {
+          collection: collectionByIdentifier(identifier: { handle: $handle }) {
+            title description
+            products(first: 250, after: $after) {
+              pageInfo { hasNextPage endCursor }
+              nodes { handle }
+            }
+          }
+        }`,
+        { handle, after },
+        4000,
+      );
+      if (!d.collection) break;
+      title = d.collection.title;
+      description = d.collection.description ?? "";
+      for (const n of d.collection.products.nodes) handles.add(n.handle);
+      if (!d.collection.products.pageInfo.hasNextPage) break;
+      after = d.collection.products.pageInfo.endCursor;
+    }
+    if (title) info = { title, description, handles };
+  } catch (err) {
+    console.error("Collection (Admin) failed:", err);
+    try {
+      const [meta, list] = await Promise.all([
+        fetch(`${STORE_URL}/collections/${handle}.json`).then((r) => r.json()),
+        fetch(`${STORE_URL}/collections/${handle}/products.json?limit=250`).then((r) => r.json()),
+      ]);
+      if (meta?.collection) {
+        info = {
+          title: meta.collection.title,
+          description: stripHtml(meta.collection.body_html ?? ""),
+          // deno-lint-ignore no-explicit-any
+          handles: new Set((list?.products ?? []).map((p: any) => p.handle)),
+        };
+      }
+    } catch (err2) {
+      console.error("Collection (feed) failed:", err2);
+    }
+  }
+  collectionCache.set(handle, { at: Date.now(), info });
+  return info;
+}
+
 function viewedProduct(products: Product[], page: string) {
   const handle = page.match(/\/products\/([^/]+)/)?.[1];
   return handle ? products.find((p) => p.handle === handle) : undefined;
@@ -2751,6 +2824,27 @@ Deno.serve(async (req) => {
       inBudget,
       occasions,
     );
+    // A collection page ("Bulk gifting", "Diwali gifts"): "these" and
+    // "what's here under 2000?" mean its products, so its best matches
+    // (or, for a vague ask, a varied pick of it) lead the list.
+    const browsing = await pageCollection(readPage(payload.page));
+    const inBrowsing = (p: Product) => !!browsing?.handles.has(p.handle);
+    if (browsing) {
+      const local = shortlistProducts(
+        products.filter(inBrowsing),
+        question,
+        searchQuery,
+        [],
+        inBudget,
+        occasions,
+      );
+      const lead = local.list.slice(0, local.matchedCount || 12);
+      const rest = shortlist.list.filter((p) => !lead.includes(p));
+      shortlist.list.splice(0, shortlist.list.length, ...lead, ...rest);
+      shortlist.matchedCount = local.matchedCount
+        ? Math.min(local.matchedCount + shortlist.matchedCount, SHORTLIST_PRODUCTS)
+        : shortlist.matchedCount;
+    }
     // Named for the model, so it leads with them (from the whole
     // catalogue, within budget).
     const occasionPicks = occasions.length
@@ -2806,6 +2900,8 @@ Deno.serve(async (req) => {
       .map((p) =>
         `${p.handle} | ${p.title} | ${p.type || "Other"} | ${priceForModel(p)}${
           p.giftPacked ? " | gift-packed" : ""
+        }${p.serves ? ` | serves ${p.serves}` : ""}${
+          inBrowsing(p) ? " | on this page" : ""
         }`
       )
       .join("\n");
@@ -2879,7 +2975,9 @@ Deno.serve(async (req) => {
           p.giftPacked ? "yes" : "no"
         }\nTags: ${
           p.tags.join(", ")
-        }\nDescription: ${p.description.slice(0, MAX_DESCRIPTION_CHARS)}`
+        }${p.includes ? `\nIn the set: ${p.includes.slice(0, 400)}` : ""}\nDescription: ${
+          p.description.slice(0, MAX_DESCRIPTION_CHARS)
+        }`
       )
       .join("\n\n");
 
@@ -2991,8 +3089,14 @@ About what follows: the FAQ entries and products below are the ones picked for t
 FAQ entries relevant to this conversation:
 ${context}
 
-Products picked for this conversation (ID | name | type | price):
-${catalog || "(no products matched)"}
+Products picked for this conversation (ID | name | type | price, then notes: "gift-packed", "serves N" people, "on this page"):
+${catalog || "(no products matched)"}${
+      browsing
+        ? `\n\nThey're browsing the "${browsing.title}" collection page${
+          browsing.description ? ` (${browsing.description.slice(0, 300)})` : ""
+        }. Its products are marked "on this page" above. When they say "these", "here" or "on this page", or ask for suggestions without naming something else, choose from those first; only go beyond them if they ask for something the page doesn't have.`
+        : ""
+    }
 
 Full details for the best matches:
 ${details || "(none)"}${
@@ -3218,10 +3322,13 @@ When they ask about something without naming it ("what does it consist of?", "in
       const pool = shortlist.matchedCount
         ? shortlist.list.slice(0, shortlist.matchedCount)
         : shortlist.list;
+      // Picks all from the collection page they're on: more from it too.
+      const onPage = !!browsing && toShow.every(inBrowsing);
       extras = limitPerDesign(
-        pool.filter((p) =>
+        (onPage ? [...new Set([...shortlist.list, ...products])] : pool).filter((p) =>
           !taken.has(p.handle) && !alreadyShown.has(p.title) &&
-          p.available && inBudget(p) && lines.has(p.line)
+          p.available && inBudget(p) && lines.has(p.line) &&
+          (!onPage || inBrowsing(p))
         ),
       );
     }

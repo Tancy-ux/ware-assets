@@ -44,6 +44,12 @@ const overlap = (a, b) => {
   return same / Math.min(x.size, y.size);
 };
 
+// The Diwali gifts collection's pieces, for the collection page check.
+const DIWALI = new Set(
+  (await (await fetch("https://www.wareinnovations.com/collections/premium-handmade-diwali-gifts/products.json?limit=250")).json())
+    .products.map((p) => p.handle),
+);
+
 // ---- Conversations: each turn may add its own checks ----
 // Each check: [what it checks, (reply, earlier replies) => true when fine]
 // A turn's optional third item is the store page it's asked from.
@@ -101,6 +107,13 @@ const SCENARIOS = {
       ["shows just this product", (r) => (r.products ?? []).length <= 1 && (r.products ?? []).every((p) => /elements dinner spread/i.test(p.title))],
       ["doesn't switch to another set", not(/lunar|range from/i)],
     ], "/products/elements-dinner-spread"],
+  ],
+  // On a collection page: "these" / "here" means that collection's pieces.
+  "Collection page": [
+    ["What do you have under 1500 here?", [
+      ["only pieces from this page", (r) => (r.products ?? []).length > 0 &&
+        (r.products ?? []).every((p) => DIWALI.has(p.url?.match(/products\/([^/?#]+)/)?.[1]))],
+    ], "/collections/premium-handmade-diwali-gifts"],
   ],
   // Named from another page: answers about that product from its records.
   "Product by name": [

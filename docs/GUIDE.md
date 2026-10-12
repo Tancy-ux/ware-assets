@@ -1263,6 +1263,16 @@ For a typed message:
    the description, and say the team will confirm when the counts disagree.
    Before this, "what all it consists" on the Elements Dinner Spread page
    got an answer about the whole range and 16 other dinner sets.
+   **A collection page they're on** (`/collections/<handle>`, not "all";
+   `pageCollection`: Admin API, public feed as fallback, cached 10 min):
+   its best matches (or 12 varied pieces for a vague ask) lead the
+   shortlist, they're marked "on this page" in the model's list, and the
+   model picks from them for "these" / "here" / open asks. When all its
+   picks are from the page, Show more stays on the page too.
+   Every catalogue line also says **"serves N"** (`custom.serves`), and the
+   8 detailed products include **what's in the set**
+   (`custom.this_set_includes`, also searchable), both loaded with the
+   catalogue.
 5. Ask **Gemini** for a JSON reply (`reply`, `intent`, `products`,
    `visitorName`, `company`, `followUp`, `askForCall`, `request`), trying
    `gemini-3.6-flash`, `3.8-flash`, `3.7-flash`, `3.5-flash`,
@@ -1388,6 +1398,8 @@ Admin API (`read_products`). The public `products.json` feed is only a
 fallback: Shopify rate-limits it for Supabase's servers ("429
 local_rate_limited"), which on 30 Sep 2026 left the bot with no products
 until this was changed. If a refresh fails, the last copy stays in use.
+Only an Admin API copy is saved (the feed has no metafields, so a feed
+copy, e.g. from a local run without Shopify keys, never replaces it).
 To check what the store's feed answers from Supabase, call ask-faq with
 `{"mode": "shipping-debug", "feed": true}` (or `"scopes": true` for the
 Admin key's permissions) using the service role key.
