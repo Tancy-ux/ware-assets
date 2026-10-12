@@ -94,7 +94,7 @@ const SCENARIOS = {
   // Asked on a product page: "it" / "this set" is that product, not the range.
   "Product page": [
     ["What all it consists", [
-      ["about this product, not the range", not(/runners|mats|trays/i)],
+      ["about this product, not the range", not(/our collection|range from|we (also )?(make|offer|have) /i)],
       ["no other product's card", (r) => (r.products ?? []).every((p) => /elements dinner spread/i.test(p.title))],
     ], "/products/elements-dinner-spread"],
     ["In this dinner set", [
