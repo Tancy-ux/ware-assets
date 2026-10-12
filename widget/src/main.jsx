@@ -54,7 +54,8 @@ function productInfo(handle) {
 }
 
 // The product this page is about, if it's a product page: { handle, title,
-// bespoke, info } (bespoke = tagged "ware atelier"; info = productInfo).
+// bespoke, soldOut, info } (bespoke = tagged "ware atelier"; info =
+// productInfo).
 // Read from Shopify's own /products/<handle>.js; a test page can set
 // window.WareChatConfig.product instead.
 async function pageProduct() {
@@ -72,6 +73,7 @@ async function pageProduct() {
       bespoke: (p.tags ?? []).some(
         (t) => t.toLowerCase().trim() === "ware atelier",
       ),
+      soldOut: p.available === false,
       info: productInfo(p.handle),
     };
   } catch {
@@ -101,6 +103,8 @@ const WareChat = () => {
     ? GIFT_PAGE_RE.test(location.pathname) ? TEXTS.pillGifts : TEXTS.pill
     : product.bespoke
       ? TEXTS.pillBespoke
+      : product.soldOut
+        ? TEXTS.pillSoldOut
       : product.info
         ? TEXTS.pillProductAsk
         : TEXTS.pillProduct;

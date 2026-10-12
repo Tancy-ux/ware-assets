@@ -777,6 +777,13 @@ questions. The snippet reads the metafields with Liquid (its own
 keeps the old pill, which asks for more like it straight away. The local
 test page takes `&includes=…&dimensions=…&volume=…&weight=…`.
 
+**Sold-out pieces:** the pill reads **"Check stock with our team"**
+(`pillSoldOut`) and that's the first option (`optCheckStock`). Tapping it
+answers instantly (`stockReply`, no AI) with the WhatsApp button, its
+message pre-filled with the piece and its link (`stockWhatsApp`), and is
+logged like the other options. Sold out = `available: false` in Shopify's
+`/products/<handle>.js`; the test page takes `&soldout=1`.
+
 ### 5.5 Ware Atelier (bespoke) pieces
 
 Any question about specific Atelier pieces (typed, or the pill) gets the
@@ -1240,6 +1247,22 @@ For a typed message:
 4. Work out facts in code and hand them to the model as notes: pincode
    delivery, gift packaging per piece, large quantities, whether the name
    was used recently, whether a number is on file.
+   **The product page they're on** (the widget sends the page with every
+   message; the team's AI reply sends the chat's last page): that
+   product's full description plus its metafields (`productDetails`:
+   `custom.this_set_includes`, `my_fields.set_dimensions`, `set_volumes`,
+   `set_weight`, `custom.serves`, `my_fields.material`, `custom.features`,
+   `descriptors.care_guide`, `custom.how_to_use_`,
+   `custom.how_is_the_product_packed`; one Admin API call, cached 10 min,
+   4 s limit; left out if Shopify is slow). **Products asked about by
+   name** get the same records (up to 2: the message names their
+   collection word, "lunar", "elements"; or the message before did, for
+   "and its size?"; or the one card the last reply showed). The model is told "it" / "this
+   set" means that product: answer about it with just its card, list every
+   piece with its count when asked what's in it, go by the metafields over
+   the description, and say the team will confirm when the counts disagree.
+   Before this, "what all it consists" on the Elements Dinner Spread page
+   got an answer about the whole range and 16 other dinner sets.
 5. Ask **Gemini** for a JSON reply (`reply`, `intent`, `products`,
    `visitorName`, `company`, `followUp`, `askForCall`, `request`), trying
    `gemini-3.6-flash`, `3.8-flash`, `3.7-flash`, `3.5-flash`,
@@ -1281,7 +1304,11 @@ takeover poll), `reset`, `contact` (name + phone), `name`, `similar`
 `user-delete`, `lead-options`, `lead-draft` (AI), `lead-save`, `lead-push`.
 
 The prompt's business rules (all in `ask-faq/index.ts`): stay on Ware
-topics, no invented discounts, overseas prices from the team, >20 pieces
+topics, no invented discounts (the one standing offer: 5% off ceramics on
+the first order, said only when they ask about discounts), someone ready
+to order in the chat (payment link, sharing their address) gets the
+WhatsApp button to order with the team rather than being sent to the
+website, overseas prices from the team, >20 pieces
 confirmed by the team, gift packaging only when asked, Atelier never priced,
 ranges never mixed, honest "couldn't find it", never promise a call without
 a number, warm but short.
@@ -1300,7 +1327,7 @@ a number, warm but short.
 | `npm run dev:ai` | `ask-faq` locally on :8000 (Deno via npx; needs `.env.local`) |
 | `npm run dev:chats` | `chat-admin` locally on :8002 |
 | `npx supabase functions deploy ask-faq --use-api` | Deploy the bot (same for `chat-admin`) |
-| `node scripts/bot-tests.mjs` | Before deploying a bot change: plays ~12 conversations against the local bot (`--live` for the deployed one, `--only Atelier` for one) and checks the rules: answers, "we" not "they", no typed links, no repeats, pincode ask, returns / maps links, call form, WhatsApp, Atelier never priced with the designers' number, no made-up products, stays on topic. ~₹15 a run; nothing is saved to Chats |
+| `node scripts/bot-tests.mjs` | Before deploying a bot change: plays ~12 conversations against the local bot (`--live` for the deployed one, `--only Atelier` for one) and checks the rules: answers, "we" not "they", no typed links, no repeats, pincode ask, returns / maps links, call form, WhatsApp, Atelier never priced with the designers' number, no made-up products, stays on topic, and on a product page "it" / "this set" means that product. ~₹15 a run; nothing is saved to Chats |
 
 - **Team site deploy**: push to `main` → GitHub Actions
   (`.github/workflows/deploy.yml`) builds and publishes to GitHub Pages
@@ -1379,7 +1406,7 @@ listed in `EXCLUDED_TITLES` / `EXCLUDED_TAGS` at the top of
 - Zoho duplicate check covers Leads only, not Contacts.
 - "Check restock" is switched off (`restock_requests` table never created).
 - Stock levels aren't checked beyond Shopify's available / sold out.
-- Product metafields (materials, dimensions) aren't read; sizes come only
-  from product names (ml).
+- Product metafields are read for the product page they're on and up to
+  2 products they name (§11), not for every product in a recommendation.
 - Optional: Mistral as a free fallback after Gemini; meaning-based search
   (embeddings) if vague questions struggle; Cloudflare Turnstile.

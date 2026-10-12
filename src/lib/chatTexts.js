@@ -111,6 +111,13 @@ export const TEXTS = {
   productOptionsIntro: "Anything you'd like to know about the {name}?",
   productOptionsMore: "Anything else about the {name}?",
   optMoreLikeThis: "Show me more like this",
+  // Sold-out pieces: the pill and the first option, which hands them to
+  // the team on WhatsApp ({title} and {url} in the pre-filled message).
+  pillSoldOut: "Check stock with our team",
+  optCheckStock: "Check stock with our team",
+  stockReply:
+    "The {name} is sold out on our website right now, but we may still have a few pieces. Message us on WhatsApp and we'll check for you.",
+  stockWhatsApp: "Hi! Is the {title} available? I saw it's sold out on the website.\n{url}",
   optIncludes: "What's in the set?",
   optDimensions: "Dimensions",
   optVolume: "Volume",

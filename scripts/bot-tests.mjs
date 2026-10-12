@@ -25,8 +25,9 @@ const headers = {
   Origin: live ? "https://www.wareinnovations.com" : "http://localhost:4173",
   ...(live && anonKey ? { Authorization: `Bearer ${anonKey}`, apikey: anonKey } : {}),
 };
-const ask = async (question, history) => {
-  const res = await fetch(URL_, { method: "POST", headers, body: JSON.stringify({ question, history }) });
+// page: the store page it's asked from, as the chat widget sends it.
+const ask = async (question, history, page) => {
+  const res = await fetch(URL_, { method: "POST", headers, body: JSON.stringify({ question, history, page }) });
   return res.json();
 };
 
@@ -45,6 +46,7 @@ const overlap = (a, b) => {
 
 // ---- Conversations: each turn may add its own checks ----
 // Each check: [what it checks, (reply, earlier replies) => true when fine]
+// A turn's optional third item is the store page it's asked from.
 const has = (re) => (r) => re.test(r.answer ?? "");
 const not = (re) => (r) => !re.test(r.answer ?? "");
 const SCENARIOS = {
@@ -89,6 +91,34 @@ const SCENARIOS = {
       ["no product card the 2nd time", (r) => !(r.products ?? []).length],
     ]],
   ],
+  // Asked on a product page: "it" / "this set" is that product, not the range.
+  "Product page": [
+    ["What all it consists", [
+      ["about this product, not the range", not(/runners|mats|trays/i)],
+      ["no other product's card", (r) => (r.products ?? []).every((p) => /elements dinner spread/i.test(p.title))],
+    ], "/products/elements-dinner-spread"],
+    ["In this dinner set", [
+      ["shows just this product", (r) => (r.products ?? []).length <= 1 && (r.products ?? []).every((p) => /elements dinner spread/i.test(p.title))],
+      ["doesn't switch to another set", not(/lunar|range from/i)],
+    ], "/products/elements-dinner-spread"],
+  ],
+  // Named from another page: answers about that product from its records.
+  "Product by name": [
+    ["What's in the Elements Dinner Spread?", [
+      ["lists its pieces", has(/whirl|margo|pollen/i)],
+      ["only that product's cards", (r) => (r.products ?? []).every((p) => /elements dinner spread/i.test(p.title))],
+    ]],
+  ],
+  // Ready to buy in the chat: the team takes the order on WhatsApp.
+  "Ordering in chat": [
+    ["Could you please share a payment link for 2 Jay Dip Plates Lime Green", [
+      ["shows the WhatsApp button", (r) => !!r.whatsappUrl],
+      ["doesn't just send them to the website", not(/head (over )?to (our|the) (online )?store/i)],
+    ]],
+  ],
+  "Discounts": [
+    ["Any discount for first time buyers?", [["mentions 5% off the first order", has(/5\s?%/)]]],
+  ],
   "Bulk gifting": [
     ["Corporate gifting for 100 people", []],
     ["budget 1500 each, need by Diwali", [["suggests products", (r) => (r.products ?? []).length > 0]]],
@@ -107,10 +137,10 @@ for (const [name, turns] of Object.entries(SCENARIOS)) {
   console.log(`\n=== ${name}`);
   const history = [];
   const answers = [];
-  for (const [question, checks] of turns) {
+  for (const [question, checks, page] of turns) {
     let r;
     try {
-      r = await ask(question, history);
+      r = await ask(question, history, page);
     } catch (err) {
       r = { error: String(err) };
     }

@@ -2172,6 +2172,8 @@ Deno.serve(async (req) => {
           // The bot's own limit per message.
           question: question.slice(0, 500),
           history,
+          // The page they were last on, so "this set" means that product.
+          page: convo?.last_page ?? "",
           teamDraft: {
             name: convo?.visitor_name || convo?.account_name || "",
             contactSaved: !!convo?.visitor_phone,

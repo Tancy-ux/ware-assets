@@ -984,6 +984,7 @@ const AskAi = ({
   // the detail is a single line ("Eclipse Pasta Bowl: 305ml" → "It holds
   // 305ml."), so the piece's name isn't said twice.
   const PRODUCT_OPTIONS = [
+    { id: "stock", label: () => TEXTS.optCheckStock },
     { id: "similar", label: () => TEXTS.optMoreLikeThis },
     { id: "includes", label: () => TEXTS.optIncludes, answer: () => TEXTS.infoIncludes },
     { id: "dimensions", label: () => TEXTS.optDimensions, answer: () => TEXTS.infoDimensions, one: () => TEXTS.infoDimensionsOne },
@@ -997,6 +998,7 @@ const AskAi = ({
       (o) =>
         !used.includes(o.id) &&
         (o.id === "similar" ||
+          (o.id === "stock" && product.soldOut) ||
           (product.info?.[o.id] && (o.id !== "includes" || isSet(product)))),
     );
 
@@ -1035,6 +1037,10 @@ const AskAi = ({
     }
     const name = shortName(product.title);
     const question = option.label();
+    if (option.id === "stock") {
+      checkStock(product, question, nowUsed);
+      return;
+    }
     const value = product.info[option.id];
     const single = option.one && !value.includes("\n");
     const answer = fillText(single ? option.one() : option.answer(), {
@@ -1066,6 +1072,45 @@ const AskAi = ({
     );
     setTimeout(
       () => showProductOptions(product, nowUsed),
+      LOCAL_REPLY_MIN_MS + LOCAL_REPLY_JITTER_MS + 50,
+    );
+  };
+  // "Check stock with our team" on a sold-out piece: a WhatsApp button
+  // with the piece and its link filled in (no AI). Logged like the
+  // details options.
+  const checkStock = (product, question, used) => {
+    const answer = fillText(TEXTS.stockReply, { name: shortName(product.title) });
+    callAskFaq({
+      mode: "info",
+      handle: product.handle,
+      question: `${question} (${product.title})`,
+      answer,
+      conversationId: getVisitorId(),
+      visitorId: getVisitorId(),
+    }).then(({ error, data }) => {
+      if (!error && !data?.error) return;
+      console.error(error ?? data?.error);
+      saveLater({ question, answer, answered: true });
+    });
+    postLocalReply(
+      question,
+      {
+        answer,
+        conversationId: getVisitorId(),
+        whatsappUrl: whatsAppUrl(
+          fillText(TEXTS.stockWhatsApp, {
+            title: product.title,
+            url: `${location.origin}/products/${product.handle}`,
+          }),
+        ),
+      },
+      {
+        historyQuestion: `${question} (${product.title})`,
+        optionFor: { handle: product.handle, id: "stock" },
+      },
+    );
+    setTimeout(
+      () => showProductOptions(product, used),
       LOCAL_REPLY_MIN_MS + LOCAL_REPLY_JITTER_MS + 50,
     );
   };
