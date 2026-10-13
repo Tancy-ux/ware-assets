@@ -52,15 +52,16 @@ const originAllowed = (req: Request) => {
 // AI replies allowed per visitor (browser), per connection (IP; higher,
 // since an office shares one), and site-wide per day (the ceiling on the
 // Gemini bill once billing is on: raise it to what the budget allows).
-// Site-wide: 250 replies a day at ~Rs 0.80 each is ~Rs 200/day, the
-// budget agreed for the paid trial week (day = midnight to midnight IST).
+// Site-wide: 600 a day for now (raised from 250 on 13 Oct 2026, to be set
+// back; 250 at ~Rs 0.80 each was ~Rs 200/day, the paid trial budget).
+// Day = midnight to midnight IST.
 // Counted in Postgres by ai_rate_check (scripts/supabase-security.sql).
 const RATE_LIMITS = {
   p_visitor_10m: 15,
   p_visitor_day: 60,
   p_ip_10m: 40,
   p_ip_day: 200,
-  p_global_day: 250,
+  p_global_day: 600,
 };
 const MAX_QUESTION_CHARS = 500;
 
@@ -74,6 +75,9 @@ const clientIp = (req: Request) =>
 async function rateCheck(req: Request, visitorId: unknown) {
   const admin = adminClient();
   if (!admin) return "ok";
+  // Local test runs (RATE_LIMITS_OFF=1 in .env.local, never set on the
+  // deployed bot) share the live counters: they mustn't use up the cap.
+  if (Deno.env.get("RATE_LIMITS_OFF") === "1") return "ok";
   const { data, error } = await admin.rpc("ai_rate_check", {
     p_visitor: typeof visitorId === "string" && UUID_RE.test(visitorId)
       ? visitorId
@@ -3046,7 +3050,7 @@ Deno.serve(async (req) => {
       ? "Ware Atelier bespoke"
       : horecaChat
       ? "HoReCa (hotels, restaurants and cafés)"
-      : giftingChat || askedCatalog
+      : giftingChat
       ? "gifting"
       : null;
 
@@ -3259,6 +3263,8 @@ When they ask about something without naming it ("what does it consist of?", "in
     }${
       catalogShown
         ? `\n\nA link to our ${catalogShown} catalogue is shown under your reply. If they ask for a catalogue, say they can browse it just below; never write a link or name a different catalogue.`
+        : askedCatalog
+        ? `\n\nThey asked for a catalogue, but nothing in the chat says which one fits. Don't share or promise one yet: ask in one short line what they're looking for, for example gifting (festive or corporate), crockery for a restaurant, café or hotel, or Ware Atelier's marble furniture and decor. Our catalogues are for those three; the right link is shown once they say.`
         : ""
     }${teamDraft ? TEAM_DRAFT_NOTE : ""}`;
 
@@ -3600,7 +3606,7 @@ When they ask about something without naming it ("what does it consist of?", "in
     // catalogue asked for with nothing else fitting: the chat adds the
     // gifting catalogue's link (giftCatalogUrl in chatTexts).
     const giftCatalog = !bespoke && !horecaCatalog && !atelierCatalog &&
-      (giftingChat || askedCatalog);
+      giftingChat;
     // The reply gives the store's address (or they asked how to get
     // there): the chat adds a Google Maps link (storeMapUrl in chatTexts).
     const storeMap = STORE_ADDRESS_WORDS.test(answer) ||

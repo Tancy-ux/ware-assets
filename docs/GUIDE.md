@@ -1174,8 +1174,11 @@ would need a code change (`zohoLeadFields` in `chat-admin`).
   `*.shopifypreview.com`, tancy-ux.github.io and localhost.
 - **AI reply limits** (`RATE_LIMITS` in `ask-faq`, counted in Postgres by
   `ai_rate_check`): per browser 15 / 10 min and 60 / day; per connection 40
-  / 10 min and 200 / day; **site-wide 250 / day** (≈ Rs 200, midnight to
-  midnight IST). Over a limit → friendly WhatsApp nudge, no AI call.
+  / 10 min and 200 / day; **site-wide 600 / day** for now (set back to 250 ≈ Rs 200 later; midnight to
+  midnight IST). Over a limit → friendly WhatsApp nudge, no AI call. The
+  local bot shares these live counters, so `.env.local` sets
+  `RATE_LIMITS_OFF=1` (never set on the deployed bot): local test runs
+  don't use up the shoppers' daily cap (they did on 13 Oct 2026).
 - **Other limits** (`rate_limit`): name/number forms and "start over" 10 /
   10 min and 40 / day per connection; pill taps 30 / 10 min and 150 / day;
   Chats logins 10 / 10 min and 30 / day.

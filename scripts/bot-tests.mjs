@@ -184,6 +184,14 @@ const SCENARIOS = {
       ["not the bespoke one", (r) => !r.catalog],
     ]],
   ],
+  // "Catalogue?" with nothing to go on: ask what for, no link yet.
+  "Catalogue, no context": [
+    ["do you have a catalogue?", [
+      ["no catalogue link yet", (r) => !r.catalog && !r.giftCatalog && !r.horecaCatalog],
+      ["asks what it's for", has(/gift|restaurant|caf|hotel|marble|atelier/i)],
+    ]],
+    ["for gifting my clients this diwali", [["the gifting catalogue", (r) => !!r.giftCatalog]]],
+  ],
   "Not gifting": [
     ["Do you have soup bowls?", [["no gifting catalogue link", (r) => !r.giftCatalog]]],
   ],
