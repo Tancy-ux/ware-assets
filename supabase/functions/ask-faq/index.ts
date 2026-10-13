@@ -1483,10 +1483,8 @@ const whatsAppLink = (text: string, phone = WHATSAPP_NUMBER) =>
     app_absent: "0",
   })}`;
 
-// Questions (or replies) about Ware Atelier's bespoke side, which get the
-// catalogue's link.
-const BESPOKE_WORDS =
-  /\b(atelier|bespoke|catalog(ue)?|custom(ised|ized)? (furniture|pieces?|tables?|lamps?|lighting))\b/i;
+// Asking for a catalogue: which one depends on what the chat is about.
+const CATALOG_WORDS = /\b(catalog(ue)?s?|brochures?|lookbooks?|price ?lists?)\b/i;
 
 // A reply mentioning the store's address, or a question about getting
 // there, gets the Google Maps link.
@@ -3029,6 +3027,29 @@ Deno.serve(async (req) => {
       products,
     );
 
+    // What the chat is about lately, for the catalogue link under the reply
+    // (HoReCa, gifting or Ware Atelier). "Do you have a catalogue?" gets the
+    // one that fits the chat: the gifting one when nothing else does.
+    const recentAsks = [...history.slice(-3).map((t) => t.question), question].join(" ");
+    const horecaChat = HORECA_WORDS.test(recentAsks);
+    // "Gifting" / "hamper" (Quick Gifting, branded gifting…) is enough on
+    // its own; a plain "gift" needs an occasion, bulk or a big quantity.
+    const giftingChat = !horecaChat && (/\b(gifting|hampers?)\b/i.test(recentAsks) ||
+      (GIFTING_WORDS.test(recentAsks) && (GIFT_OCCASION_WORDS.test(recentAsks) || !!bigOrder)));
+    // About pieces tagged "ware atelier": the page they're on, one they
+    // named, or what the last reply showed.
+    const atelierChat = viewing?.line === "atelier" ||
+      named.some((p) => p.line === "atelier") ||
+      products.some((p) => p.line === "atelier" && (history.at(-1)?.products ?? []).includes(p.title));
+    const askedCatalog = CATALOG_WORDS.test(question);
+    const catalogShown = atelierChat
+      ? "Ware Atelier bespoke"
+      : horecaChat
+      ? "HoReCa (hotels, restaurants and cafés)"
+      : giftingChat || askedCatalog
+      ? "gifting"
+      : null;
+
     // Asked whether things come gift-wrapped / boxed: spell it out per piece
     // (the ones shown in this chat, plus the best matches), straight from
     // the Shopify tag. Left to read it off the catalog lines, the model
@@ -3235,6 +3256,10 @@ When they ask about something without naming it ("what does it consist of?", "in
       contactSaved
         ? "\n\nThey've already left their phone number for the team, so don't ask whether the team can call them. If they ask for a call, warmly confirm the team will call them on the number they shared."
         : `\n\nThe team doesn't have their phone number yet, so never say the team will call them, contact them or be in touch. If they ask for a call ("call_request"), warmly say you'd be happy to arrange it and ask them to pop their name and number in the form just below, for example "Of course! Just pop your name and number below and our team will give you a call." The form appears automatically.`
+    }${
+      catalogShown
+        ? `\n\nA link to our ${catalogShown} catalogue is shown under your reply. If they ask for a catalogue, say they can browse it just below; never write a link or name a different catalogue.`
+        : ""
     }${teamDraft ? TEAM_DRAFT_NOTE : ""}`;
 
     // After a human takeover the history has customer messages nobody
@@ -3562,16 +3587,20 @@ When they ask about something without naming it ("what does it consist of?", "in
 
     // About Ware Atelier / bespoke pieces: the chat adds the catalogue's
     // link (atelierCatalogUrl in chatTexts).
+    // Only about pieces tagged "ware atelier" (the reply's products, the
+    // page they're on, one they named): never just for the words "bespoke"
+    // or "catalogue", which in gifting chats mean custom boxes or the
+    // gifting catalogue.
     const atelierCatalog = !bespoke &&
-      (aboutAtelier || BESPOKE_WORDS.test(`${question} ${answer}`));
+      (pickedProducts.some((p) => p.line === "atelier") || atelierChat);
     // A hotel / restaurant / café enquiry: the chat adds the HoReCa
     // catalogue's link (horecaCatalogUrl in chatTexts).
-    const recentAsks = [...history.slice(-3).map((t) => t.question), question].join(" ");
-    const horecaCatalog = !bespoke && HORECA_WORDS.test(recentAsks);
-    // Festive / bulk / corporate gifting (or 20+ pieces with gifts): the
-    // chat adds the gifting catalogue's link (giftCatalogUrl in chatTexts).
-    const giftCatalog = !bespoke && !horecaCatalog && GIFTING_WORDS.test(recentAsks) &&
-      (GIFT_OCCASION_WORDS.test(recentAsks) || !!bigOrder);
+    const horecaCatalog = !bespoke && horecaChat;
+    // Festive / bulk / corporate gifting (or 20+ pieces with gifts), or a
+    // catalogue asked for with nothing else fitting: the chat adds the
+    // gifting catalogue's link (giftCatalogUrl in chatTexts).
+    const giftCatalog = !bespoke && !horecaCatalog && !atelierCatalog &&
+      (giftingChat || askedCatalog);
     // The reply gives the store's address (or they asked how to get
     // there): the chat adds a Google Maps link (storeMapUrl in chatTexts).
     const storeMap = STORE_ADDRESS_WORDS.test(answer) ||

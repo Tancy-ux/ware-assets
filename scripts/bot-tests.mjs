@@ -152,6 +152,38 @@ const SCENARIOS = {
   "Gift catalogue": [
     ["Can you help me find crockery for my Diwali gifting?", [["adds the gifting catalogue link", (r) => !!r.giftCatalog]]],
   ],
+  // "Catalogue" in a gifting chat: the gifting one, never the bespoke one.
+  "Catalogue in a gifting chat": [
+    ["Hey want to look for some Diwali gifting, let's connect and take it further. I need the quotation for 50 quantities", [
+      ["adds the gifting catalogue link", (r) => !!r.giftCatalog],
+    ]],
+    ["do u have catalog", [
+      ["the gifting catalogue", (r) => !!r.giftCatalog],
+      ["not the bespoke one", (r) => !r.catalog],
+    ]],
+  ],
+  "Catalogue for a cafe": [
+    ["We're opening a cafe, do you have a catalogue?", [
+      ["the HoReCa catalogue", (r) => !!r.horecaCatalog],
+      ["not the bespoke one", (r) => !r.catalog],
+    ]],
+  ],
+  // The bespoke catalogue only for pieces tagged "ware atelier".
+  "Bespoke gift boxes": [
+    ["Do you do bespoke gift boxes with our logo?", [["no bespoke catalogue", (r) => !r.catalog]]],
+  ],
+  "Catalogue on an Atelier page": [
+    ["do you have a catalogue?", [
+      ["the bespoke catalogue", (r) => !!r.catalog || !!r.bespoke],
+      ["not the gifting one", (r) => !r.giftCatalog],
+    ], "/products/the-cosmic-temple"],
+  ],
+  "Quick gifting": [
+    ["I want to know about quick gifting service", [
+      ["the gifting catalogue", (r) => !!r.giftCatalog],
+      ["not the bespoke one", (r) => !r.catalog],
+    ]],
+  ],
   "Not gifting": [
     ["Do you have soup bowls?", [["no gifting catalogue link", (r) => !r.giftCatalog]]],
   ],

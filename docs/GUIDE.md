@@ -883,15 +883,23 @@ block at the top of `delivery.ts`.
 
 ### 5.9 Links the chat adds by itself
 
-- **Browse our bespoke catalogue ↗** under Atelier / bespoke replies
-  (`atelierCatalogUrl`).
+- **Browse our bespoke catalogue ↗** (`atelierCatalogUrl`) only when the
+  question is about pieces tagged "ware atelier": the reply's products,
+  the product page they're on, one they named, or what the last reply
+  showed. Never just for the words "bespoke" or "catalogue" (in gifting
+  chats those mean custom boxes or the gifting catalogue).
+- **"Do you have a catalogue?"** (catalogue, brochure, price list) gets the
+  one that fits the chat: Atelier pieces → bespoke, a hotel / café →
+  HoReCa, anything else → gifting. The model is told which link is shown,
+  so it says "just below" and never names another.
 - **Browse our HoReCa catalogue ↗** when the last few messages mention a
   hotel, restaurant, café, caterer… (`horecaCatalogUrl`).
 - **Browse our gifting catalogue ↗** (the Ware Gift Studio PDF,
-  `giftCatalogUrl`) when the last few messages are about gifting (gift,
-  gifting, hamper) for an occasion or in bulk: Diwali, Rakhi, Christmas,
-  Eid, weddings, return gifts, corporate, clients, employees, bulk, or over
-  20 pieces. Not alongside the HoReCa link.
+  `giftCatalogUrl`) when the last few messages say "gifting" or "hamper"
+  (Quick Gifting, branded gifting…), or "gift" with an occasion or bulk:
+  Diwali, Rakhi, Christmas, Eid, weddings, return gifts, corporate,
+  clients, employees, bulk, or over 20 pieces. Not alongside the HoReCa or
+  bespoke link.
 - **Get directions on Google Maps ↗** under any reply giving the store
   address, or when asked for directions / the showroom (`storeMapUrl`).
 - **Start a return or exchange ↗** (the store's Return Prime page,
