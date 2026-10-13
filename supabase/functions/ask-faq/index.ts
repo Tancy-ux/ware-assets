@@ -2172,6 +2172,21 @@ Deno.serve(async (req) => {
       );
       if (!conversation) return json({ takeover: false, messages: [] });
       const admin = adminClient()!;
+      // Team replies from before their last reset belong to the old chat:
+      // never sent again. (A chat with no team reply since the reset asks
+      // with no `after`, which used to bring back every old one.)
+      const { data: lastReset } = await admin
+        .from("chat_messages")
+        .select("created_at")
+        .eq("conversation_id", conversation.id)
+        .eq("sender", "system")
+        .eq("answer", "Visitor reset the chat")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const after = [payload.after, lastReset?.created_at]
+        .filter((t): t is string => typeof t === "string" && !isNaN(Date.parse(t)))
+        .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
       let query = admin
         .from("chat_messages")
         // "*": works before and after agent_name exists.
@@ -2180,9 +2195,7 @@ Deno.serve(async (req) => {
         .eq("sender", "agent")
         .order("created_at", { ascending: true })
         .limit(50);
-      if (typeof payload.after === "string" && !isNaN(Date.parse(payload.after))) {
-        query = query.gt("created_at", payload.after);
-      }
+      if (after) query = query.gt("created_at", after);
       const { data, error } = await query;
       if (error) console.error("Team replies lookup failed:", error);
       // Products a team member sent with a reply (the Chats page's AI
