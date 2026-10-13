@@ -124,6 +124,14 @@ const SCENARIOS = {
       })],
     ], "/collections/serving-small-bowls"],
   ],
+  "Plate size": [
+    ["show me 10 inch dinner plates", [
+      ["every card is 9-11.5in", (r) => (r.products ?? []).length > 0 && (r.products ?? []).every((p) => {
+        const inches = Number(p.title.match(/([0-9.]+)in[^a-z]/i)?.[1]);
+        return !inches || (inches >= 9 && inches <= 11.5);
+      })],
+    ]],
+  ],
   // Named from another page: answers about that product from its records.
   "Product by name": [
     ["What's in the Elements Dinner Spread?", [

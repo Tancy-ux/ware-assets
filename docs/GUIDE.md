@@ -1269,14 +1269,18 @@ For a typed message:
    shortlist, they're marked "on this page" in the model's list, and the
    model picks from them for "these" / "here" / open asks. When all its
    picks are from the page, Show more stays on the page too.
-   **A size asked for** ("300ml serving bowls", `sizeWanted`): only pieces
-   about 0.6x to 1.7x that size (180–500ml for 300ml; sizes come from the
-   names) are matched, closest first, Show more too, and the model is told
+   **A size asked for** ("300ml serving bowls", "10 inch dinner plates",
+   `sizeWanted`): only pieces near that size are matched, closest first,
+   Show more too. Sizes come from the names (ml / litres, or inches: "10in",
+   "10 inch", 10"; "2 in blue" isn't a size). Capacities about 0.6x to 1.7x
+   (180–500ml for 300ml); widths 0.88x to 1.14x (8.8–11.4in for 10in, so
+   10 and 11in dinner plates but not 8.5in quarter plates), and the model is told
    to say so when nothing of that kind is that size and offer the nearest.
    Before this, "300ml serving bowls" showed 3920ml and 2400ml bowls under
-   Show more. **The kind of bowl asked for leads** (`kindFit`: serving,
-   soup, salad, katori, dessert, snack, dip, pasta, rice, noodle in the
-   request and the name), and pasta / shallow bowls come last when they
+   Show more. **The kind of piece asked for leads** (`kindFit`: serving,
+   soup, salad, katori, dessert, snack, dip, pasta, rice, noodle, dinner,
+   quarter, side, espresso, cappuccino, tea, coffee in the request and the
+   name; the colour "Tea Green" doesn't count as tea), and pasta / shallow bowls come last when they
    asked for bowls but not pasta ones (they're wide and flat); Show more
    is sorted the same way, then by size.
    Every catalogue line also says **"serves N"** (`custom.serves`), and the

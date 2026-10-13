@@ -210,6 +210,8 @@ type Product = {
   line: "atelier" | "collectibles" | "marble" | "ceramic";
   // Capacity from the name ("Uno 275ml Katori Bowl" -> 275), if it has one.
   ml: number | null;
+  // Width from the name ("Sky 10in Dinner Plate" -> 10), if it has one.
+  inches: number | null;
   keyTags: Set<string>;
   // Photos of this product's gift packaging (box, sleeve, hamper).
   giftImages: string[];
@@ -353,6 +355,7 @@ function toProduct(p: any): Product {
     ...splitTitle(p.title),
     line: productLine(p),
     ml: sizeInMl(p.title),
+    inches: sizeInInches(p.title),
     typePath: (p.product_type || "")
       .split(/[<>]/)
       .map((s: string) => s.trim().toLowerCase())
@@ -521,15 +524,20 @@ function sizeInMl(title: string) {
   return /^ml$/i.test(m[2]) ? value : value * 1000;
 }
 
-// How well a piece fits the kind of bowl they asked for: +1 for each kind
+// How well a piece fits the kind of piece they asked for: +1 for each kind
 // they named that's in its name ("serving bowls" -> Baby Margo Serving
-// Bowl), -1 for a pasta or shallow bowl when they asked for bowls but not
-// pasta ones (those are wide and flat). 0 when they named no kind.
-const BOWL_KINDS = ["serving", "soup", "salad", "katori", "dessert", "snack", "dip", "pasta", "rice", "noodle"];
+// Bowl, "dinner plates" -> Sky Dinner Plate, not quarter plates), -1 for a
+// pasta or shallow bowl when they asked for bowls but not pasta ones
+// (those are wide and flat). 0 when they named no kind.
+const PIECE_KINDS = [
+  "serving", "soup", "salad", "katori", "dessert", "snack", "dip", "pasta", "rice", "noodle",
+  "dinner", "quarter", "side", "espresso", "cappuccino", "tea", "coffee",
+];
 function kindFit(p: Product, question: string) {
   const asked = new Set(question.toLowerCase().match(/[a-z]+/g) ?? []);
-  const title = p.title.toLowerCase();
-  let fit = BOWL_KINDS.filter((k) => asked.has(k) && title.includes(k)).length;
+  // "Tea Green" is a colour, not a tea cup.
+  const title = p.title.toLowerCase().replace(/tea green/g, "");
+  let fit = PIECE_KINDS.filter((k) => asked.has(k) && new RegExp(`\\b${k}`).test(title)).length;
   if (
     (asked.has("bowl") || asked.has("bowls")) && !asked.has("pasta") &&
     /\b(pasta|shallow)\b/.test(title)
@@ -537,19 +545,43 @@ function kindFit(p: Product, question: string) {
   return fit;
 }
 
-// The capacity they asked for ("300ml serving bowls", "1 litre"): from
-// this message, else the last few. Null if none.
-function sizeWanted(question: string, searchQuery: string) {
-  const n = sizeInMl(question) ?? sizeInMl(searchQuery);
-  return n && n >= 20 && n <= 10000 ? n : null;
+// "10in" / "10 inch" / 10" in a product name or a message, in inches.
+// Plain "in" only straight after the number, so "2 in blue" isn't a size.
+function sizeInInches(text: string) {
+  const m = text.match(/(\d+(?:\.\d+)?)(?:\s*(?:inch(?:es)?|")|in\b)/i);
+  return m ? Number(m[1]) : null;
 }
 
-// A piece close enough to the size they asked for (roughly 0.6x to 1.7x:
-// 180 to 500ml for "300ml"); true when they didn't ask for one. A piece
-// with no size in its name doesn't count as close.
-const NEAR_SIZE = 0.6;
-const nearSize = (size: number | null, p: Product) =>
-  !size || (sizeCloseness(size, p.ml) ?? 0) >= NEAR_SIZE;
+// The size they asked for: a capacity ("300ml serving bowls", "1 litre")
+// or a width ("10in plates", "11 inch"), from this message, else the last
+// few. Null if none.
+type SizeWanted = { n: number; unit: "ml" | "in" };
+function sizeWanted(question: string, searchQuery: string): SizeWanted | null {
+  for (const text of [question, searchQuery]) {
+    const ml = sizeInMl(text);
+    if (ml && ml >= 20 && ml <= 10000) return { n: ml, unit: "ml" };
+    const inches = sizeInInches(text);
+    if (inches && inches >= 2 && inches <= 30) return { n: inches, unit: "in" };
+  }
+  return null;
+}
+
+// A piece's size in the unit they asked in (from its name), if it has one.
+const sizeOf = (p: Product, size: SizeWanted) => size.unit === "ml" ? p.ml : p.inches;
+
+// How close a piece is to the size they asked for (1 = the same), null
+// when it has no size in that unit.
+const closeTo = (size: SizeWanted | null, p: Product) =>
+  size ? sizeCloseness(size.n, sizeOf(p, size)) : null;
+
+// A piece close enough to the size they asked for; true when they didn't
+// ask for one. Capacities roughly 0.6x to 1.7x (180 to 500ml for "300ml");
+// widths tighter, as plates are named by them (8.8 to 11.4in for "10in":
+// 10 and 11in dinner plates, not 8.5in quarter plates). A piece with no
+// size in its name doesn't count as close.
+const NEAR_SIZE = { ml: 0.6, in: 0.88 };
+const nearSize = (size: SizeWanted | null, p: Product) =>
+  !size || (closeTo(size, p) ?? 0) >= NEAR_SIZE[size.unit];
 
 // How close two capacities are: 1 = same, 0.5 = one is double the other.
 // Null when either has no size in its name.
@@ -1200,12 +1232,14 @@ function shortlistProducts(
           hits,
           score: hits +
             (around && nearBudget(p) ? 2 : 0) +
-            (size && p.ml ? 3 * (sizeCloseness(size, p.ml) ?? 0) : 0) +
+            3 * (closeTo(size, p) ?? 0) +
             12 * kindFit(p, question) +
             (p.available ? 0.5 : 0),
         };
       })
-      .filter((x) => x.hits > 0 && inBudget(x.p) && (!x.p.ml || nearSize(size, x.p)))
+      .filter((x) =>
+        x.hits > 0 && inBudget(x.p) && (!size || !sizeOf(x.p, size) || nearSize(size, x.p))
+      )
       .sort((a, b) => b.score - a.score)
       .map((x) => x.p),
   );
@@ -3142,7 +3176,9 @@ ${context}
 Products picked for this conversation (ID | name | type | price, then notes: "gift-packed", "serves N" people, "on this page"):
 ${catalog || "(no products matched)"}${
       shortlist.size
-        ? `\n\nThey want pieces of about ${shortlist.size}ml (sizes are in the names). Lead with the kind they asked for (for "serving bowls", serving bowls first), then other deep bowls; pasta bowls are wide and shallow, so bring them in last and say so. Within that, the closest sizes first; if nothing of the kind they want is that size, say so plainly and offer the nearest ones, saying they're a bit bigger or smaller. Never suggest pieces far from that size.`
+        ? `\n\nThey want pieces of about ${shortlist.size.n}${
+          shortlist.size.unit === "ml" ? "ml" : " inches"
+        } (sizes are in the names). Lead with the kind they asked for (for "serving bowls", serving bowls first, then other deep bowls; pasta bowls are wide and shallow, so bring them in last and say so; for "dinner plates", dinner plates before quarter or snack plates). Within that, the closest sizes first; if nothing of the kind they want is that size, say so plainly and offer the nearest ones, saying they're a bit bigger or smaller. Never suggest pieces far from that size.`
         : ""
     }${
       browsing
@@ -3390,7 +3426,7 @@ When they ask about something without naming it ("what does it consist of?", "in
       const size = shortlist.size;
       extras.sort((a, b) =>
         kindFit(b, question) - kindFit(a, question) ||
-        (size ? (sizeCloseness(size, b.ml) ?? 0) - (sizeCloseness(size, a.ml) ?? 0) : 0)
+        (closeTo(size, b) ?? 0) - (closeTo(size, a) ?? 0)
       );
     }
 
