@@ -6,10 +6,16 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../../src/lib/supabaseConfig";
 // it at a locally running function for testing.
 const scriptApi = document.currentScript?.dataset.api;
 
+// The bot always answers within ~35s (its AI deadline plus lookups); past
+// this the connection is gone, so the chat shows its fallback (WhatsApp)
+// instead of "typing" forever.
+const CALL_TIMEOUT_MS = 45_000;
+
 export const callFunction = async (name, body) => {
   const url = scriptApi || `${SUPABASE_URL}/functions/v1/${name}`;
   try {
     const res = await fetch(url, {
+      signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
       method: "POST",
       headers: {
         "Content-Type": "application/json",

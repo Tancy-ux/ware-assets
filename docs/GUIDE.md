@@ -1281,7 +1281,8 @@ For a typed message:
    the description, and say the team will confirm when the counts disagree.
    Before this, "what all it consists" on the Elements Dinner Spread page
    got an answer about the whole range and 16 other dinner sets.
-   **A collection page they're on** (`/collections/<handle>`, not "all";
+   **A collection page they're on** (`/collections/<handle>`, also under a
+   country prefix like `/en-us/collections/…`; not "all";
    `pageCollection`: Admin API, public feed as fallback, cached 10 min):
    its best matches (or 12 varied pieces for a vague ask) lead the
    shortlist, they're marked "on this page" in the model's list, and the

@@ -1848,7 +1848,8 @@ function readPage(raw: unknown) {
 type PageCollection = { title: string; description: string; handles: Set<string> };
 const collectionCache = new Map<string, { at: number; info: PageCollection | null }>();
 async function pageCollection(page: string): Promise<PageCollection | null> {
-  const handle = page.match(/^\/collections\/([^/]+)\/?$/)?.[1];
+  // Also under a country's prefix ("/en-us/collections/…").
+  const handle = page.match(/^(?:\/[a-z]{2}(?:-[a-z]{2})?)?\/collections\/([^/]+)\/?$/i)?.[1];
   if (!handle || handle === "all") return null;
   const cached = collectionCache.get(handle);
   if (cached && Date.now() - cached.at < PRODUCT_CACHE_MS) return cached.info;
@@ -1858,7 +1859,7 @@ async function pageCollection(page: string): Promise<PageCollection | null> {
     let after: string | null = null;
     let title = "";
     let description = "";
-    for (let page = 0; page < 4; page++) {
+    for (let batch = 0; batch < 4; batch++) {
       const d = await shopifyAdmin(
         `query($handle: String!, $after: String) {
           collection: collectionByIdentifier(identifier: { handle: $handle }) {
@@ -2359,8 +2360,6 @@ Deno.serve(async (req) => {
       return json({ ok: true });
     }
 
-    // The chat's "What should we call you?" box: just a name, attached to
-    // their conversation (no AI involved).
     // For the developer: what the shipping lookup sees (the store's zones,
     // and optionally one pincode). Needs the service role key, so only
     // someone with full access to the project can call it.
@@ -2429,6 +2428,8 @@ Deno.serve(async (req) => {
       }
     }
 
+    // The chat's "What should we call you?" box: just a name, attached to
+    // their conversation (no AI involved).
     if (payload.mode === "name") {
       const name = typeof payload.name === "string"
         ? payload.name.replace(/\s+/g, " ").trim().slice(0, 60)

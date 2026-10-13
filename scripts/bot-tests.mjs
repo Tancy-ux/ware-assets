@@ -1,7 +1,7 @@
 // Plays a set of conversations against the bot (ask-faq) and checks the
 // replies follow our rules. Run before deploying a bot change:
 //
-//   node scripts/bot-tests.mjs                 the local bot (127.0.0.1:8010)
+//   node scripts/bot-tests.mjs                 the local bot (127.0.0.1:8000, npm run dev:ai)
 //   node scripts/bot-tests.mjs --live          the deployed bot
 //   node scripts/bot-tests.mjs --only Atelier  one conversation
 //
@@ -18,7 +18,7 @@ const anonKey = readFileSync(new URL("../src/lib/supabaseConfig.js", import.meta
   .match(/SUPABASE_ANON_KEY\s*=\s*"([^"]+)"/)?.[1];
 const URL_ = live
   ? "https://lauvnmdepcdjxilglubn.supabase.co/functions/v1/ask-faq"
-  : "http://127.0.0.1:8010";
+  : "http://127.0.0.1:8000";
 const headers = {
   "Content-Type": "application/json",
   // The store's own address, so the bot answers as it would there.
