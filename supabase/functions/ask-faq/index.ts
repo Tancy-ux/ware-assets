@@ -1494,6 +1494,11 @@ const STORE_ADDRESS_WORDS = /\b(raghuvanshi|lower parel)\b/i;
 // A business buying for a hotel, restaurant, café, bar or kitchen.
 const HORECA_WORDS =
   /\b(horeca|hotels?|restaurants?|caf[eé]s?|coffee shops?|bistros?|cloud kitchens?|caterers?|catering|bakery|bakeries)\b/i;
+// Gifting for an occasion or in bulk (Diwali, Rakhi, corporate, weddings…):
+// gets the gifting catalogue's link, with GIFTING_WORDS or a big quantity.
+const GIFTING_WORDS = /\b(gift(s|ing|ed)?|hampers?)\b/i;
+const GIFT_OCCASION_WORDS =
+  /\b(festive|festivals?|diwali|deepavali|rakhi|raksha ?bandhan|bhai ?dooj|christmas|xmas|new year|eid|holi|navratri|dussehra|onam|pongal|weddings?|shaadi|return gifts?|corporate|bulk|clients?|employees?|staff|team)\b/i;
 const DIRECTIONS_WORDS =
   /\b(directions?|showroom|google maps?|how (do i|to|can i) (get|reach|come))\b/i;
 // Asking to return or exchange something (or it came broken / wrong): the
@@ -3561,9 +3566,12 @@ When they ask about something without naming it ("what does it consist of?", "in
       (aboutAtelier || BESPOKE_WORDS.test(`${question} ${answer}`));
     // A hotel / restaurant / café enquiry: the chat adds the HoReCa
     // catalogue's link (horecaCatalogUrl in chatTexts).
-    const horecaCatalog = !bespoke && HORECA_WORDS.test(
-      [...history.slice(-3).map((t) => t.question), question].join(" "),
-    );
+    const recentAsks = [...history.slice(-3).map((t) => t.question), question].join(" ");
+    const horecaCatalog = !bespoke && HORECA_WORDS.test(recentAsks);
+    // Festive / bulk / corporate gifting (or 20+ pieces with gifts): the
+    // chat adds the gifting catalogue's link (giftCatalogUrl in chatTexts).
+    const giftCatalog = !bespoke && !horecaCatalog && GIFTING_WORDS.test(recentAsks) &&
+      (GIFT_OCCASION_WORDS.test(recentAsks) || !!bigOrder);
     // The reply gives the store's address (or they asked how to get
     // there): the chat adds a Google Maps link (storeMapUrl in chatTexts).
     const storeMap = STORE_ADDRESS_WORDS.test(answer) ||
@@ -3576,6 +3584,7 @@ When they ask about something without naming it ("what does it consist of?", "in
       bespoke && "bespoke_call",
       (bespoke || atelierCatalog) && "atelier_catalog",
       horecaCatalog && "horeca_catalog",
+      giftCatalog && "gift_catalog",
       storeMap && "store_map",
       returnsLink && "returns_link",
       whatsappUrl && "whatsapp",
@@ -3622,6 +3631,7 @@ When they ask about something without naming it ("what does it consist of?", "in
       bespoke,
       catalog: atelierCatalog,
       horecaCatalog,
+      giftCatalog,
       storeMap,
       returnsLink,
       // Whether we know what to call them (typed in the chat, the name box

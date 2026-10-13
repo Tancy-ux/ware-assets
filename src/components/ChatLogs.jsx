@@ -1863,6 +1863,7 @@ const ReplyExtras = ({ extras }) => {
       )}
       {has("atelier_catalog") && link(TEXTS.atelierCatalogUrl, TEXTS.bespokeCatalog)}
       {has("horeca_catalog") && link(TEXTS.horecaCatalogUrl, TEXTS.horecaCatalog)}
+      {has("gift_catalog") && link(TEXTS.giftCatalogUrl, TEXTS.giftCatalog)}
       {has("store_map") && (
         <a href={TEXTS.storeMapUrl} target="_blank" rel="noopener noreferrer" className="chats-extra-link">
           <MapPin size={13} />

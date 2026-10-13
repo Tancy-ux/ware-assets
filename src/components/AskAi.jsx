@@ -910,6 +910,7 @@ const AskAi = ({
       whatsappUrl: data.whatsappUrl ?? null,
       showCatalog: !!data.catalog,
       showHorecaCatalog: !!data.horecaCatalog,
+      showGiftCatalog: !!data.giftCatalog,
       showStoreMap: !!data.storeMap,
       showReturns: !!data.returnsLink,
       askForDetails: !!data.askForDetails,
@@ -2000,6 +2001,18 @@ const AskAi = ({
                   >
                     <BookOpen size={14} />
                     {TEXTS.horecaCatalog}
+                    <ArrowUpRight size={13} />
+                  </a>
+                )}
+                {m.showGiftCatalog && TEXTS.giftCatalogUrl && (
+                  <a
+                    href={TEXTS.giftCatalogUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="faq-chat-catalog-link"
+                  >
+                    <BookOpen size={14} />
+                    {TEXTS.giftCatalog}
                     <ArrowUpRight size={13} />
                   </a>
                 )}

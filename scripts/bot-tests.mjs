@@ -149,6 +149,12 @@ const SCENARIOS = {
   "Discounts": [
     ["Any discount for first time buyers?", [["mentions 5% off the first order", has(/5\s?%/)]]],
   ],
+  "Gift catalogue": [
+    ["Can you help me find crockery for my Diwali gifting?", [["adds the gifting catalogue link", (r) => !!r.giftCatalog]]],
+  ],
+  "Not gifting": [
+    ["Do you have soup bowls?", [["no gifting catalogue link", (r) => !r.giftCatalog]]],
+  ],
   "Bulk gifting": [
     ["Corporate gifting for 100 people", []],
     ["budget 1500 each, need by Diwali", [["suggests products", (r) => (r.products ?? []).length > 0]]],

@@ -100,6 +100,10 @@ export const TEXTS = {
   bespokeCatalog: "Browse our bespoke catalogue",
   // Under replies to hotel / restaurant / café enquiries.
   horecaCatalog: "Browse our HoReCa catalogue",
+  // Under festive / bulk / corporate gifting replies (Diwali, Rakhi…).
+  giftCatalog: "Browse our gifting catalogue",
+  giftCatalogUrl:
+    "https://cdn.shopify.com/s/files/1/0039/8498/2051/files/Ware_Gift_Studio_Catalog.pdf?v=1791870937",
   horecaCatalogUrl:
     "https://cdn.shopify.com/s/files/1/0039/8498/2051/files/Ware_HORECA_Catalog_2026_30th_Sept.pdf?v=1790746449",
   atelierCatalogUrl:

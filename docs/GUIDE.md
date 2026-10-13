@@ -885,6 +885,13 @@ block at the top of `delivery.ts`.
 
 - **Browse our bespoke catalogue ↗** under Atelier / bespoke replies
   (`atelierCatalogUrl`).
+- **Browse our HoReCa catalogue ↗** when the last few messages mention a
+  hotel, restaurant, café, caterer… (`horecaCatalogUrl`).
+- **Browse our gifting catalogue ↗** (the Ware Gift Studio PDF,
+  `giftCatalogUrl`) when the last few messages are about gifting (gift,
+  gifting, hamper) for an occasion or in bulk: Diwali, Rakhi, Christmas,
+  Eid, weddings, return gifts, corporate, clients, employees, bulk, or over
+  20 pieces. Not alongside the HoReCa link.
 - **Get directions on Google Maps ↗** under any reply giving the store
   address, or when asked for directions / the showroom (`storeMapUrl`).
 - **Start a return or exchange ↗** (the store's Return Prime page,
