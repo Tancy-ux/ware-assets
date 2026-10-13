@@ -1269,6 +1269,12 @@ For a typed message:
    shortlist, they're marked "on this page" in the model's list, and the
    model picks from them for "these" / "here" / open asks. When all its
    picks are from the page, Show more stays on the page too.
+   **A size asked for** ("300ml serving bowls", `sizeWanted`): only pieces
+   about 0.6x to 1.7x that size (180–500ml for 300ml; sizes come from the
+   names) are matched, closest first, Show more too, and the model is told
+   to say so when nothing of that kind is that size and offer the nearest.
+   Before this, "300ml serving bowls" showed 3920ml and 2400ml bowls under
+   Show more.
    Every catalogue line also says **"serves N"** (`custom.serves`), and the
    8 detailed products include **what's in the set**
    (`custom.this_set_includes`, also searchable), both loaded with the

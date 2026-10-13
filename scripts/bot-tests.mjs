@@ -115,6 +115,15 @@ const SCENARIOS = {
         (r.products ?? []).every((p) => DIWALI.has(p.url?.match(/products\/([^/?#]+)/)?.[1]))],
     ], "/collections/premium-handmade-diwali-gifts"],
   ],
+  // A size asked for: every card (Show more too) is near it.
+  "Size asked": [
+    ["i want 300ml serving bowls", [
+      ["every card is 180-500ml", (r) => (r.products ?? []).length > 0 && (r.products ?? []).every((p) => {
+        const ml = Number(p.title.match(/(\d+)\s?ml/i)?.[1]);
+        return !ml || (ml >= 180 && ml <= 500);
+      })],
+    ], "/collections/serving-small-bowls"],
+  ],
   // Named from another page: answers about that product from its records.
   "Product by name": [
     ["What's in the Elements Dinner Spread?", [

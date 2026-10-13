@@ -521,6 +521,20 @@ function sizeInMl(title: string) {
   return /^ml$/i.test(m[2]) ? value : value * 1000;
 }
 
+// The capacity they asked for ("300ml serving bowls", "1 litre"): from
+// this message, else the last few. Null if none.
+function sizeWanted(question: string, searchQuery: string) {
+  const n = sizeInMl(question) ?? sizeInMl(searchQuery);
+  return n && n >= 20 && n <= 10000 ? n : null;
+}
+
+// A piece close enough to the size they asked for (roughly 0.6x to 1.7x:
+// 180 to 500ml for "300ml"); true when they didn't ask for one. A piece
+// with no size in its name doesn't count as close.
+const NEAR_SIZE = 0.6;
+const nearSize = (size: number | null, p: Product) =>
+  !size || (sizeCloseness(size, p.ml) ?? 0) >= NEAR_SIZE;
+
 // How close two capacities are: 1 = same, 0.5 = one is double the other.
 // Null when either has no size in its name.
 const sizeCloseness = (a: number | null, b: number | null) =>
@@ -1154,6 +1168,9 @@ function shortlistProducts(
   const around = aroundBudget(searchQuery);
   const nearBudget = (p: Product) =>
     !around || (p.minPrice >= around * 0.7 && p.minPrice <= around * 1.35);
+  // "300ml serving bowls": only pieces near that size (a piece with no size
+  // in its name still counts as a match), closest first.
+  const size = sizeWanted(question, searchQuery);
   const matched = limitPerDesign(
     products
       .map((p) => {
@@ -1167,10 +1184,11 @@ function shortlistProducts(
           hits,
           score: hits +
             (around && nearBudget(p) ? 2 : 0) +
+            (size && p.ml ? 3 * (sizeCloseness(size, p.ml) ?? 0) : 0) +
             (p.available ? 0.5 : 0),
         };
       })
-      .filter((x) => x.hits > 0 && inBudget(x.p))
+      .filter((x) => x.hits > 0 && inBudget(x.p) && (!x.p.ml || nearSize(size, x.p)))
       .sort((a, b) => b.score - a.score)
       .map((x) => x.p),
   );
@@ -1184,7 +1202,9 @@ function shortlistProducts(
   const fallback = varied(
     limitPerDesign(
       products
-        .filter((p) => p.available && p.line !== "atelier" && inBudget(p))
+        .filter((p) =>
+          p.available && p.line !== "atelier" && inBudget(p) && nearSize(size, p)
+        )
         .sort((a, b) => rank(b) - rank(a)),
     ),
   );
@@ -1196,7 +1216,7 @@ function shortlistProducts(
     seen.add(p.handle);
     list.push(p);
   }
-  return { list, matchedCount: Math.min(matched.length, SHORTLIST_PRODUCTS) };
+  return { list, matchedCount: Math.min(matched.length, SHORTLIST_PRODUCTS), size };
 }
 
 type Faq = { category: string; question: string; answer: string };
@@ -3091,6 +3111,10 @@ ${context}
 
 Products picked for this conversation (ID | name | type | price, then notes: "gift-packed", "serves N" people, "on this page"):
 ${catalog || "(no products matched)"}${
+      shortlist.size
+        ? `\n\nThey want pieces of about ${shortlist.size}ml (sizes are in the names). Suggest the closest sizes first; if nothing of the kind they want is that size, say so plainly and offer the nearest ones, saying they're a bit bigger or smaller. Never suggest pieces far from that size.`
+        : ""
+    }${
       browsing
         ? `\n\nThey're browsing the "${browsing.title}" collection page${
           browsing.description ? ` (${browsing.description.slice(0, 300)})` : ""
@@ -3328,9 +3352,14 @@ When they ask about something without naming it ("what does it consist of?", "in
         (onPage ? [...new Set([...shortlist.list, ...products])] : pool).filter((p) =>
           !taken.has(p.handle) && !alreadyShown.has(p.title) &&
           p.available && inBudget(p) && lines.has(p.line) &&
-          (!onPage || inBrowsing(p))
+          (!onPage || inBrowsing(p)) && nearSize(shortlist.size, p)
         ),
       );
+      // A size asked for: the closest sizes first.
+      const size = shortlist.size;
+      if (size) {
+        extras.sort((a, b) => (sizeCloseness(size, b.ml) ?? 0) - (sizeCloseness(size, a.ml) ?? 0));
+      }
     }
 
     // A question about particular Ware Atelier pieces: too little is known
