@@ -521,6 +521,22 @@ function sizeInMl(title: string) {
   return /^ml$/i.test(m[2]) ? value : value * 1000;
 }
 
+// How well a piece fits the kind of bowl they asked for: +1 for each kind
+// they named that's in its name ("serving bowls" -> Baby Margo Serving
+// Bowl), -1 for a pasta or shallow bowl when they asked for bowls but not
+// pasta ones (those are wide and flat). 0 when they named no kind.
+const BOWL_KINDS = ["serving", "soup", "salad", "katori", "dessert", "snack", "dip", "pasta", "rice", "noodle"];
+function kindFit(p: Product, question: string) {
+  const asked = new Set(question.toLowerCase().match(/[a-z]+/g) ?? []);
+  const title = p.title.toLowerCase();
+  let fit = BOWL_KINDS.filter((k) => asked.has(k) && title.includes(k)).length;
+  if (
+    (asked.has("bowl") || asked.has("bowls")) && !asked.has("pasta") &&
+    /\b(pasta|shallow)\b/.test(title)
+  ) fit -= 1;
+  return fit;
+}
+
 // The capacity they asked for ("300ml serving bowls", "1 litre"): from
 // this message, else the last few. Null if none.
 function sizeWanted(question: string, searchQuery: string) {
@@ -1185,6 +1201,7 @@ function shortlistProducts(
           score: hits +
             (around && nearBudget(p) ? 2 : 0) +
             (size && p.ml ? 3 * (sizeCloseness(size, p.ml) ?? 0) : 0) +
+            12 * kindFit(p, question) +
             (p.available ? 0.5 : 0),
         };
       })
@@ -3125,7 +3142,7 @@ ${context}
 Products picked for this conversation (ID | name | type | price, then notes: "gift-packed", "serves N" people, "on this page"):
 ${catalog || "(no products matched)"}${
       shortlist.size
-        ? `\n\nThey want pieces of about ${shortlist.size}ml (sizes are in the names). Suggest the closest sizes first; if nothing of the kind they want is that size, say so plainly and offer the nearest ones, saying they're a bit bigger or smaller. Never suggest pieces far from that size.`
+        ? `\n\nThey want pieces of about ${shortlist.size}ml (sizes are in the names). Lead with the kind they asked for (for "serving bowls", serving bowls first), then other deep bowls; pasta bowls are wide and shallow, so bring them in last and say so. Within that, the closest sizes first; if nothing of the kind they want is that size, say so plainly and offer the nearest ones, saying they're a bit bigger or smaller. Never suggest pieces far from that size.`
         : ""
     }${
       browsing
@@ -3368,11 +3385,13 @@ When they ask about something without naming it ("what does it consist of?", "in
           (!onPage || inBrowsing(p)) && nearSize(shortlist.size, p)
         ),
       );
-      // A size asked for: the closest sizes first.
+      // The kind they asked for first ("serving bowls": serving bowls, then
+      // other deep bowls, pasta bowls last), then the closest sizes.
       const size = shortlist.size;
-      if (size) {
-        extras.sort((a, b) => (sizeCloseness(size, b.ml) ?? 0) - (sizeCloseness(size, a.ml) ?? 0));
-      }
+      extras.sort((a, b) =>
+        kindFit(b, question) - kindFit(a, question) ||
+        (size ? (sizeCloseness(size, b.ml) ?? 0) - (sizeCloseness(size, a.ml) ?? 0) : 0)
+      );
     }
 
     // A question about particular Ware Atelier pieces: too little is known

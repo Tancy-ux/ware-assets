@@ -1274,7 +1274,11 @@ For a typed message:
    names) are matched, closest first, Show more too, and the model is told
    to say so when nothing of that kind is that size and offer the nearest.
    Before this, "300ml serving bowls" showed 3920ml and 2400ml bowls under
-   Show more.
+   Show more. **The kind of bowl asked for leads** (`kindFit`: serving,
+   soup, salad, katori, dessert, snack, dip, pasta, rice, noodle in the
+   request and the name), and pasta / shallow bowls come last when they
+   asked for bowls but not pasta ones (they're wide and flat); Show more
+   is sorted the same way, then by size.
    Every catalogue line also says **"serves N"** (`custom.serves`), and the
    8 detailed products include **what's in the set**
    (`custom.this_set_includes`, also searchable), both loaded with the

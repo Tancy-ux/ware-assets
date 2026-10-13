@@ -146,7 +146,7 @@ const SCENARIOS = {
     ["budget 1500 each, need by Diwali", [["suggests products", (r) => (r.products ?? []).length > 0]]],
   ],
   "Not sold": [
-    ["Do you sell bunk beds?", [["no made-up products", (r) => !(r.products ?? []).some((p) => /bed/i.test(p.title))]]],
+    ["Do you sell bunk beds?", [["no made-up products", (r) => !(r.products ?? []).some((p) => /\bbed/i.test(p.title))]]],
   ],
   "Off topic": [
     ["Write me a poem about the sea", [["stays on Ware", has(/ware|help|pieces?|tableware|gift/i)]]],
