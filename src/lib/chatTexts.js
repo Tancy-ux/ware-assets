@@ -87,6 +87,13 @@ export const TEXTS = {
   moreLikeThisAsk: "Show me more products like this",
   moreLikeThisIntro:
     "If the {name} caught your eye, you might love these too:",
+  // When we know what kind of piece it is ({kind}: cutlery, plate, cup…):
+  // others of its kind, then pieces that go with it.
+  moreLikeThisKind:
+    "If the {name} caught your eye, here are a few more {kind} options:",
+  moreLikeThisPairings: "And here's more Ware to go with your {kind}:",
+  moreLikeThisOnlyPairings:
+    "We don't have other {kind} options in stock right now, but these would go lovely with the {name}:",
   moreLikeThisNone:
     "I couldn't find anything close to the {name} in stock right now. Our team would be glad to suggest something, just tap below.",
 

@@ -743,6 +743,30 @@ type > price > distinctive tags > colour. For product-page taps: at most one
 other colour of the same design and at most two more from the same range
 before other ranges get a turn.
 
+**"Show me more like this" sticks to the same kind of piece** (worked out
+from the name: cutlery, plate, bowl, cup, serveware, table linen, trivet,
+coaster, vase, candle, dinner set): "here are a few more cutlery options".
+When there are fewer than 8 of those in stock, a second bubble adds up to 6
+pieces that go with it, "And here's more Ware to go with your cutlery":
+
+| Piece | Goes with |
+| --- | --- |
+| Cutlery | Plates, bowls, table linen, dinner sets |
+| Plates | Cutlery, bowls, table linen |
+| Bowls | Plates, cutlery, table linen |
+| Dinner sets | Cutlery, table linen, cups |
+| Cups / mugs | Coasters, serveware |
+| Coasters | Cups, serveware |
+| Trays / platters | Bowls, cups, coasters |
+| Table linen | Cutlery, plates, candles |
+| Candles | Vases, table linen |
+| Vases | Candles |
+| Trivets | Bowls, table linen |
+
+Pairings prefer the same design range, colours and price, mix ceramic and
+marble, and take turns between kinds. A piece of no known kind (tissue box,
+appetiser set…) gets the old mixed list. Sold-out "see similar" is unchanged.
+
 ### 5.4a Product details on product pages (no AI)
 
 On a product page whose product has any of these metafields, the pill reads
@@ -898,8 +922,10 @@ block at the top of `delivery.ts`.
   `giftCatalogUrl`) when the last few messages say "gifting" or "hamper"
   (Quick Gifting, branded gifting…), or "gift" with an occasion or bulk:
   Diwali, Rakhi, Christmas, Eid, weddings, return gifts, corporate,
-  clients, employees, bulk, or over 20 pieces. Not alongside the HoReCa or
-  bespoke link.
+  clients, employees, bulk, or over 20 pieces. Not on the first gifting
+  reply (that one just asks budget, how many and by when): from their next
+  message on, or straight away if they ask for a catalogue. Not alongside
+  the HoReCa or bespoke link.
 - **Get directions on Google Maps ↗** under any reply giving the store
   address, or when asked for directions / the showroom (`storeMapUrl`).
 - **Start a return or exchange ↗** (the store's Return Prime page,
@@ -1179,6 +1205,13 @@ would need a code change (`zohoLeadFields` in `chat-admin`).
   local bot shares these live counters, so `.env.local` sets
   `RATE_LIMITS_OFF=1` (never set on the deployed bot): local test runs
   don't use up the shoppers' daily cap (they did on 13 Oct 2026).
+- **Bursts and keyboard mash** (after 14 mashed messages in 7 seconds on
+  15 Oct 2026): the chat sends one question at a time (Send is disabled
+  until the reply arrives); per browser at most 5 AI replies a minute
+  (`burst_limit`, scripts/supabase-form-limits.sql) → "Give me a second to
+  catch up!"; and a message with no real word, number, emoji or non-Latin
+  script ("nnnn", "uzj", "-") gets "Sorry, I didn't quite catch that!" with
+  no AI call (`isNoise`). Both show on the Chats page as not answered.
 - **Other limits** (`rate_limit`): name/number forms and "start over" 10 /
   10 min and 40 / day per connection; pill taps 30 / 10 min and 150 / day;
   Chats logins 10 / 10 min and 30 / day.

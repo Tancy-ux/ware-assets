@@ -107,6 +107,11 @@
       moreLikeThisAsk: "Show me more products like this",
       moreLikeThisIntro:
         "If the {name} caught your eye, you might love these too:",
+      moreLikeThisKind:
+        "If the {name} caught your eye, here are a few more {kind} options:",
+      moreLikeThisPairings: "And here's more Ware to go with your {kind}:",
+      moreLikeThisOnlyPairings:
+        "We don't have other {kind} options in stock right now, but these would go lovely with the {name}:",
       moreLikeThisNone:
         "I couldn't find anything close to the {name} in stock right now. Our team would be glad to suggest something, just tap below.",
   
@@ -1185,6 +1190,11 @@
     }
     .faq-chat-send-btn:hover {
       background: #253429;
+    }
+    /* Waiting for the reply: one question at a time. */
+    .faq-chat-send-btn:disabled {
+      opacity: 0.45;
+      cursor: default;
     }
 
     @media (max-width: 700px) {

@@ -1290,6 +1290,11 @@
 .faq-chat-send-btn:hover {
   background: #253429;
 }
+/* Waiting for the reply: one question at a time. */
+.faq-chat-send-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
 
 @media (max-width: 700px) {
   .faq-chat-popup {

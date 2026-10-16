@@ -149,13 +149,15 @@ const SCENARIOS = {
   "Discounts": [
     ["Any discount for first time buyers?", [["mentions 5% off the first order", has(/5\s?%/)]]],
   ],
+  // Details first, the catalogue with the next reply.
   "Gift catalogue": [
-    ["Can you help me find crockery for my Diwali gifting?", [["adds the gifting catalogue link", (r) => !!r.giftCatalog]]],
+    ["Bulk or corporate gifting", [["no catalogue link yet", (r) => !r.giftCatalog]]],
+    ["Around 1500 each, 60 pieces, by 25th October", [["adds the gifting catalogue link", (r) => !!r.giftCatalog]]],
   ],
   // "Catalogue" in a gifting chat: the gifting one, never the bespoke one.
   "Catalogue in a gifting chat": [
     ["Hey want to look for some Diwali gifting, let's connect and take it further. I need the quotation for 50 quantities", [
-      ["adds the gifting catalogue link", (r) => !!r.giftCatalog],
+      ["no catalogue link yet", (r) => !r.giftCatalog],
     ]],
     ["do u have catalog", [
       ["the gifting catalogue", (r) => !!r.giftCatalog],
@@ -179,7 +181,7 @@ const SCENARIOS = {
     ], "/products/the-cosmic-temple"],
   ],
   "Quick gifting": [
-    ["I want to know about quick gifting service", [
+    ["Do you have a catalogue for quick gifting?", [
       ["the gifting catalogue", (r) => !!r.giftCatalog],
       ["not the bespoke one", (r) => !r.catalog],
     ]],

@@ -1827,10 +1827,12 @@ const linkify = (text) =>
   );
 
 // Why the AI didn't answer a message (the "not_answered:…" extra from
-// ask-faq): the shopper got the WhatsApp button instead.
+// ask-faq): the shopper got the WhatsApp button or a nudge instead.
 const NOT_ANSWERED = {
   too_long: "message too long",
   too_many: "too many messages at once",
+  noise: "keyboard mash, no AI",
+  burst: "too many in a minute",
   busy: "AI busy",
   ai_failed: "AI didn't respond",
   error: "something went wrong",

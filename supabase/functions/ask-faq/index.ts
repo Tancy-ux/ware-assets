@@ -64,6 +64,63 @@ const RATE_LIMITS = {
   p_global_day: 600,
 };
 const MAX_QUESTION_CHARS = 500;
+// AI replies per visitor per minute, on top of the limits above: a burst of
+// messages (keys mashed, or a script) gets a "one moment" instead. Counted
+// by burst_limit (scripts/supabase-form-limits.sql); allowed if that's not
+// set up.
+const BURST_PER_MIN = 5;
+
+async function burstAllowed(visitorId: unknown) {
+  const admin = adminClient();
+  if (!admin || Deno.env.get("RATE_LIMITS_OFF") === "1") return true;
+  if (typeof visitorId !== "string" || !UUID_RE.test(visitorId)) return true;
+  const { data, error } = await admin.rpc("burst_limit", {
+    p_key: `burst:${visitorId}`,
+    p_per_min: BURST_PER_MIN,
+  });
+  if (error) {
+    console.error("Burst check failed:", error);
+    return true;
+  }
+  return data !== false;
+}
+
+// Keyboard mash ("nnnn", "uzj", "wnnnnnnn h", "!w") gets a free "didn't
+// catch that" instead of an AI reply. Kept cautious: anything with a real
+// word, a number (pincode, quantity, phone), an emoji or non-Latin script
+// (Hindi…) still goes to the AI. A real word: 4+ letters with a vowel and
+// not mostly one letter, a common short word, or a word from a product name.
+const SHORT_WORDS = new Set(
+  (
+    "a i am an as at be by do go he hi if in is it me my no of oh ok on or so to " +
+    "up us we ya yo ye ji na ha " +
+    "all and any are ask bye can cod did for get got had has hey hii how its let " +
+    "may new nhi not now off okk one pls plz pot put red see set she ten thx the " +
+    "too two use was way who why yes yet you ty " +
+    "box cup mug tea mat bag gst emi upi otp ups hai kya nai koi aur bhi " +
+    "haa kab kya mai hum aap pin buy pay sms mrp qty pcs " +
+    "hmm wow lol sup omg nvm idk btw thnx tnx thx ohk kk hlo hlw gud gd ur " +
+    "u r k hm ml cm kg"
+  ).split(" "),
+);
+function isNoise(text: string, productWords: Set<string>) {
+  if (/\d/.test(text)) return false;
+  if (/\p{Extended_Pictographic}/u.test(text)) return false;
+  if (/[^\p{Script=Latin}\P{L}]/u.test(text)) return false;
+  const words = text.toLowerCase().match(/\p{L}+/gu) ?? [];
+  return !words.some((w) => {
+    // "yesss", "hiii", "hmmm": the same word stretched out.
+    const short = w.replace(/(\p{L})\1{2,}/gu, "$1");
+    const shorter = w.replace(/(\p{L})\1+/gu, "$1");
+    if ([w, short, shorter].some((x) => SHORT_WORDS.has(x) || productWords.has(x))) {
+      return true;
+    }
+    if (w.length < 4 || !/[aeiouy]/.test(w)) return false;
+    // "nnnnnnbnn": mostly one letter.
+    const most = Math.max(...[...w].map((c) => w.split(c).length - 1));
+    return most / w.length < 0.6;
+  });
+}
 
 const clientIp = (req: Request) =>
   (
@@ -636,6 +693,104 @@ function similarProducts(target: Product, products: Product[]) {
     .sort((a, b) => b.score - a.score)
     .slice(0, MAX_SIMILAR)
     .map((x) => x.p);
+}
+
+// What kind of piece it is, from its name (Shopify's product types are too
+// mixed: "cutlery", "Flatware Sets", "Mug", "Cup"…). First match wins, so
+// "Spoon Rest" isn't cutlery and "Coffee Breakfast Set" is drinkware. Null
+// for anything else (gift boxes, books…).
+const PIECE_KIND_WORDS: [string, RegExp][] = [
+  ["other", /\bspoon (rests?|holders?)\b/],
+  ["linen", /\b(napkins?|placemats?|table mats?|runners?|table ?cloths?)\b/],
+  ["cutlery", /\b(cutlery|flatware|spoons?|forks?|knife|knives)\b/],
+  ["trivet", /\btrivets?\b/],
+  ["coaster", /\bcoasters?\b/],
+  ["candle", /\bcandles?\b/],
+  ["vase", /\bvases?\b/],
+  ["dinnerSet", /\b(dinner(ware)? sets?|table settings?|dinner spread)\b/],
+  ["serveware", /\b(trays?|platters?)\b/],
+  ["drinkware", /\b(cups?|mugs?|tumblers?|glass(es)?|espresso|cappuccino|teapots?|tea sets?|coffee)\b/],
+  ["bowl", /\b(bowls?|katoris?)\b/],
+  ["plate", /\bplates?\b/],
+];
+function pieceKind(p: Product): string | null {
+  const title = p.title.toLowerCase().replace(/tea green/g, "");
+  const kind = PIECE_KIND_WORDS.find(([, re]) => re.test(title))?.[0];
+  return kind && kind !== "other" ? kind : null;
+}
+
+// How the chat names each kind ("more cutlery options", "to go with your
+// cutlery").
+const PIECE_KIND_NOUN: Record<string, string> = {
+  linen: "table linen", cutlery: "cutlery", trivet: "trivet",
+  coaster: "coaster", candle: "candle", vase: "vase", serveware: "serveware",
+  dinnerSet: "dinner set", drinkware: "cup", bowl: "bowl", plate: "plate",
+};
+
+// What sets a table with each kind, best first: cutlery goes with plates,
+// bowls and napkins, not trivets. Kinds with nothing here get no pairings.
+const GOES_WITH: Record<string, string[]> = {
+  cutlery: ["plate", "bowl", "linen", "dinnerSet"],
+  plate: ["cutlery", "bowl", "linen"],
+  bowl: ["plate", "cutlery", "linen"],
+  dinnerSet: ["cutlery", "linen", "drinkware"],
+  drinkware: ["coaster", "serveware"],
+  coaster: ["drinkware", "serveware"],
+  serveware: ["bowl", "drinkware", "coaster"],
+  linen: ["cutlery", "plate", "candle"],
+  candle: ["vase", "linen"],
+  vase: ["candle"],
+  trivet: ["bowl", "linen"],
+};
+
+// "More like this", split in two: other pieces of the same kind (the real
+// alternatives), then, when those are few, a handful of pieces that go with
+// it ("more Ware to go with your cutlery"). A piece of no known kind keeps
+// the plain similar-products list.
+const FEW_ALTERNATIVES = 8;
+const MAX_PAIRINGS = 6;
+function moreLikeThis(target: Product, products: Product[]) {
+  const kind = pieceKind(target);
+  const similar = similarProducts(target, products);
+  if (!kind) return { kind: null, alternatives: similar, pairings: [] };
+  const alternatives = similar.filter((p) => pieceKind(p) === kind);
+  const wanted = GOES_WITH[kind] ?? [];
+  if (alternatives.length >= FEW_ALTERNATIVES || !wanted.length) {
+    return { kind, alternatives, pairings: [] };
+  }
+  // Same design range (Zuri…), same colours, close in price; ceramic and
+  // marble mix on a table, Atelier and Collectibles only with their own.
+  const range = (p: Product) => p.title.split(/\s+/)[0].toLowerCase();
+  const sameLines = (p: Product) =>
+    p.line === target.line ||
+    (["ceramic", "marble"].includes(p.line) &&
+      ["ceramic", "marble"].includes(target.line));
+  const scored = products
+    .filter((p) =>
+      p.available && sameLines(p) && wanted.includes(pieceKind(p) ?? "")
+    )
+    .map((p) => ({
+      p,
+      score: 2 * (range(p) === range(target) ? 1 : 0) +
+        1.5 * overlap(p.colors, target.colors) +
+        overlap(p.keyTags, target.keyTags) +
+        0.5 * (1 - Math.abs(p.minPrice - target.minPrice) /
+          Math.max(p.minPrice, target.minPrice, 1)) -
+        0.3 * wanted.indexOf(pieceKind(p)!),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .map((x) => x.p);
+  // Taking turns between the kinds (a plate, a napkin, a bowl…), best first.
+  const byKind = wanted.map((k) => scored.filter((p) => pieceKind(p) === k));
+  const mixed: Product[] = [];
+  for (let i = 0; mixed.length < scored.length; i++) {
+    for (const g of byKind) if (g[i]) mixed.push(g[i]);
+  }
+  return {
+    kind,
+    alternatives,
+    pairings: limitPerDesign(mixed).slice(0, MAX_PAIRINGS),
+  };
 }
 
 // ---- The product catalogue ----
@@ -2465,10 +2620,13 @@ Deno.serve(async (req) => {
       // the page already), and at most two more from the same range (Lilo,
       // Flare...) before other ranges get a turn, so the first cards show a
       // variety of pieces.
-      const picks = limitPerDesign([
+      // Other pieces of its kind first; when those are few, pieces that go
+      // with it come as a second group (moreLikeThis above).
+      const { kind, alternatives, pairings } = moreLikeThis(
         target,
-        ...similarProducts(target, await loadProducts()),
-      ]).slice(1);
+        await loadProducts(),
+      );
+      const picks = limitPerDesign([target, ...alternatives]).slice(1);
       const range = (p: Product) => p.title.split(/\s+/)[0].toLowerCase();
       const seen = new Map<string, number>([[range(target), 1]]);
       const first: Product[] = [];
@@ -2479,6 +2637,17 @@ Deno.serve(async (req) => {
         (n < 3 ? first : later).push(p);
       }
       const cards = [...first, ...later].map(toCard);
+      const pairCards = pairings.map(toCard);
+      const kindNoun = kind ? PIECE_KIND_NOUN[kind] : null;
+      // The chat's own words (chatTexts moreLikeThis*), so the Chats page
+      // reads like what the shopper saw.
+      const intro = !cards.length && pairCards.length
+        ? `We don't have other ${kindNoun} options in stock right now, but these would go lovely with the ${target.title}:`
+        : !cards.length
+        ? `I couldn't find anything close to the ${target.title} in stock right now. Our team would be glad to suggest something, just tap below.`
+        : kindNoun
+        ? `If the ${target.title} caught your eye, here are a few more ${kindNoun} options:`
+        : `If the ${target.title} caught your eye, you might love these too:`;
       const conversation = await ownConversation(
         payload.conversationId,
         payload.visitorId,
@@ -2487,13 +2656,11 @@ Deno.serve(async (req) => {
         await logTurn({
           conversationId: payload.conversationId,
           visitorId: payload.visitorId,
-          // The chat's own words (chatTexts moreLikeThis*), so the Chats
-          // page reads like what the shopper saw.
           question: "Show me more products like this",
-          answer: cards.length
-            ? `If the ${target.title} caught your eye, you might love these too:`
-            : `I couldn't find anything close to the ${target.title} in stock right now. Our team would be glad to suggest something, just tap below.`,
-          cards,
+          answer: cards.length && pairCards.length
+            ? `${intro}\n\nAnd here's more Ware to go with your ${kindNoun}:`
+            : intro,
+          cards: cards.length ? [...cards, ...pairCards] : pairCards,
           visitorName: "",
           company: "",
           isFirst: !conversation,
@@ -2509,8 +2676,13 @@ Deno.serve(async (req) => {
       }
       return json({
         title: target.title,
-        products: cards,
-        whatsappUrl: cards.length ? null : whatsAppLink(
+        // No others of its kind: the pairings are the list (onlyPairings),
+        // else they come as a second group under it.
+        products: cards.length ? cards : pairCards,
+        pairings: cards.length ? pairCards : [],
+        onlyPairings: !cards.length && pairCards.length > 0,
+        kind: kindNoun,
+        whatsappUrl: cards.length || pairCards.length ? null : whatsAppLink(
           `Hi Ware team! I'm looking for pieces similar to the ${target.title}.`,
         ),
         contactSaved: !!conversation?.visitor_phone,
@@ -2829,6 +3001,33 @@ Deno.serve(async (req) => {
         logged: await logUnanswered("too_long", answer),
       });
     }
+    // Keyboard mash: a free nudge, no AI (isNoise). Kept out of the AI's
+    // memory like the other fallbacks.
+    if (!isServiceRole(req)) {
+      const productWords = new Set(
+        (await loadProducts().catch(() => [])).flatMap((p) => [...p.nameWords]),
+      );
+      if (isNoise(question, productWords)) {
+        const answer =
+          "Sorry, I didn't quite catch that! What are you looking for today?";
+        return json({
+          answer,
+          contactSaved,
+          fallback: true,
+          logged: await logUnanswered("noise", answer),
+        });
+      }
+      if (!(await burstAllowed(payload.visitorId))) {
+        const answer =
+          "Give me a second to catch up! Send your question in one message and I'll help right away.";
+        return json({
+          answer,
+          contactSaved,
+          fallback: true,
+          logged: await logUnanswered("burst", answer),
+        });
+      }
+    }
     // Shoppers' limits; not for chat-admin (Bot's "Try it", "AI reply"),
     // which only a signed-in team member can reach and all comes from one
     // server.
@@ -3047,11 +3246,18 @@ Deno.serve(async (req) => {
       named.some((p) => p.line === "atelier") ||
       products.some((p) => p.line === "atelier" && (history.at(-1)?.products ?? []).includes(p.title));
     const askedCatalog = CATALOG_WORDS.test(question);
+    // The gifting catalogue waits for the second gifting message: the first
+    // reply just asks for the details (budget, how many, by when). Straight
+    // away only if they've asked for a catalogue.
+    const giftCatalogDue = giftingChat && (
+      GIFTING_WORDS.test(history.slice(-3).map((t) => t.question).join(" ")) ||
+      CATALOG_WORDS.test(recentAsks)
+    );
     const catalogShown = atelierChat
       ? "Ware Atelier bespoke"
       : horecaChat
       ? "HoReCa (hotels, restaurants and cafés)"
-      : giftingChat
+      : giftCatalogDue
       ? "gifting"
       : null;
 
@@ -3605,9 +3811,10 @@ When they ask about something without naming it ("what does it consist of?", "in
     const horecaCatalog = !bespoke && horecaChat;
     // Festive / bulk / corporate gifting (or 20+ pieces with gifts), or a
     // catalogue asked for with nothing else fitting: the chat adds the
-    // gifting catalogue's link (giftCatalogUrl in chatTexts).
+    // gifting catalogue's link (giftCatalogUrl in chatTexts), from their
+    // second gifting message on (see giftCatalogDue).
     const giftCatalog = !bespoke && !horecaCatalog && !atelierCatalog &&
-      giftingChat;
+      giftCatalogDue;
     // The reply gives the store's address (or they asked how to get
     // there): the chat adds a Google Maps link (storeMapUrl in chatTexts).
     const storeMap = STORE_ADDRESS_WORDS.test(answer) ||

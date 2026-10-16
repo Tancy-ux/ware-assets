@@ -651,6 +651,10 @@ const AskAi = ({
   const [contactThanks, setContactThanks] = useState(null);
   const [namePrefs, setNamePrefs] = useState(loadNamePrefs);
   const [input, setInput] = useState("");
+  // One AI question at a time: while a reply is on its way, sending waits
+  // (what they typed stays in the box), so mashed keys can't fire off a
+  // dozen AI calls. A ref, so two quick taps can't both get through.
+  const replyPending = useRef(false);
   const [copiedKey, setCopiedKey] = useState(null);
   const [expanded, setExpanded] = useState(loadExpanded);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -760,7 +764,7 @@ const AskAi = ({
 
   const ask = async (text) => {
     const question = text.trim();
-    if (!question) return;
+    if (!question || replyPending.current) return;
     setInput("");
     setContactThanks(null);
     if (customer) tagCart();
@@ -839,12 +843,15 @@ const AskAi = ({
       },
     ]);
 
+    replyPending.current = true;
     const { data, error } = await callAskFaq({
       question,
       history,
       conversationId,
       visitorId: getVisitorId(),
       detailsShownLast,
+    }).finally(() => {
+      replyPending.current = false;
     });
     if (data && typeof data.contactSaved === "boolean") {
       syncContactSaved(data.contactSaved);
@@ -1165,17 +1172,40 @@ const AskAi = ({
       syncContactSaved(data.contactSaved);
     }
     const products = data.products ?? [];
+    const pairings = data.pairings ?? [];
     const name = shortName(data.title ?? product.title);
+    const kind = data.kind;
     patchMessage(id, {
       loading: false,
       answer: fillText(
-        products.length ? TEXTS.moreLikeThisIntro : TEXTS.moreLikeThisNone,
-        { name },
+        !products.length
+          ? TEXTS.moreLikeThisNone
+          : data.onlyPairings
+          ? TEXTS.moreLikeThisOnlyPairings
+          : kind
+          ? TEXTS.moreLikeThisKind
+          : TEXTS.moreLikeThisIntro,
+        { name, kind },
       ),
       products: products.slice(0, FIRST_PAGE),
       moreProducts: products.slice(FIRST_PAGE),
       whatsappUrl: data.whatsappUrl ?? null,
     });
+    // Pieces that go with it: their own bubble with their own line, under
+    // the alternatives.
+    if (pairings.length && kind) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: nextId++,
+          answer: fillText(TEXTS.moreLikeThisPairings, { kind }),
+          products: pairings.slice(0, FIRST_PAGE),
+          moreProducts: pairings.slice(FIRST_PAGE),
+          isLocal: true,
+          time: Date.now(),
+        },
+      ]);
+    }
   };
 
   // Each step is also logged for the team (the "bespoke" mode).
@@ -2249,7 +2279,12 @@ const AskAi = ({
               : "Type a question like a customer would…"
           }
         />
-        <button type="submit" className="faq-chat-send-btn" aria-label="Send">
+        <button
+          type="submit"
+          className="faq-chat-send-btn"
+          aria-label="Send"
+          disabled={messages.some((m) => m.loading && !m.isLocal)}
+        >
           {customer ? <ArrowUp size={18} /> : <Send size={15} />}
         </button>
       </form>
