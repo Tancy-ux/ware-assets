@@ -13,6 +13,7 @@ import {
   ChevronRight,
   ChevronUp,
   CircleCheck,
+  CirclePause,
   Contact,
   ExternalLink,
   House,
@@ -201,8 +202,10 @@ const VIEWS = [
   { id: "all", label: "All", icon: MessagesSquare, test: external(() => true) },
   { id: "needs", label: "Needs reply", icon: BellRing, test: external((c) => c.needsReply) },
   { id: "leads", label: "Leads", icon: UserPlus, test: external(isLead) },
-  { id: "takeover", label: "Taken over", icon: UserRound, test: external((c) => c.takeover) },
+  { id: "takeover", label: "Taken over", icon: UserRound, test: external((c) => c.takeover && !c.aiPaused) },
   { id: "zoho", label: "In Zoho", icon: CircleCheck, test: external((c) => !!c.zohoLeadId) },
+  // The AI paused itself after junk messages (ask-faq pauseIfJunk).
+  { id: "paused", label: "Paused (junk)", icon: CirclePause, test: external((c) => !!c.aiPaused) },
   { id: "internal", label: "Internal", icon: Building2, test: (c) => !!c.internal },
 ];
 
@@ -457,7 +460,10 @@ const ChatLogs = () => {
     setLoadingMessages(false);
     if (data) {
       setMessages(data.messages);
-      patchConversation(id, { takeover: data.takeover });
+      patchConversation(id, {
+        takeover: data.takeover,
+        ...(typeof data.aiPaused === "boolean" ? { aiPaused: data.aiPaused } : {}),
+      });
     }
   };
 
@@ -471,7 +477,7 @@ const ChatLogs = () => {
     if (!data) return;
     patchConversation(selectedId, {
       takeover: data.takeover,
-      ...(data.takeover ? {} : { needsReply: false }),
+      ...(data.takeover ? {} : { needsReply: false, aiPaused: false }),
     });
     toast.success(
       on
@@ -1041,9 +1047,10 @@ const ChatLogs = () => {
           </div>
 
           <div className="chats-views">
-            {/* "Internal" only shows when there are some (or it's open). */}
+            {/* "Internal" and "Paused" only show when there are some (or
+                they're open). */}
             {VIEWS.filter(
-              (v) => v.id !== "internal" || counts.internal > 0 || view === "internal",
+              (v) => !["internal", "paused"].includes(v.id) || counts[v.id] > 0 || view === v.id,
             ).map((v) => (
               <button
                 key={v.id}
@@ -1121,6 +1128,11 @@ const ChatLogs = () => {
                       </small>
                     )}
                     {c.needsReply && <span className="chats-tag chats-tag-alert">Needs reply</span>}
+                    {c.aiPaused && (
+                      <span className="chats-tag chats-tag-internal" title="AI paused after junk messages">
+                        Paused
+                      </span>
+                    )}
                     {isLead(c) && <span className="chats-tag chats-tag-lead">Lead</span>}
                     {c.zohoLeadId && (
                       <span className="chats-tag chats-tag-zoho" title="Lead in Zoho">
@@ -1222,6 +1234,14 @@ const ChatLogs = () => {
                       )}
                       {selected.needsReply && (
                         <span className="chats-tag chats-tag-alert">Needs reply</span>
+                      )}
+                      {selected.aiPaused && (
+                        <span
+                          className="chats-tag chats-tag-internal"
+                          title="The AI stopped after junk messages. Hand back to AI to turn it on again."
+                        >
+                          AI paused (junk)
+                        </span>
                       )}
                       {selected.zohoLeadId && (
                         <span className="chats-tag chats-tag-zoho">Zoho ✓</span>
@@ -1835,6 +1855,8 @@ const NOT_ANSWERED = {
   ai_failed: "AI didn't respond",
   error: "something went wrong",
   offline: "the chat couldn't reach us",
+  noise: "didn't make sense",
+  burst: "too many messages in a minute",
 };
 
 // What the store chat showed under an AI reply besides its text and
@@ -1859,6 +1881,11 @@ const ReplyExtras = ({ extras }) => {
         <div className="chats-extra-note chats-extra-unanswered">
           <TriangleAlert size={13} /> Not answered by the AI ·{" "}
           {NOT_ANSWERED[notAnswered] ?? notAnswered}
+        </div>
+      )}
+      {has("junk") && (
+        <div className="chats-extra-note chats-extra-unanswered">
+          <TriangleAlert size={13} /> The AI read this as junk (counts toward pausing the chat)
         </div>
       )}
       {has("atelier_catalog") && link(TEXTS.atelierCatalogUrl, TEXTS.bespokeCatalog)}

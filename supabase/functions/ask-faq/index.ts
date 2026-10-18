@@ -1865,10 +1865,69 @@ async function ownConversation(conversationId: unknown, visitorId: unknown) {
   return data;
 }
 
-function takeoverActive(conversation: { takeover_at?: string | null } | null) {
+function takeoverActive(
+  conversation: { takeover_at?: string | null; ai_paused_at?: string | null } | null,
+) {
+  // Paused for junk (pauseIfJunk): until the team hands back, however long
+  // that takes and even after "reset".
+  if (conversation?.ai_paused_at) return true;
   if (!conversation?.takeover_at) return false;
   const since = Date.now() - new Date(conversation.takeover_at).getTime();
   return since < TAKEOVER_HOURS * 60 * 60 * 1000;
+}
+
+// ---- Auto-pause for junk ----
+// After JUNK_TO_PAUSE junk messages in a chat (keyboard mash, bursts,
+// gibberish the AI flagged), the AI stops answering it: a takeover that
+// only ends when the team hands back (chat-admin "takeover" off sets
+// ai_resumed_at, and only junk after that counts again). Columns from
+// scripts/supabase-ai-pause.sql; without them nothing is paused.
+const JUNK_TO_PAUSE = 3;
+const JUNK_EXTRAS = new Set([
+  "not_answered:noise",
+  "not_answered:burst",
+  "not_answered:too_long",
+  "junk",
+]);
+async function pauseIfJunk(conversationId: unknown) {
+  const admin = adminClient();
+  if (!admin || typeof conversationId !== "string" || !UUID_RE.test(conversationId)) return;
+  try {
+    const { data: convo, error } = await admin
+      .from("chat_conversations")
+      .select("*")
+      .eq("id", conversationId)
+      .maybeSingle();
+    if (error || !convo || !("ai_paused_at" in convo) || convo.ai_paused_at) return;
+    const since = [
+      convo.ai_resumed_at,
+      new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    ].filter(Boolean).sort().at(-1) as string;
+    const { data: recent } = await admin
+      .from("chat_messages")
+      .select("extras")
+      .eq("conversation_id", conversationId)
+      .gt("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    const junk = (recent ?? []).filter((m) =>
+      // deno-lint-ignore no-explicit-any
+      (Array.isArray(m.extras) ? m.extras : []).some((x: any) => JUNK_EXTRAS.has(x))
+    ).length;
+    if (junk < JUNK_TO_PAUSE) return;
+    const now = new Date().toISOString();
+    await admin
+      .from("chat_conversations")
+      .update({ ai_paused_at: now, takeover_at: now })
+      .eq("id", conversationId);
+    await systemNote(
+      conversationId,
+      `AI paused after ${junk} junk messages. Hand back to AI to turn it on again.`,
+      "",
+    );
+  } catch (err) {
+    console.error("Junk pause check failed:", err);
+  }
 }
 
 // A customer message during a takeover: saved with no AI answer, for the
@@ -2965,6 +3024,9 @@ Deno.serve(async (req) => {
           extra: visitorInfo(req, payload),
           extras: ["whatsapp", `not_answered:${reason}`],
         });
+        if (JUNK_EXTRAS.has(`not_answered:${reason}`) && !isServiceRole(req)) {
+          await pauseIfJunk(payload.conversationId);
+        }
         return true;
       } catch (err) {
         console.error("Chat log failed:", err);
@@ -3377,6 +3439,7 @@ Respond as JSON with these fields:
 - "topic": 2 to 6 words on what this whole chat is about so far, for the team's inbox, e.g. "Asking how to order", "Bulk crockery for a restaurant", "Browsing espresso cups", "Delivery to Pune", "Just saying hi". Sentence case, no names, numbers or full stop.
 - "interest": how keen they seem to buy, judging the whole chat: "hot" (ready to order, asked for a quote or a call, or a bulk, corporate or custom order), "warm" (interested in particular pieces, prices, delivery or how to order), "cold" (greetings, general questions or just looking).
 - "askForCall": true only when this reply ends by asking if the team can give them a quick call (see bulk and corporate gifting above), so the app opens the name and number form under it. Otherwise false. Never ask for their number any other way.
+- "junk": true only when their latest message means nothing at all: keyboard mashing, random letters, symbols or digits ("xmnz mxm zv", "=6%7%644", "Tj i ig. I. I i", ",,0,0./="). False for anything a real person might mean, however short, misspelt or casual: "ok", "yes", "hi", "a" after you asked a question with options, a product or colour word, a number, pincode or phone, Hindi or Hinglish, a typo of a real question. When true, just say briefly you didn't catch that and ask what they're looking for, with the "general" intent and no products.
 
 Only products that are directly relevant get shown, so don't attach products to replies that aren't about them. For "recommend" and "product", each product you list is shown under your reply as a card with its photo, name, live price, stock status, and an add to cart button, so don't write links or prices in the reply and don't list the products out again. Just talk about them naturally, for example why they suit this person, referring to them by name where it helps. Recommend 3 or 4 products unless they ask for more. Prices are in Indian Rupees. Treat budgets strictly: "under 2000" means below Rs 2000, so a Rs 2000 item doesn't qualify, and for sets use the set price as listed. Prefer products that are in stock. Only recommend products that appear in the catalog.
 
@@ -3541,6 +3604,7 @@ When they ask about something without naming it ("what does it consist of?", "in
             request: { type: "STRING" },
             topic: { type: "STRING" },
             interest: { type: "STRING", enum: ["hot", "warm", "cold"] },
+            junk: { type: "BOOLEAN" },
           },
           required: [
             "reply",
@@ -3581,8 +3645,10 @@ When they ask about something without naming it ("what does it consist of?", "in
     let request = "";
     let topic = "";
     let interest = "";
+    let junk = false;
     try {
       const parsed = JSON.parse(text);
+      junk = parsed.junk === true;
       answer = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
       picked = Array.isArray(parsed.products) ? parsed.products : [];
       if (typeof parsed.intent === "string") intent = parsed.intent;
@@ -3833,6 +3899,8 @@ When they ask about something without naming it ("what does it consist of?", "in
       whatsappUrl && "whatsapp",
       detailsOpen ? "details_form" : askForDetails && !contactSaved && "details_prompt",
       images.length > 0 && "gift_photos",
+      // Gibberish the noise check let through: counts toward the pause.
+      junk && !teamDraft && !draft && "junk",
     ].filter((x): x is string => typeof x === "string");
 
     // Logging must never cost the visitor their answer.
@@ -3859,6 +3927,7 @@ When they ask about something without naming it ("what does it consist of?", "in
         },
         extras: shownExtras,
       });
+      if (shownExtras.includes("junk")) await pauseIfJunk(payload.conversationId);
     } catch (err) {
       console.error("Chat log failed:", err);
     }

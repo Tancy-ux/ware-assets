@@ -188,6 +188,10 @@ function takeoverActive(takeoverAt: string | null | undefined) {
   return Date.now() - new Date(takeoverAt).getTime() <
     TAKEOVER_HOURS * 60 * 60 * 1000;
 }
+// A chat's takeover, counting ask-faq's auto-pause for junk (ai_paused_at,
+// scripts/supabase-ai-pause.sql), which lasts until someone hands back.
+// deno-lint-ignore no-explicit-any
+const takeoverOn = (c: any) => !!c?.ai_paused_at || takeoverActive(c?.takeover_at);
 
 // ---- Results: orders the chat played a part in ----
 // The store chat tags the shopper's cart (see tagCart in AskAi.jsx):
@@ -1855,7 +1859,8 @@ Deno.serve(async (req) => {
         dailyNumbers(db, data ?? []),
         awaitingTeam(
           db,
-          (data ?? []).filter((c) => takeoverActive(c.takeover_at)).map((c) => c.id),
+          // Paused for junk: nobody needs to reply to those.
+          (data ?? []).filter((c) => takeoverOn(c) && !c.ai_paused_at).map((c) => c.id),
         ),
       ]);
 
@@ -1899,7 +1904,8 @@ Deno.serve(async (req) => {
             c.last_question ?? c.first_question ?? "",
           ),
           hasContact: !!(c.visitor_phone || c.visitor_email),
-          takeover: takeoverActive(c.takeover_at),
+          takeover: takeoverOn(c),
+          aiPaused: !!c.ai_paused_at,
           needsReply: waiting.has(c.id),
           // scripts/supabase-chat-insights.sql; null before that's run.
           topic: c.topic ?? null,
@@ -2008,7 +2014,8 @@ Deno.serve(async (req) => {
           // What the chat showed under the reply (links, buttons, forms).
           extras: Array.isArray(m.extras) ? m.extras : [],
         })),
-        takeover: takeoverActive(convo?.takeover_at),
+        takeover: takeoverOn(convo),
+        aiPaused: !!convo?.ai_paused_at,
       });
     }
 
@@ -2017,10 +2024,20 @@ Deno.serve(async (req) => {
       if (!UUID_RE.test(String(body.conversationId))) {
         return json({ error: "Bad conversation id" }, 400);
       }
-      const { error } = await db
-        .from("chat_conversations")
-        .update({ takeover_at: body.on ? new Date().toISOString() : null })
-        .eq("id", body.conversationId);
+      const now = new Date().toISOString();
+      const update = (row: Record<string, string | null>) =>
+        db.from("chat_conversations").update(row).eq("id", body.conversationId);
+      // Handing back also ends a pause for junk, and only junk after now
+      // counts toward the next one (ask-faq pauseIfJunk).
+      let { error } = await update(
+        body.on
+          ? { takeover_at: now }
+          : { takeover_at: null, ai_paused_at: null, ai_resumed_at: now },
+      );
+      // Before scripts/supabase-ai-pause.sql there are no pause columns.
+      if (error?.code === "PGRST204" && !body.on) {
+        ({ error } = await update({ takeover_at: null }));
+      }
       if (error) {
         if (error.code === "PGRST204") {
           return json({ error: "Run the latest chat SQL script first" }, 400);
@@ -2064,7 +2081,7 @@ Deno.serve(async (req) => {
         .eq("id", body.conversationId)
         .maybeSingle();
       if (convoError) throw convoError;
-      if (!takeoverActive(convo?.takeover_at)) {
+      if (!takeoverOn(convo)) {
         return json({ error: "Take over the chat first" }, 400);
       }
       // Who's replying, shown to the shopper and in Chats.

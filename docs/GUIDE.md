@@ -465,7 +465,7 @@ Meetha Ho Jaye Dessert Set").
 - **List**: newest activity first. At its top: the **search**, then "31
   conversations" with the date filter on its right (All time default /
   Today / Yesterday / 7 / 30 / 90 days / Custom dates), then the quick
-  filters **All · Needs reply · Leads · Taken over · In Zoho** (Internal when there are some),
+  filters **All · Needs reply · Leads · Taken over · In Zoho** (Internal and **Paused (junk)** when there are some),
   each with its count (hidden at 0). Filters are soft filled chips, the selected
   one dark green. The title bar above holds just the section's name and
   **Refresh** on the right (on phones the Conversations title bar is
@@ -500,6 +500,15 @@ Meetha Ho Jaye Dessert Set").
   box at the bottom and the shopper sees "A member of the Ware team has
   joined the chat". The transcript refreshes every 5 s. **Hand back to AI**
   ends it (it also ends after 24 hours, or if the shopper starts a new chat).
+- **Paused (junk)**: after 3 junk messages in a chat (keyboard mash or
+  bursts the bot caught for free, too-long rubbish, or gibberish the AI
+  flagged as `junk`), the bot takes the chat over by itself and stops
+  answering, with a grey "AI paused after 3 junk messages" note. It works
+  like a takeover (the shopper sees their messages go to the team), but it
+  doesn't run out after 24 hours, "reset" doesn't end it, and it's kept out
+  of Needs reply. Only **Hand back to AI** ends it; junk before that no
+  longer counts. `JUNK_TO_PAUSE` / `pauseIfJunk` in ask-faq; columns from
+  `scripts/supabase-ai-pause.sql` (nothing is paused until it's run).
 - **Delete** removes the chat, its messages and its saved name/phone for
   good.
 - **Visitor panel** (right):
@@ -1182,6 +1191,14 @@ would need a code change (`zohoLeadFields` in `chat-admin`).
 - **Other limits** (`rate_limit`): name/number forms and "start over" 10 /
   10 min and 40 / day per connection; pill taps 30 / 10 min and 150 / day;
   Chats logins 10 / 10 min and 30 / day.
+- **Junk, before any AI** (free): keyboard mash with no real word, number,
+  emoji or non-Latin script gets "didn't catch that" (`isNoise`, reason
+  `noise`); more than 5 messages a minute from one browser gets "give me a
+  second" (`BURST_PER_MIN`, the `burst_limit` database function, reason
+  `burst`). Gibberish that gets past these is flagged by the AI (`junk`),
+  and 3 junk messages pause the chat (see Paused (junk) in §4). The
+  `burst_limit` function exists in the database but its SQL isn't in
+  `scripts/` yet.
 - Messages over 500 characters are refused; the AI sees at most the last 10
   turns (1,000 characters each).
 - Team-only actions (the Improve AI "tidy") need a signed-in team session.
@@ -1225,7 +1242,8 @@ device, cart), `supabase-chat-users.sql` (team, email, agent_name),
 `supabase-quick-replies.sql` (saved messages),
 `supabase-chat-account.sql` (logged-in customer's account),
 `supabase-ai-costs.sql` (the AI cost tab; added Oct 2026, run it once if the tab asks),
-`supabase-chat-visits.sql` (Stats -> Journeys; added 8 Oct 2026, run it once if the tab asks).
+`supabase-chat-visits.sql` (Stats -> Journeys; added 8 Oct 2026, run it once if the tab asks),
+`supabase-ai-pause.sql` (auto-pause for junk: `ai_paused_at`, `ai_resumed_at`; added 18 Oct 2026).
 (`supabase-restock-requests-table.sql` exists but was never run.)
 
 ### Other scripts
