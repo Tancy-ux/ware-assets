@@ -43,3 +43,30 @@ revoke all on function public.rate_limit(text, integer, integer)
   from public, anon, authenticated;
 grant execute on function public.rate_limit(text, integer, integer)
   to service_role;
+
+-- AI replies per visitor per minute (ask-faq BURST_PER_MIN): true while
+-- within the limit. Copied from the live database on 18 Oct 2026 (it was
+-- created there but never saved here).
+create or replace function public.burst_limit(p_key text, p_per_min integer)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  t1 timestamptz := date_bin('1 minute', now(), timestamptz '2000-01-01');
+  n1 integer;
+begin
+  insert into ai_usage as u (key, window_kind, window_start, count)
+    values (p_key, '1m', t1, 1)
+    on conflict (key, window_kind, window_start)
+    do update set count = u.count + 1
+    returning count into n1;
+  return n1 <= p_per_min;
+end;
+$$;
+
+revoke all on function public.burst_limit(text, integer)
+  from public, anon, authenticated;
+grant execute on function public.burst_limit(text, integer)
+  to service_role;

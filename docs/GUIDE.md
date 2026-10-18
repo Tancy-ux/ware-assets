@@ -1194,11 +1194,10 @@ would need a code change (`zohoLeadFields` in `chat-admin`).
 - **Junk, before any AI** (free): keyboard mash with no real word, number,
   emoji or non-Latin script gets "didn't catch that" (`isNoise`, reason
   `noise`); more than 5 messages a minute from one browser gets "give me a
-  second" (`BURST_PER_MIN`, the `burst_limit` database function, reason
-  `burst`). Gibberish that gets past these is flagged by the AI (`junk`),
-  and 3 junk messages pause the chat (see Paused (junk) in §4). The
-  `burst_limit` function exists in the database but its SQL isn't in
-  `scripts/` yet.
+  second" (`BURST_PER_MIN`, the `burst_limit` database function in
+  `scripts/supabase-form-limits.sql`, reason `burst`). Gibberish that gets
+  past these is flagged by the AI (`junk`), and 3 junk messages pause the
+  chat (see Paused (junk) in §4).
 - Messages over 500 characters are refused; the AI sees at most the last 10
   turns (1,000 characters each).
 - Team-only actions (the Improve AI "tidy") need a signed-in team session.
