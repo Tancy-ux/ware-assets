@@ -1203,7 +1203,7 @@ would need a code change (`zohoLeadFields` in `chat-admin`).
   second" (`BURST_PER_MIN`, the `burst_limit` database function in
   `scripts/supabase-form-limits.sql`, reason `burst`). Gibberish that gets
   past these is flagged by the AI (`junk`), and 3 junk messages pause the
-  chat (see Paused (junk) in §4).
+  chat and mark it as spam (see Spam in §4).
 - Messages over 500 characters are refused; the AI sees at most the last 10
   turns (1,000 characters each).
 - Team-only actions (the Improve AI "tidy") need a signed-in team session.
