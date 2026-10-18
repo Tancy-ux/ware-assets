@@ -465,7 +465,7 @@ Meetha Ho Jaye Dessert Set").
 - **List**: newest activity first. At its top: the **search**, then "31
   conversations" with the date filter on its right (All time default /
   Today / Yesterday / 7 / 30 / 90 days / Custom dates), then the quick
-  filters **All · Needs reply · Leads · Taken over · In Zoho** (Internal and **Paused (junk)** when there are some),
+  filters **All · Needs reply · Leads · Taken over · In Zoho** (Internal and **Spam** when there are some),
   each with its count (hidden at 0). Filters are soft filled chips, the selected
   one dark green. The title bar above holds just the section's name and
   **Refresh** on the right (on phones the Conversations title bar is
@@ -500,15 +500,21 @@ Meetha Ho Jaye Dessert Set").
   box at the bottom and the shopper sees "A member of the Ware team has
   joined the chat". The transcript refreshes every 5 s. **Hand back to AI**
   ends it (it also ends after 24 hours, or if the shopper starts a new chat).
-- **Paused (junk)**: after 3 junk messages in a chat (keyboard mash or
-  bursts the bot caught for free, too-long rubbish, or gibberish the AI
-  flagged as `junk`), the bot takes the chat over by itself and stops
-  answering, with a grey "AI paused after 3 junk messages" note. It works
-  like a takeover (the shopper sees their messages go to the team), but it
-  doesn't run out after 24 hours, "reset" doesn't end it, and it's kept out
-  of Needs reply. Only **Hand back to AI** ends it; junk before that no
-  longer counts. `JUNK_TO_PAUSE` / `pauseIfJunk` in ask-faq; columns from
-  `scripts/supabase-ai-pause.sql` (nothing is paused until it's run).
+- **Spam**: **Mark as spam** in the chat's ⋯ menu (edit tick; not on
+  internal chats) sets its `source` to `spam` and pauses the AI. The bot
+  does the same by itself after 3 junk messages in a chat (keyboard mash or
+  bursts it caught for free, too-long rubbish, or gibberish the AI flagged
+  as `junk`), with a grey "Marked as spam and AI paused…" note. A paused
+  chat works like a takeover (the shopper's messages go to the team, no AI
+  cost), but it doesn't run out after 24 hours and "reset" doesn't end it.
+  Spam chats only show under the **Spam** filter (never in All / Needs
+  reply / Leads), and every report leaves them out like test chats
+  (`isSpam` in chat-admin: Stats, Contacts, orders, Products, Couldn't
+  answer, Journeys); Stats → AI cost shows what they cost as **Spam**.
+  **Not spam** (same menu) or **Hand back to AI** ends it: an ordinary store
+  chat again, and only junk after that counts toward the next pause.
+  `JUNK_TO_PAUSE` / `pauseIfJunk` in ask-faq; columns from
+  `scripts/supabase-ai-pause.sql`.
 - **Delete** removes the chat, its messages and its saved name/phone for
   good.
 - **Visitor panel** (right):

@@ -390,10 +390,15 @@ const TEST_RE = /\b(test(ing)?|junk)\b/i;
 // on the Chats page (also "internal"), or a name with "test" anywhere in it
 // ("Tanu test", "test2", "Tester"). "customer": marked as a real customer
 // on the Chats page, which overrides the name check.
+// Spam: marked on the Chats page, or paused by ask-faq after junk messages
+// (source "spam"). Left out of every report like tests, and kept apart
+// from internal chats.
+const isSpam = (c: { source?: string | null } | null | undefined) => c?.source === "spam";
 const isInternal = (c: { visitor_name?: string | null; source?: string | null }) =>
   c.source === "internal" ||
-  (c.source !== "customer" && /test/i.test(c.visitor_name ?? ""));
+  (c.source !== "customer" && !isSpam(c) && /test/i.test(c.visitor_name ?? ""));
 const isTestChat = (c: { label?: string | null; visitor_name?: string | null; company?: string | null; source?: string | null }) =>
+  isSpam(c) ||
   isInternal(c) ||
   (c.source !== "customer" &&
     [c.label, c.visitor_name, c.company].some((s) => s && TEST_RE.test(s)));
@@ -1438,6 +1443,7 @@ Deno.serve(async (req) => {
       "lead-draft": "draft",
       "lead-save": "edit",
       internal: "edit",
+      spam: "edit",
       "lead-push": "zoho",
       "contact-push": "zoho",
       "contact-skip": "zoho",
@@ -1914,6 +1920,7 @@ Deno.serve(async (req) => {
           cart: c.cart ?? null,
           // From the team's own site or a test name, not a store visitor.
           internal: isInternal(c),
+          spam: isSpam(c),
         })),
       });
     }
@@ -2037,6 +2044,11 @@ Deno.serve(async (req) => {
       // Before scripts/supabase-ai-pause.sql there are no pause columns.
       if (error?.code === "PGRST204" && !body.on) {
         ({ error } = await update({ takeover_at: null }));
+      }
+      // Handing a spam chat back to the AI means it isn't spam after all.
+      if (!error && !body.on) {
+        await db.from("chat_conversations").update({ source: "store" })
+          .eq("id", body.conversationId).eq("source", "spam");
       }
       if (error) {
         if (error.code === "PGRST204") {
@@ -3276,6 +3288,39 @@ Deno.serve(async (req) => {
       return json({ ok: true, internal: isInternal(data) });
     }
 
+    // "Mark as spam" / "Not spam" from the chat's ⋯ menu. Spam also pauses
+    // the AI (like ask-faq's pause for junk) until "Not spam" or Hand back
+    // to AI; "Not spam" sets it back to an ordinary store chat.
+    if (body.action === "spam") {
+      if (!UUID_RE.test(String(body.conversationId))) {
+        return json({ error: "Bad conversation id" }, 400);
+      }
+      const now = new Date().toISOString();
+      const { data, error } = await db
+        .from("chat_conversations")
+        .update(
+          body.spam
+            ? { source: "spam", ai_paused_at: now, takeover_at: now }
+            : { source: "store", ai_paused_at: null, takeover_at: null, ai_resumed_at: now },
+        )
+        .eq("id", body.conversationId)
+        .select("*")
+        .single();
+      if (error) {
+        if (error.code === "PGRST204") {
+          return json({ error: "Run scripts/supabase-ai-pause.sql first" }, 400);
+        }
+        throw error;
+      }
+      return json({
+        ok: true,
+        spam: isSpam(data),
+        internal: isInternal(data),
+        takeover: takeoverOn(data),
+        aiPaused: !!data.ai_paused_at,
+      });
+    }
+
     // Stats → AI cost (owner only): what Gemini cost in the date range and
     // this month, for real customers vs tests / internal chats and the
     // team's own AI tools. From ai_costs (scripts/supabase-ai-costs.sql).
@@ -3303,22 +3348,31 @@ Deno.serve(async (req) => {
       // Which chats are tests / internal.
       const ids = [...new Set(rows.map((r) => r.conversation_id).filter(Boolean))] as string[];
       const testIds = new Set<string>();
+      const spamIds = new Set<string>();
       for (let i = 0; i < ids.length; i += 200) {
         const { data } = await db
           .from("chat_conversations")
           .select("id, visitor_name, company, label, source")
           .in("id", ids.slice(i, i + 200));
-        for (const c of data ?? []) if (isTestChat(c)) testIds.add(c.id);
+        for (const c of data ?? []) {
+          if (isSpam(c)) spamIds.add(c.id);
+          else if (isTestChat(c)) testIds.add(c.id);
+        }
       }
       // A reply with no chat to save to only comes from a test (e.g.
       // scripts/bot-tests.mjs); store chats always have one.
       const groupOf = (r: AiCostRow) =>
-        r.kind === "reply"
-          ? (!r.conversation_id || testIds.has(r.conversation_id) ? "tests" : "customers")
-          : "team";
+        r.kind !== "reply"
+          ? "team"
+          : r.conversation_id && spamIds.has(r.conversation_id)
+          ? "spam"
+          : !r.conversation_id || testIds.has(r.conversation_id)
+          ? "tests"
+          : "customers";
       const total = (keep: (r: AiCostRow) => boolean) => {
         const out: Record<string, { calls: number; tokens: number; rupees: number }> = {
           customers: { calls: 0, tokens: 0, rupees: 0 },
+          spam: { calls: 0, tokens: 0, rupees: 0 },
           tests: { calls: 0, tokens: 0, rupees: 0 },
           team: { calls: 0, tokens: 0, rupees: 0 },
         };

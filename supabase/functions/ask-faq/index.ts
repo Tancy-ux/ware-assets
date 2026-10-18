@@ -1916,13 +1916,19 @@ async function pauseIfJunk(conversationId: unknown) {
     ).length;
     if (junk < JUNK_TO_PAUSE) return;
     const now = new Date().toISOString();
+    // Also marked as spam (left out of the Chats page's reports), except
+    // the team's own test chats, which stay internal.
     await admin
       .from("chat_conversations")
-      .update({ ai_paused_at: now, takeover_at: now })
+      .update({
+        ai_paused_at: now,
+        takeover_at: now,
+        ...(convo.source === "internal" ? {} : { source: "spam" }),
+      })
       .eq("id", conversationId);
     await systemNote(
       conversationId,
-      `AI paused after ${junk} junk messages. Hand back to AI to turn it on again.`,
+      `Marked as spam and AI paused after ${junk} junk messages. Hand back to AI (or Not spam) to turn it on again.`,
       "",
     );
   } catch (err) {

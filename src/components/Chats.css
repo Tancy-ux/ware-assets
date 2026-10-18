@@ -2548,10 +2548,15 @@
   --view-ink: #8a6e97;
   --view-soft: #f2edf5;
 }
-/* Chats the AI paused itself after junk messages. */
-.chats-view-paused {
+/* Spam: marked on the Chats page, or paused by the bot after junk. */
+.chats-view-spam {
   --view-ink: #8c8478;
   --view-soft: #f1efec;
+}
+.chats-tag-spam {
+  border-color: #dedad4;
+  background: #f1efec;
+  color: #77706a;
 }
 .chats-view-all {
   --view-ink: #6f7c8c;

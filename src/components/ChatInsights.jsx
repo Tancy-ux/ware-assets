@@ -158,6 +158,7 @@ export const ChatGaps = ({ api, request, onOpenChat, onTeach }) => {
 // team's own AI tools (AI reply, Draft from chat, Bot Try, Improve AI).
 const COST_GROUPS = [
   { id: "customers", label: "Real customers", sub: "Shoppers' typed questions" },
+  { id: "spam", label: "Spam", sub: "Chats marked as spam or paused for junk" },
   { id: "tests", label: "Tests & internal", sub: "Test-named and internal chats" },
   { id: "team", label: "Team tools", sub: "AI reply, Draft from chat, Bot Try, Improve AI" },
 ];
@@ -176,7 +177,8 @@ export const ChatAiCost = ({ api, request }) => {
     );
   }
   if (!data) return null;
-  const monthTotal = COST_GROUPS.reduce((sum, g) => sum + data.month[g.id].rupees, 0);
+  // `?.`: a chat-admin from before the Spam group has no "spam".
+  const monthTotal = COST_GROUPS.reduce((sum, g) => sum + (data.month[g.id]?.rupees ?? 0), 0);
   const perReply = data.range.customers.calls
     ? data.range.customers.rupees / data.range.customers.calls
     : null;
@@ -187,7 +189,7 @@ export const ChatAiCost = ({ api, request }) => {
         <span> · in this period</span>
       </h3>
       <div className="chats-funnel">
-        {COST_GROUPS.map((g) => (
+        {COST_GROUPS.filter((g) => data.range[g.id]).map((g) => (
           <div
             key={g.id}
             className={`chats-funnel-step${g.id === "customers" ? " chats-funnel-good" : ""}`}
