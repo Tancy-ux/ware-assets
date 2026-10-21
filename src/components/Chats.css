@@ -5223,3 +5223,10 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* "WhatsApp": they tapped a WhatsApp button in the chat. */
+.chats-tag-whatsapp {
+  border-color: #bfe3cc;
+  background: #e9f7ee;
+  color: #1d7a45;
+}

@@ -85,7 +85,16 @@ const ChatToday = ({ api, me, canStats, canCarts, waiting, onOpenChat, go, refre
           <Tile
             label="Chats today"
             value={today.loading ? null : (t?.chats ?? 0)}
-            sub={t ? `${t.leads} lead${t.leads === 1 ? "" : "s"}` : null}
+            sub={
+              t
+                ? [
+                    `${t.leads} lead${t.leads === 1 ? "" : "s"}`,
+                    t.whatsapp > 0 && `${t.whatsapp} went to WhatsApp`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                : null
+            }
             onClick={go.today}
           />
         )}

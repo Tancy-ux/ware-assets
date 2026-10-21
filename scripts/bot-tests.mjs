@@ -154,6 +154,24 @@ const SCENARIOS = {
       ["no Circle of Ware tiers", not(/circle of ware|7\.5\s?%|10\s?%/i)],
     ]],
   ],
+  // A number typed in the chat counts as their details; a plain "yes"
+  // after a call question opens the form; bulk asks open it with a quote.
+  "Leaving details": [
+    ["I need 50 corporate gifts for my team", [
+      ["asks with the quote form", (r) => r.askForDetails && r.detailsKind === "quote"],
+    ]],
+    ["my number is 9000000001", [
+      ["counts as their details", (r) => r.contactSaved === true],
+      ["doesn't repeat the number", not(/9000000001/)],
+      ["no form after it", (r) => !r.detailsOpen],
+    ]],
+  ],
+  "Yes to a call": [
+    ["Around 1500 each, 60 pieces for Diwali, delivery in Mumbai by 25th October", [
+      ["asks about a call", has(/\bcall\b/i)],
+    ]],
+    ["yes", [["opens the form", (r) => r.detailsOpen === true]]],
+  ],
   // Details first, the catalogue with the next reply.
   "Gift catalogue": [
     ["Bulk or corporate gifting", [["no catalogue link yet", (r) => !r.giftCatalog]]],

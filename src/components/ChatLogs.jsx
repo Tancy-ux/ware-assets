@@ -170,6 +170,17 @@ const Avatar = ({ c, dot }) => (
 
 // Short, stable tag for grouping anonymous visitors by eye.
 const visitorTag = (id) => `#${id.slice(0, 6)}`;
+// They tapped a WhatsApp button in the chat. The transcript note has the
+// message it pre-filled: search a line of what arrived in TechMonk to
+// find the chat.
+const WhatsAppTag = ({ at }) => (
+  <span
+    className="chats-tag chats-tag-whatsapp"
+    title={`Opened WhatsApp ${formatDate(at)}. The note in the chat has the message they were sent with.`}
+  >
+    WhatsApp
+  </span>
+);
 
 // A lead: someone who left a way to reach them (or is in Zoho already).
 // (hasContact comes from the server too, for logins that can't see them.)
@@ -761,6 +772,8 @@ const ChatLogs = () => {
             c.visitorNumber && `visitor ${c.visitorNumber}`,
             c.firstPage && pageLabel(c.firstPage),
             c.zohoLeadId && "in zoho",
+            c.visitorId && visitorTag(c.visitorId),
+            c.whatsappAt && "whatsapp",
           ]
             .filter(Boolean)
             .some((s) => s.toLowerCase().includes(q))),
@@ -1213,6 +1226,7 @@ const ChatLogs = () => {
                       </span>
                     )}
                     {isLead(c) && <span className="chats-tag chats-tag-lead">Lead</span>}
+                    {c.whatsappAt && <WhatsAppTag at={c.whatsappAt} />}
                     {c.zohoLeadId && (
                       <span className="chats-tag chats-tag-zoho" title="Lead in Zoho">
                         Zoho ✓
@@ -1322,6 +1336,7 @@ const ChatLogs = () => {
                           Spam · AI paused
                         </span>
                       )}
+                      {selected.whatsappAt && <WhatsAppTag at={selected.whatsappAt} />}
                       {selected.zohoLeadId && (
                         <span className="chats-tag chats-tag-zoho">Zoho ✓</span>
                       )}

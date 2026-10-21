@@ -900,16 +900,29 @@ block at the top of `delivery.ts`.
 - The Chats transcript shows each of these as a grey note: *Shared their
   name: …*, *Closed the name box without a name*, *Left their number (in
   the box after their name / details form)*, *Skipped the number box*,
-  *Closed the details card without leaving any*.
-- **"Want our team to follow up with you?" → Enter your details** (name +
-  phone) from the shopper's 6th typed message, or straight away for bulk /
-  corporate / custom / Atelier enquiries. **Not now** hides it. It shows
-  under **every other reply at most** (never two replies in a row), unless
-  the reply itself asks for a call. In the Chats transcript it's a one-line
-  "Details asked" note.
-- When the bot asks "could our team give you a quick call?" the form opens
-  right under that reply. It never says the team will call unless a number
-  is on file.
+  *Saw the details card*, *Opened the details form*, *Closed the details
+  card without leaving any*.
+- **The details card** (`ContactCard`, ask-faq's `detailsKind`) asks one
+  of three ways:
+  - **quote**: bulk / corporate / custom / Atelier / HoReCa enquiries get
+    the name + number form already open, "Share your name and number and
+    we'll WhatsApp you a quote." (`contactFormTitleQuote`).
+  - **call**: when the bot asks "could our team give you a quick call?" the
+    form opens under that reply; a plain "yes" / "sure" / "haan ji" right
+    after counts as a yes (`YES_RE`). It never says the team will call
+    unless a number is on file.
+  - **ideas**: a one-line "Want a hand choosing? Leave your number and
+    we'll WhatsApp you a few ideas." with **Leave my number**, from their
+    3rd typed message, or from their 2nd when they ask about price,
+    delivery, stock or ordering (`BUYING_WORDS`).
+  It shows under **every other reply at most** (never two replies in a
+  row), unless the reply itself asks for a call. **Not now** hides it for
+  this visit only (sessionStorage); it can come back next visit. The
+  server's asks show as a one-line "Details asked" note in the Chats
+  transcript.
+- **A number typed in the chat** counts as their details: it's saved on
+  the chat, the reply thanks them (without repeating it), and no card
+  follows.
 - Never two asks at once (not next to the WhatsApp button, not with the
   name box). Emails and mobile numbers typed into the chat are saved too
   (a 6-digit pincode is never mistaken for a phone).
@@ -965,24 +978,30 @@ block at the top of `delivery.ts`.
   for "where's my order" / tracking the bot says tracking is emailed on
   dispatch and gives the WhatsApp button to check with their order number.
 - **Chat with the Ware team** WhatsApp card when the shopper wants a person,
-  pre-filled with a summary of what they need.
+  pre-filled with one short line: who they are (if known) and what they
+  need, or up to two pieces they looked at, e.g. *"Hi! This is Priya. I'd
+  like a shipping quote to Singapore for the Lunar Dinner Spread Nude."*
+- **Finding the chat behind a WhatsApp message**: a tap on any WhatsApp
+  link in the chat is saved as *"Opened WhatsApp to chat with the team"*
+  with *Their message: "…"* (what it pre-filled; `savedWhatsAppTap`).
+  Paste a line of what arrived in TechMonk into the Chats search to find
+  the chat (nothing extra is added to the shopper's message). Those chats get a green
+  **WhatsApp** tag in the list and the chat header (`chat-admin`
+  `whatsappAt`), and Overview's Leads tile and Today's Chats today tile
+  count how many went to WhatsApp.
 
 ### 5.10 When the AI can't answer
 
 Gemini down, out of quota or too slow (25 s deadline) → a warm message and
 the WhatsApp button. The same happens for too many messages (limits in §9).
-The WhatsApp message is pre-filled with who they are (if known) and their
-last few questions:
+The WhatsApp message is pre-filled, kept short, with who they are (if
+known) and their latest question:
 
-    Hi! I'm Priya. I was chatting with the assistant on your website and
-    would love some help.
+    Hi! I'm Priya. I was chatting on your website about: 100 gifts, around
+    1500 each by 20th Oct
 
-    What I asked:
-    - Bulk or corporate gifting
-    - 100 gifts, around 1500 each by 20th Oct
-
-(Without a name it starts "Hi! I was chatting…"; one question reads "I
-asked: …".) Written in two places that must match: `fallbackWhatsAppUrl` in
+(Without a name it starts "Hi! I was chatting…"; the question is cut at
+120 characters.) Written in two places that must match: `fallbackWhatsAppUrl` in
 AskAi.jsx (the chat can't reach the bot) and `handoffText` in ask-faq. A
 message over 500 characters gets its own text sent as it is.
 

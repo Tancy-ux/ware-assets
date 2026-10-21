@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { TEXTS, fillText } from "../lib/chatTexts";
 
 // "Pinky Sharma" -> "Pinky", capitalised, for "Thanks, Pinky!".
@@ -27,8 +27,17 @@ const ContactCard = ({
   // The title when the name's known ({name} is filled in).
   titleNamed,
   children,
+  // Told when it's first shown, and when the form is opened from the
+  // one-line prompt (the chat notes both for the team).
+  onShown,
+  onOpen,
 }) => {
   const [expanded, setExpanded] = useState(startOpen);
+  useEffect(() => {
+    onShown?.();
+    // Once, when it first appears.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Already told us their name? Then only the number is asked for (the
   // name box is left out). A name that arrives while the card is open
   // (a reply just picked it up) counts too.
@@ -51,7 +60,10 @@ const ContactCard = ({
           <button
             type="button"
             className="faq-chat-similar-btn"
-            onClick={() => setExpanded(true)}
+            onClick={() => {
+              setExpanded(true);
+              onOpen?.();
+            }}
           >
             {TEXTS.contactPromptButton}
           </button>

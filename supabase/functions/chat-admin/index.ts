@@ -426,6 +426,8 @@ type DashTotals = {
   unanswered: number;
   replies: number;
   messages: number;
+  // Chats where they tapped a WhatsApp button in the window.
+  whatsapp: number;
 };
 
 // The dashboard's numbers for chats that started in [since, until), with
@@ -481,6 +483,8 @@ async function dashboardNumbers(
     (m.extras ?? []).some((x: string) => x.startsWith("not_answered:"))
   );
   const teamReplies = messages.filter((m) => m.sender === "agent");
+  const inConvs = new Set(ids);
+  const tapped = [...(await whatsappTaps(db, since, until)).keys()].filter((id) => inConvs.has(id));
 
   // Orders from people who chatted (as Stats counts them).
   let ordersError: string | null = null;
@@ -534,6 +538,7 @@ async function dashboardNumbers(
     unanswered: notAnswered.length,
     replies: teamReplies.length,
     messages: fromShopper.length,
+    whatsapp: tapped.length,
   };
   if (!detail) return { totals, ordersError };
 
@@ -846,6 +851,30 @@ async function dailyNumbers(db: any, conversations: { started_at: string }[]) {
 }
 
 // ---- Needs reply / visits (the Chats list) ----
+// The note ask-faq writes when a shopper taps a WhatsApp button in the
+// chat (its "log" mode), followed by the message it pre-filled. Each
+// chat's latest tap in [since, until), by id.
+const WHATSAPP_NOTE = "Opened WhatsApp to chat with the team";
+// deno-lint-ignore no-explicit-any
+async function whatsappTaps(db: any, since: string | null, until: string | null) {
+  let q = db
+    .from("chat_messages")
+    .select("conversation_id, created_at")
+    .eq("sender", "system")
+    .like("answer", `${WHATSAPP_NOTE}%`)
+    .order("created_at", { ascending: false })
+    .limit(5000);
+  if (since) q = q.gte("created_at", since);
+  if (until) q = q.lt("created_at", until);
+  const { data, error } = await q;
+  if (error) throw error;
+  const taps = new Map<string, string>();
+  for (const m of data ?? []) {
+    if (!taps.has(m.conversation_id)) taps.set(m.conversation_id, m.created_at);
+  }
+  return taps;
+}
+
 // A taken-over chat needs a reply when its latest message is the
 // customer's (the AI isn't answering it). Returns those chats' ids.
 // deno-lint-ignore no-explicit-any
@@ -1861,6 +1890,8 @@ Deno.serve(async (req) => {
       if (until) query = query.lt("last_message_at", until);
       const { data, error } = await query;
       if (error) throw error;
+      // Taps since the list's start; older ones don't matter here.
+      const tapsLoading = whatsappTaps(db, since, until);
       const [numbers, waiting] = await Promise.all([
         dailyNumbers(db, data ?? []),
         awaitingTeam(
@@ -1869,6 +1900,8 @@ Deno.serve(async (req) => {
           (data ?? []).filter((c) => takeoverOn(c) && !c.ai_paused_at).map((c) => c.id),
         ),
       ]);
+
+      const taps = await tapsLoading;
 
       return json({
         conversations: (data ?? []).map((c) => ({
@@ -1913,6 +1946,8 @@ Deno.serve(async (req) => {
           takeover: takeoverOn(c),
           aiPaused: !!c.ai_paused_at,
           needsReply: waiting.has(c.id),
+          // When they last tapped a WhatsApp button in the chat.
+          whatsappAt: taps.get(c.id) ?? null,
           // scripts/supabase-chat-insights.sql; null before that's run.
           topic: c.topic ?? null,
           interest: c.interest ?? null,

@@ -52,12 +52,15 @@ export const TEXTS = {
   noThanks: "No thanks",
 
   // "Leave your details" prompt and form
-  contactPrompt: "Want our team to follow up with you?",
-  contactPromptButton: "Enter your details",
+  contactPrompt: "Want a hand choosing? Leave your number and we'll WhatsApp you a few ideas.",
+  contactPromptButton: "Leave my number",
   contactFormTitle: "Leave your name and number and our team will get back to you.",
   contactFormTitleCall: "Share your name and number for a quick call from our team.",
   // The same, when we already have their name (only the number is asked).
   contactFormTitleNamed: "Thanks, {name}! Leave your number and our team will get back to you.",
+  // Bulk / custom / gifting enquiries: the form opens with a reason.
+  contactFormTitleQuote: "Share your name and number and we'll WhatsApp you a quote.",
+  contactFormTitleQuoteNamed: "Thanks, {name}! Share your number and we'll WhatsApp you a quote.",
   contactFormTitleCallNamed: "Thanks, {name}! Share your number for a quick call from our team.",
   contactFormNote:
     "We'll only use this to get back to you about your enquiry. Our team is available {hours}.",

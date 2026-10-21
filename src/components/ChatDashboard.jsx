@@ -149,7 +149,13 @@ const ChatDashboard = ({ api, request, results, resultsLoading, onOpenChat, onSh
     {
       id: "leads",
       label: "Leads",
-      sub: t.zoho ? `${t.zoho} sent to Zoho` : "None sent to Zoho yet",
+      // Plus the ones who went to WhatsApp instead (their chat has a ref).
+      sub: [
+        t.whatsapp > 0 && `${t.whatsapp} went to WhatsApp`,
+        t.zoho ? `${t.zoho} sent to Zoho` : "None sent to Zoho yet",
+      ]
+        .filter(Boolean)
+        .join(" · "),
     },
     {
       id: "orders",

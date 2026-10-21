@@ -1629,10 +1629,23 @@ const WHATSAPP_NUMBER = "+919082820610";
 // Ware Atelier's designers: their Enquire button and the number in replies.
 const ATELIER_NUMBER = "+919619620099";
 
+// "Yes", "sure", "ok please", "haan ji"...: a short yes.
+const YES_RE =
+  /^(yes|yeah|yep|yup|sure|ok(ay)?|haan|ha|ji|please|of course|go ahead|sounds good|definitely)( (please|sure|ji|do|call( me)?|that works))*[\s!.]*$/i;
+
 // Enquiries the team should follow up on personally (bulk / corporate /
 // custom / quotes / business orders / big quantities like "100 pcs").
 const FOLLOW_UP_WORDS =
   /\b(bulk|corporate|wholesale|custom(ised|ized|ise|ize)?|personali[sz]ed?|branding|logo|quote|quotation|hamper|horeca|hotel|restaurant|cafe|caf[eé]|b2b)\b|\b\d{2,}\s*(pcs|pieces|units|qty|nos|boxes|sets|gifts)\b|\b(qty|quantity)\s*(of\s*)?\d{2,}/i;
+
+// Signs they're close to buying (price, delivery, stock, ordering): from
+// their second message on, the chat offers to WhatsApp them a few ideas.
+const BUYING_WORDS =
+  /\b(price|prices|pricing|cost|costs|how much|rate|rates|deliver(y|ies)?|ship(ping)?|dispatch|in stock|stock|available|availability|order|buy|purchase|cod|emi)\b/i;
+
+// Asking about an order they already placed (tracking, a delay, #1234).
+const ORDER_STATUS_WORDS =
+  /\b(my order|order (status|number|no|id)|track(ing)?|where('?s| is)|delayed|not (received|delivered|arrived)|cancel)\b|#\d{3,}/i;
 
 const whatsAppLink = (text: string, phone = WHATSAPP_NUMBER) =>
   `https://api.whatsapp.com/send/?${new URLSearchParams({
@@ -1663,28 +1676,16 @@ const DIRECTIONS_WORDS =
 const RETURNS_WORDS =
   /\b(returns?|returning|returned|exchanges?|exchanging|refunds?|refunded|replace(ment)?|damaged|broken|cracked|chipped|wrong (item|product|piece|colou?r|size))\b/i;
 
-// The WhatsApp message when the bot can't answer: who they are (if we
-// know) and their last few questions, e.g.
-//   Hi! I'm Priya. I was chatting with the assistant on your
-//   website and would love some help.
-//
-//   What I asked:
-//   - Bulk or corporate gifting
-//   - 100 gifts, around 1500 each
+// The WhatsApp message when the bot can't answer, kept short: who they
+// are (if we know) and their latest question, e.g.
+//   Hi! I'm Priya. I was chatting on your website about: 100 gifts,
+//   around 1500 each
 // (The chat's fallbackWhatsAppUrl writes the same.)
 function handoffText(name: string, questions: string[]) {
-  const asked = [...new Set(questions.map((q) => (q ?? "").trim()).filter(Boolean))]
-    .slice(-3)
-    .map((q) => (q.length > 200 ? `${q.slice(0, 200)}…` : q));
+  const last = questions.map((q) => (q ?? "").trim()).filter(Boolean).at(-1) ?? "";
   const first = name.trim().split(/\s+/)[0];
-  return [
-    `Hi!${first ? ` I'm ${first}.` : ""} I was chatting with the assistant on your website and would love some help.`,
-    asked.length === 1
-      ? `\nI asked: ${asked[0]}`
-      : asked.length
-      ? `\nWhat I asked:\n${asked.map((q) => `- ${q}`).join("\n")}`
-      : "",
-  ].join("\n");
+  return `Hi!${first ? ` I'm ${first}.` : ""} I was chatting on your website` +
+    (last ? ` about: ${last.length > 120 ? `${last.slice(0, 120)}…` : last}` : " and would love some help.");
 }
 
 // The Chats page's "AI reply": a team member sends this under their own
@@ -1719,15 +1720,15 @@ function buildWhatsAppUrl(ctx: {
     : ctx.company
     ? ` I'm reaching out from ${ctx.company}.`
     : "";
-  const products = [...new Set(ctx.products)].slice(0, 3);
-  const ask = ctx.request
-    ? `. ${ctx.request}`
-    : ` and would like to speak to someone from the team.`;
-  // Skip the product list when the request already names them.
-  const unmentioned = products.filter((p) => !ctx.request.includes(p));
-  const text = `Hi!${who} I was chatting with the Ware Innovations assistant` +
-    ask +
-    (unmentioned.length ? ` I was looking at: ${unmentioned.join(", ")}.` : "");
+  // Short: their request, or else up to two pieces they looked at.
+  const request = ctx.request.length > 160 ? `${ctx.request.slice(0, 160)}…` : ctx.request;
+  const products = [...new Set(ctx.products)].slice(0, 2);
+  const text = `Hi!${who}` +
+    (request
+      ? ` ${request}`
+      : products.length
+      ? ` I'd like some help with ${products.join(" and ")}.`
+      : " I'd like to speak to someone from the team.");
   return whatsAppLink(text);
 }
 
@@ -1957,7 +1958,13 @@ async function logCustomerMessage(
       ...(page ? { last_page: page } : {}),
       ...info,
     },
-    page ? { first_page: page } : {},
+    // Like logTurn: an email / mobile number typed in the chat, if the
+    // chat has none yet.
+    {
+      ...(page ? { first_page: page } : {}),
+      ...(question.match(EMAIL_RE) ? { visitor_email: question.match(EMAIL_RE)![0].toLowerCase() } : {}),
+      ...(question.match(MOBILE_RE) ? { visitor_phone: question.match(MOBILE_RE)![0].trim() } : {}),
+    },
   );
   await insertMessage(admin, {
     conversation_id: conversationId,
@@ -2269,6 +2276,8 @@ const CHAT_EVENTS: Record<string, string> = {
   "name-closed": "Closed the name box without a name",
   "number-skipped": "Skipped the number box",
   "contact-closed": "Closed the details card without leaving any",
+  "contact-shown": "Saw the details card",
+  "contact-opened": "Opened the details form",
 };
 
 // A grey note in the Chats transcript (like "Visitor reset the chat").
@@ -2838,8 +2847,11 @@ Deno.serve(async (req) => {
       const notes = items
         .map((i) => ({
           item: i,
+          // With the message it pre-filled, so the team can find this chat
+          // from what arrives on WhatsApp.
           text: i?.type === "whatsapp"
-            ? "Opened WhatsApp to chat with the team"
+            ? "Opened WhatsApp to chat with the team" +
+              (text(i?.text, 300) ? `\nTheir message: "${text(i.text, 300)}"` : "")
             : i?.type === "event"
             ? CHAT_EVENTS[String(i.kind)]
             : undefined,
@@ -2996,7 +3008,13 @@ Deno.serve(async (req) => {
       payload.conversationId,
       payload.visitorId,
     );
-    const contactSaved = !!conversation?.visitor_phone || !!teamDraft?.contactSaved;
+    // A mobile number typed into the chat counts as leaving their details
+    // (logTurn saves it on the chat): the reply thanks them, no form after.
+    const typedPhone = !teamDraft && !conversation?.visitor_phone
+      ? question.match(MOBILE_RE)?.[0] ?? ""
+      : "";
+    const contactSaved = !!conversation?.visitor_phone || !!teamDraft?.contactSaved ||
+      !!typedPhone;
 
     if (takeoverActive(conversation)) {
       try {
@@ -3534,7 +3552,9 @@ When they ask about something without naming it ("what does it consist of?", "in
         }`
         : ""
     }${
-      contactSaved
+      typedPhone
+        ? "\n\nThey've just typed their phone number in this message, and it's saved for the team. Thank them warmly and say our team will reach them on it (Monday to Saturday, 10 to 7). Don't repeat the number back, and don't ask for it again."
+        : contactSaved
         ? "\n\nThey've already left their phone number for the team, so don't ask whether the team can call them. If they ask for a call, warmly confirm the team will call them on the number they shared."
         : `\n\nThe team doesn't have their phone number yet, so never say the team will call them, contact them or be in touch. If they ask for a call ("call_request"), warmly say you'd be happy to arrange it and ask them to pop their name and number in the form just below, for example "Of course! Just pop your name and number below and our team will give you a call." The form appears automatically.`
     }${
@@ -3661,6 +3681,12 @@ When they ask about something without naming it ("what does it consist of?", "in
       if (typeof parsed.intent === "string") intent = parsed.intent;
       followUp = parsed.followUp === true;
       askForCall = parsed.askForCall === true;
+      // A plain "yes" / "sure" right after we asked about a quick call is
+      // a yes to the call, whatever the model made of it.
+      if (intent !== "human" && YES_RE.test(question.trim()) &&
+        /\bcall\b/i.test(history.at(-1)?.answer ?? "")) {
+        intent = "call_request";
+      }
       visitorName = cleanField(parsed.visitorName);
       company = cleanField(parsed.company);
       request = typeof parsed.request === "string"
@@ -3867,9 +3893,16 @@ When they ask about something without naming it ("what does it consist of?", "in
     );
     // Not straight after a reply that already showed the details card: at
     // most every other reply (the chat says whether it did).
+    const quoteEnquiry = followUp || aboutAtelier || FOLLOW_UP_WORDS.test(question);
+    // Checking on an order they've placed isn't buying.
+    const buying = history.length >= 1 && BUYING_WORDS.test(question) &&
+      !ORDER_STATUS_WORDS.test(question);
     const askForDetails = detailsOpen || (!bespoke && intent !== "human" &&
-      payload.detailsShownLast !== true &&
-      (followUp || aboutAtelier || FOLLOW_UP_WORDS.test(question)));
+      payload.detailsShownLast !== true && (quoteEnquiry || buying));
+    // How the chat asks: "call" (the reply asked about a call: the form
+    // opens), "quote" (bulk / custom / gifting: the form opens, "we'll
+    // WhatsApp you a quote"), "ideas" (close to buying: a one-line offer).
+    const detailsKind = detailsOpen ? "call" : quoteEnquiry ? "quote" : "ideas";
 
     // About Ware Atelier / bespoke pieces: the chat adds the catalogue's
     // link (atelierCatalogUrl in chatTexts).
@@ -3947,6 +3980,8 @@ When they ask about something without naming it ("what does it consist of?", "in
       contactSaved,
       askForDetails,
       detailsOpen,
+      // Only meaningful with askForDetails.
+      detailsKind,
       bespoke,
       catalog: atelierCatalog,
       horecaCatalog,

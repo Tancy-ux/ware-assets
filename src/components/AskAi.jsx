@@ -118,24 +118,14 @@ const whatsAppUrl = (text, phone = WHATSAPP_NUMBER) =>
     phone,
     text,
   })}`;
-// "Hi! I'm Priya. I was chatting with the assistant on your
-// website and would love some help. What I asked: ..." (their last few
-// questions, so the team knows what it's about). Same as ask-faq's
-// handoffText.
+// "Hi! I'm Priya. I was chatting on your website about: <their latest
+// question>", kept short. Same as ask-faq's handoffText.
 const fallbackWhatsAppUrl = (questions, name = "") => {
-  const asked = [...new Set(questions.map((q) => (q ?? "").trim()).filter(Boolean))]
-    .slice(-3)
-    .map((q) => (q.length > 200 ? `${q.slice(0, 200)}…` : q));
+  const last = questions.map((q) => (q ?? "").trim()).filter(Boolean).at(-1) ?? "";
   const first = name.trim().split(/\s+/)[0];
   return whatsAppUrl(
-    [
-      `Hi!${first ? ` I'm ${first}.` : ""} I was chatting with the assistant on your website and would love some help.`,
-      asked.length === 1
-        ? `\nI asked: ${asked[0]}`
-        : asked.length
-          ? `\nWhat I asked:\n${asked.map((q) => `- ${q}`).join("\n")}`
-          : "",
-    ].join("\n"),
+    `Hi!${first ? ` I'm ${first}.` : ""} I was chatting on your website` +
+      (last ? ` about: ${last.length > 120 ? `${last.slice(0, 120)}…` : last}` : " and would love some help."),
   );
 };
 // The "Track my order" chip; typed ("where is my order?") too when we have
@@ -172,20 +162,27 @@ const LOCAL_REPLY_JITTER_MS = 600;
 // now", { saved } mirroring what the server says (the name/phone themselves
 // live only on the server, so deleting the chat in the Chats page really
 // forgets them, and the card comes back). Clearing the chat resets this.
+// "Not now" lasts this visit only (sessionStorage); saved stays.
 const CONTACT_KEY = "askAiContact";
 // Without a follow-up-worthy enquiry, the details prompt waits this long.
-const CONTACT_AFTER_MESSAGES = 6;
-const loadContactPrefs = () => {
+const CONTACT_AFTER_MESSAGES = 3;
+// `storage` is a function: even reaching sessionStorage can throw when
+// the browser blocks storage.
+const readJson = (storage) => {
   try {
-    const v = JSON.parse(localStorage.getItem(CONTACT_KEY)) ?? {};
-    return { dismissed: !!v.dismissed, saved: !!v.saved };
+    return JSON.parse(storage().getItem(CONTACT_KEY)) ?? {};
   } catch {
-    return { dismissed: false, saved: false };
+    return {};
   }
 };
+const loadContactPrefs = () => ({
+  dismissed: !!readJson(() => sessionStorage).dismissed,
+  saved: !!readJson(() => localStorage).saved,
+});
 const storeContactPrefs = (value) => {
   try {
-    localStorage.setItem(CONTACT_KEY, JSON.stringify(value));
+    sessionStorage.setItem(CONTACT_KEY, JSON.stringify({ dismissed: !!value.dismissed }));
+    localStorage.setItem(CONTACT_KEY, JSON.stringify({ saved: !!value.saved }));
   } catch {
     // Still applies for this page view.
   }
@@ -278,7 +275,18 @@ const saveLater = (item) => {
   ]);
   sendUnsaved();
 };
-const savedWhatsAppTap = () => saveLater({ type: "whatsapp" });
+// A tap on a WhatsApp link, with the message it pre-fills: the team
+// pastes a line of what arrived in TechMonk into the Chats search to find
+// this chat.
+const savedWhatsAppTap = (e) => {
+  let text = "";
+  try {
+    text = new URL(e?.currentTarget?.href ?? "").searchParams.get("text") ?? "";
+  } catch {
+    // Not a link we can read: just the tap.
+  }
+  saveLater({ type: "whatsapp", text: text.slice(0, 300) });
+};
 
 // Tells the server the visitor started over ("reset" / clear chat): ends
 // any team takeover and marks the spot in the Chats transcript. Their chat
@@ -470,6 +478,7 @@ const ProductCard = ({
           target="_blank"
           rel="noopener noreferrer"
           className="ware-card-enquire"
+          onClick={savedWhatsAppTap}
         >
           {TEXTS.enquire}
         </a>
@@ -574,6 +583,7 @@ const ProductCard = ({
           target="_blank"
           rel="noopener noreferrer"
           className="faq-chat-product-btn"
+          onClick={product.enquireUrl ? savedWhatsAppTap : undefined}
         >
           {action.label}
         </a>
@@ -922,6 +932,13 @@ const AskAi = ({
       showReturns: !!data.returnsLink,
       askForDetails: !!data.askForDetails,
       detailsOpen: !!data.detailsOpen,
+      // How the details card asks: "call" / "quote" open the form, "ideas"
+      // is a one-line offer (also when only the message count brought it).
+      detailsKind: data.detailsOpen
+        ? "call"
+        : data.askForDetails
+          ? (data.detailsKind ?? "quote")
+          : "ideas",
       // Whether the details card goes under this reply (the server has
       // already skipped askForDetails right after one).
       contactShown:
@@ -1461,7 +1478,8 @@ const AskAi = ({
 
   // The latest reply asked "can our team give you a quick call?": show
   // the name / number form open under it rather than the one-liner.
-  const callAsked = !!messages.findLast((m) => m.answer)?.detailsOpen;
+  const lastReply = messages.findLast((m) => m.answer);
+  const detailsKind = lastReply?.detailsKind ?? "ideas";
 
   const updateContactPrefs = (patch) =>
     setContactPrefs((prev) => {
@@ -1583,6 +1601,15 @@ const AskAi = ({
     return true;
   };
 
+  // Seeing it (once a visit) and opening the form are noted in the team's
+  // transcript too, so they can see where people stop.
+  const contactLogged = useRef(false);
+  const contactShownOnce = () => {
+    if (contactLogged.current) return;
+    contactLogged.current = true;
+    saveLater({ type: "event", kind: "contact-shown" });
+  };
+  const contactOpened = () => saveLater({ type: "event", kind: "contact-opened" });
   // Closing it is noted in the team's transcript, like the name box.
   const dismissContact = () => {
     updateContactPrefs({ dismissed: true });
@@ -2238,12 +2265,17 @@ const AskAi = ({
 
         {showContactCard && (
           <ContactCard
-            key={callAsked ? "call" : "prompt"}
-            startOpen={callAsked}
+            key={detailsKind}
+            startOpen={detailsKind !== "ideas"}
+            title={detailsKind === "quote" ? TEXTS.contactFormTitleQuote : undefined}
+            titleNamed={detailsKind === "quote" ? TEXTS.contactFormTitleQuoteNamed : undefined}
             initialName={knownName}
             initialPhone={accountInfo?.phone ?? ""}
             onSave={saveContact}
             onDismiss={dismissContact}
+            onOpen={contactOpened}
+            // The server's asks are already marked under the reply.
+            onShown={lastReply?.askForDetails ? undefined : contactShownOnce}
           />
         )}
         {showNameCard && (
