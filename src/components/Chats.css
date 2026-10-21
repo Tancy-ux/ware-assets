@@ -5230,3 +5230,30 @@
   background: #e9f7ee;
   color: #1d7a45;
 }
+
+/* Stats → Overview, "Where chats come from": a source that's mostly junk. */
+.chats-sources-junk {
+  color: #b5502f;
+  font-weight: 600;
+}
+
+/* Today: "Possible spam" from one network, with Review / Mark all. */
+.chats-today-spam {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  border-color: #f0d3c4;
+  background: #fdf5f1;
+}
+.chats-today-spam p {
+  margin: 0;
+  flex: 1 1 320px;
+  font-size: 13px;
+  color: var(--chats-text);
+}
+.chats-today-spam-actions {
+  display: flex;
+  gap: 8px;
+}

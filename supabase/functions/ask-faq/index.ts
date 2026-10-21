@@ -129,6 +129,34 @@ const clientIp = (req: Request) =>
       ""
   ).trim().slice(0, 64);
 
+// The chat's network, for the Chats page's "same network as N other
+// chats" (scripts/supabase-chat-network.sql): a keyed hash of the IP, never
+// the IP itself. For IPv6 only the first half (the home or phone line),
+// since the rest changes. Worked out once per request, read by
+// visitorInfo.
+const networkIds = new WeakMap<Request, string>();
+// Without a secret the hash could be reversed (there are only so many
+// IPs), so then nothing is saved.
+const NETWORK_SECRET = Deno.env.get("NETWORK_ID_SECRET") ??
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const networkKey = NETWORK_SECRET
+  ? crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(NETWORK_SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  )
+  : null;
+async function networkIdOf(req: Request) {
+  const ip = clientIp(req);
+  if (!ip || !networkKey) return "";
+  const network = ip.includes(":") ? ip.split(":").slice(0, 4).join(":") : ip;
+  const key = await networkKey;
+  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(network));
+  return [...new Uint8Array(mac)].slice(0, 6).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 async function rateCheck(req: Request, visitorId: unknown) {
   const admin = adminClient();
   if (!admin) return "ok";
@@ -1760,6 +1788,10 @@ const NEWER_COLUMNS = [
   "account_phone",
   "account_email",
   "shopify_customer_id",
+  // scripts/supabase-chat-network.sql
+  "network_id",
+  "came_from",
+  "came_from_campaign",
 ];
 
 // An email or an Indian mobile number typed into the chat (not a 6-digit
@@ -1915,7 +1947,10 @@ async function pauseIfJunk(conversationId: unknown) {
       // deno-lint-ignore no-explicit-any
       (Array.isArray(m.extras) ? m.extras : []).some((x: any) => JUNK_EXTRAS.has(x))
     ).length;
-    if (junk < JUNK_TO_PAUSE) return;
+    if (junk < JUNK_TO_PAUSE) {
+      await pauseForNetworkJunk(admin, convo);
+      return;
+    }
     const now = new Date().toISOString();
     // Also marked as spam (left out of the Chats page's reports), except
     // the team's own test chats, which stay internal.
@@ -1935,6 +1970,49 @@ async function pauseIfJunk(conversationId: unknown) {
   } catch (err) {
     console.error("Junk pause check failed:", err);
   }
+}
+
+// One person starting chat after chat (a new browser each time) never
+// reaches JUNK_TO_PAUSE in any one chat: so a chat that just sent junk is
+// paused too when its network (scripts/supabase-chat-network.sql) sent
+// JUNK_TO_PAUSE junk messages across its chats in the last hour. Only the
+// junk-sending chat: others on the network (mobile networks are shared)
+// carry on, and it isn't marked as spam; the team decides that.
+const NETWORK_JUNK_WINDOW_MS = 60 * 60 * 1000;
+// deno-lint-ignore no-explicit-any
+async function pauseForNetworkJunk(admin: any, convo: any) {
+  if (!convo.network_id || convo.source === "internal") return;
+  const since = new Date(Date.now() - NETWORK_JUNK_WINDOW_MS).toISOString();
+  const { data: chats } = await admin
+    .from("chat_conversations")
+    .select("id")
+    .eq("network_id", convo.network_id)
+    .gt("last_message_at", since)
+    .limit(50);
+  const ids = (chats ?? []).map((c: { id: string }) => c.id);
+  if (ids.length < 2) return;
+  const { data: recent } = await admin
+    .from("chat_messages")
+    .select("conversation_id, extras")
+    .in("conversation_id", ids)
+    .gt("created_at", since)
+    .limit(500);
+  const junk = (recent ?? []).filter((m: { extras?: unknown }) =>
+    // deno-lint-ignore no-explicit-any
+    (Array.isArray(m.extras) ? m.extras : []).some((x: any) => JUNK_EXTRAS.has(x))
+  );
+  const junkChats = new Set(junk.map((m: { conversation_id: string }) => m.conversation_id));
+  if (junk.length < JUNK_TO_PAUSE || junkChats.size < 2) return;
+  const now = new Date().toISOString();
+  await admin
+    .from("chat_conversations")
+    .update({ ai_paused_at: now, takeover_at: now })
+    .eq("id", convo.id);
+  await systemNote(
+    convo.id,
+    `AI paused: ${junk.length} junk messages from this network in the last hour, across ${junkChats.size} chats. Hand back to AI to turn it on again.`,
+    "",
+  );
 }
 
 // A customer message during a takeover: saved with no AI answer, for the
@@ -1999,12 +2077,54 @@ function accountFields(raw: unknown): Record<string, string> {
   return out;
 }
 
+// Where this visit came from (the chat's lib/arrival: the site before ours
+// and the landing page's ad tags) as one label for the Chats page and
+// Stats: "Glance", "Google Display ad", "Instagram / Facebook ad",
+// "Google search", "Direct", or the site's name. Undefined when the chat
+// didn't say (older widget).
+function cameFrom(raw: unknown) {
+  if (!raw || typeof raw !== "object") return undefined;
+  // deno-lint-ignore no-explicit-any
+  const a = raw as Record<string, any>;
+  const str = (v: unknown) => (typeof v === "string" ? v.trim().toLowerCase().slice(0, 100) : "");
+  const ref = str(a.ref).replace(/^www\./, "");
+  const source = str(a.utm_source);
+  const medium = str(a.utm_medium);
+  const paid = /cpc|ppc|paid|ads?|display|cpm/.test(medium);
+  const googleClick = !!(a.gclid || a.gbraid || a.wbraid || a.gad_source);
+  const label = /glance/.test(ref) || /glance/.test(source)
+    ? "Glance"
+    : /googlesyndication|doubleclick|googleadservices/.test(ref)
+    ? "Google Display ad"
+    : googleClick
+    ? "Google ad"
+    : a.fbclid || /instagram|facebook|^(ig|fb|meta)$/.test(source) || /instagram|facebook/.test(ref)
+    ? (paid || a.fbclid ? "Instagram / Facebook ad" : "Instagram / Facebook")
+    : /youtube/.test(ref) || /youtube/.test(source)
+    ? "YouTube"
+    : /taboola|outbrain/.test(ref) || /taboola|outbrain/.test(source)
+    ? "Taboola / Outbrain ad"
+    : /(^|\.)google\./.test(ref)
+    ? "Google search"
+    : /(^|\.)(bing|duckduckgo|yahoo)\./.test(ref)
+    ? "Other search"
+    : source
+    ? source + (medium ? ` (${medium})` : "")
+    : ref || "Direct";
+  return { came_from: label.slice(0, 60), came_from_campaign: str(a.utm_campaign) };
+}
+
 function visitorInfo(req: Request, payload: Record<string, unknown>) {
   const info: Record<string, string> = {};
   info.source = INTERNAL_ORIGIN.test(req.headers.get("Origin") ?? "")
     ? "internal"
     : "store";
   Object.assign(info, accountFields(payload.account));
+  const network = networkIds.get(req);
+  if (network) info.network_id = network;
+  // This visit's source, kept until a later visit from somewhere else.
+  const from = cameFrom(payload.arrival);
+  if (from) Object.assign(info, from);
   const ua = req.headers.get("user-agent") ?? "";
   if (ua) {
     const type = /iPad|Tablet/i.test(ua)
@@ -2401,6 +2521,11 @@ function pastTime(raw: unknown) {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: CORS_HEADERS });
+  }
+  try {
+    networkIds.set(req, await networkIdOf(req));
+  } catch {
+    // Saved without it.
   }
 
   if (!originAllowed(req)) {

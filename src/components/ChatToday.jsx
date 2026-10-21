@@ -46,7 +46,21 @@ const Tile = ({ label, value, sub, onClick, alert = false }) => (
 
 // waiting: the chats that need a reply, newest first ({ id, title,
 // preview, ago }). go: { needs, today, carts, gaps } to open each page.
-const ChatToday = ({ api, me, canStats, canCarts, waiting, onOpenChat, go, refreshKey = 0 }) => {
+// possibleSpam: groups of chats from one network in the last hour ({
+// networkId, ids, paused, cameFrom }); onMarkSpam(ids) marks them, or null
+// for logins that can't.
+const ChatToday = ({
+  api,
+  me,
+  canStats,
+  canCarts,
+  waiting,
+  possibleSpam = [],
+  onMarkSpam,
+  onOpenChat,
+  go,
+  refreshKey = 0,
+}) => {
   // Fixed once per visit (and Refresh), so they don't reload every render.
   const { todayReq, weekReq, cartsReq } = useMemo(() => requestsFor(refreshKey), [refreshKey]);
   // A login without the permission asks for nothing (null).
@@ -72,6 +86,36 @@ const ChatToday = ({ api, me, canStats, canCarts, waiting, onOpenChat, go, refre
             : "Nothing is waiting on us."}
         </span>
       </p>
+
+      {possibleSpam.map((g) => (
+        <section key={g.networkId} className="chats-card chats-today-spam">
+          <p>
+            <strong>Possible spam:</strong> {g.ids.length} new chats from one network
+            in the last hour
+            {g.cameFrom && `, mostly from ${g.cameFrom}`}
+            {g.paused > 0 && ` (${g.paused} already paused)`}. It may be one person
+            starting fresh chats, or several people sharing a mobile network.
+          </p>
+          <div className="chats-today-spam-actions">
+            <button type="button" className="chats-btn" onClick={() => go.network(g.networkId)}>
+              Review
+            </button>
+            {onMarkSpam && (
+              <button
+                type="button"
+                className="chats-btn"
+                onClick={() => {
+                  if (window.confirm(`Mark all ${g.ids.length} chats as spam? The AI stops replying and they leave the reports.`)) {
+                    onMarkSpam(g.ids);
+                  }
+                }}
+              >
+                Mark all as spam
+              </button>
+            )}
+          </div>
+        </section>
+      ))}
 
       <div className="chats-dash-tiles">
         <Tile

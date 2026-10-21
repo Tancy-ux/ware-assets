@@ -269,6 +269,8 @@ const ChatDashboard = ({ api, request, results, resultsLoading, onOpenChat, onSh
 
       {Array.isArray(results?.carts) && <CartsInsight carts={results.carts} />}
 
+      {results?.sources?.length > 0 && <SourcesTable sources={results.sources} />}
+
       <div className="chats-stats-pair chats-stats-pair-wide">
         <ChatPages pages={results?.pages} loading={resultsLoading} />
         <section className="chats-card">
@@ -358,6 +360,51 @@ const ChatDashboard = ({ api, request, results, resultsLoading, onOpenChat, onSh
     </>
   );
 };
+
+// Where chats come from (ask-faq's cameFrom): per source, how many chats,
+// real conversations, leads and WhatsApp taps, and how many were junk
+// (spam or paused). A source with lots of junk and no leads is worth a
+// look in the ads (lock-screen and display ads bring accidental taps).
+const SourcesTable = ({ sources }) => (
+  <section className="chats-card chats-orders-card">
+    <h3>
+      Where chats come from
+      <span> · the site or ad before ours, for chats in this period</span>
+    </h3>
+    <div className="chats-table-scroll">
+      <table className="chats-results-orders">
+        <thead>
+          <tr>
+            <th>Came from</th>
+            <th>Chats</th>
+            <th>Real (2+ messages)</th>
+            <th>Leads</th>
+            <th>WhatsApp</th>
+            <th>Junk</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sources.map((s) => (
+            <tr key={s.source}>
+              <td>{s.source}</td>
+              <td>{s.chats}</td>
+              <td>{s.real}</td>
+              <td>{s.leads || "–"}</td>
+              <td>{s.whatsapp || "–"}</td>
+              <td className={s.junk && s.junk >= s.chats / 2 ? "chats-sources-junk" : undefined}>
+                {s.junk ? `${s.junk} (${Math.round((s.junk / s.chats) * 100)}%)` : "–"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+    <p className="chats-results-note">
+      Only chats since the chat started noting where people come from.
+      Junk is counted even with "Hide test and junk chats" on.
+    </p>
+  </section>
+);
 
 // Carts in this period, at a glance: how many people who chatted had
 // something in their cart, how many went on to order, what's still

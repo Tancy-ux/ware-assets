@@ -457,7 +457,10 @@ Bot. The open section is dark green with a thin bar on its left; on
 phones the menu is icons only.
 
 **Today** (`ChatToday.jsx`): a greeting with how many chats are waiting on
-us, then four tiles that each open their page with the matching date
+us; a **Possible spam** warning when 3+ store chats from one network
+started in the last hour (with where most came from and how many are
+already paused): **Review** lists just those chats, **Mark all as spam**
+(edit tick, after a confirm) marks them; then four tiles that each open their page with the matching date
 range: **Needs reply** (→ Conversations, Needs reply), **Chats today**
 (with today's leads; → Conversations, Today), **Open carts** (₹ still in
 carts from the last 30 days; → Stats → Overview), **Couldn't answer**
@@ -500,7 +503,14 @@ Meetha Ho Jaye Dessert Set").
   the server, 350 ms after typing stops).
 - **Open a chat**: header with the title (✎ rename), Needs reply / Zoho
   tags, "Started … · On: <page> · #browser-tag" (click the tag for every
-  chat from that browser), **Take over** / **Hand back to AI**, and the
+  chat from that browser), **Came from: Glance / Google Display ad /
+  Instagram / Facebook ad / Google search / Direct / <site>** (this
+  visit's source: the site before ours and the landing page's ad tags,
+  `src/lib/arrival.js` → ask-faq's `cameFrom`; the campaign on hover),
+  **Same network as N other chats** when other
+  chats in the list came from the same internet connection (click to list
+  them: one person starting fresh chats, or people sharing a mobile
+  network), **Take over** / **Hand back to AI**, and the
   **⋯** menu (Rename, All chats from this visitor, Delete chat). The
   transcript has a date marker for each day, "AI" / "Ware team" labels,
   the product tiles the bot showed (with photos; older chats get theirs
@@ -526,6 +536,12 @@ Meetha Ho Jaye Dessert Set").
   chat again, and only junk after that counts toward the next pause.
   `JUNK_TO_PAUSE` / `pauseIfJunk` in ask-faq; columns from
   `scripts/supabase-ai-pause.sql`.
+  Someone starting chat after chat in new browsers never reaches 3 in one
+  chat, so a chat that sends junk is also **paused** (not marked as spam)
+  when its network sent 3+ junk messages across 2+ chats in the last hour
+  (`pauseForNetworkJunk`), with a grey "AI paused: N junk messages from
+  this network…" note. Others on that network who write normally carry
+  on.
 - **Delete** removes the chat, its messages and its saved name/phone for
   good.
 - **Visitor panel** (right):
@@ -693,6 +709,12 @@ or more people are replying.
   row (count and number of chats), newest first, with **Open chat**. Owner:
   **Teach the bot** opens the Bot page with a new instruction started:
   `When someone asks "…", ` to finish and save.
+- **Where chats come from** (Overview, `results.sources`): per source
+  (Glance, Google Display ad, Instagram / Facebook ad, Google search,
+  Direct, a site's name…): chats, real conversations (2+ messages), leads,
+  WhatsApp taps and junk (spam or paused, counted even with "Hide test and
+  junk" on; red when it's half or more). A source with lots of junk and no
+  leads is worth checking in the ads.
 - **Where chats start**: chats per store page they started on, with the
   product's or collection's real name and photo (from the store's public
   products.json / collections.json, cached 1 h), a bar, filters (All,
@@ -892,8 +914,8 @@ block at the top of `delivery.ts`.
 
 - **"What should we call you?"** box under the first 4 AI replies, until the
   name is known or closed (×).
-- Right after they give a name there: **"Would you like us to WhatsApp you a
-  few ideas? Add your number (optional)."** under the "Lovely to meet you"
+- Right after they give a name there: **"Add your number in case we get
+  disconnected, and we'll reach you on WhatsApp (optional)."** under the "Lovely to meet you"
   message, once (`numberBoxTitle` / `numberBoxNote` / `noThanks`). It goes
   when they write again or tap ×; a number saved here works like the
   details form (no details card after it).
@@ -1244,6 +1266,12 @@ would need a code change (`zohoLeadFields` in `chat-admin`).
   download links is public; writing needs a signed-in team account. Chat
   tables have no public access at all: only the two functions (service
   role) touch them. Public sign-ups are off.
+- **Network ids** (`supabase-chat-network.sql`, `networkIdOf` in ask-faq):
+  each chat keeps a 12-character keyed hash of the shopper's IP (for IPv6,
+  its first half), never the IP itself, keyed with `NETWORK_ID_SECRET` (or
+  the service role key). `chat-admin` clears it from chats quiet for 30
+  days. Only for spotting one person starting chat after chat; the
+  store's privacy policy should mention it (anti-spam use).
 - **Origins**: `ask-faq` only answers wareinnovations.com, `*.myshopify.com`,
   `*.shopifypreview.com`, tancy-ux.github.io and localhost.
 - **AI reply limits** (`RATE_LIMITS` in `ask-faq`, counted in Postgres by

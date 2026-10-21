@@ -1,4 +1,5 @@
 import { supabase } from "../components/supabase";
+import { arrival } from "./arrival";
 
 // Each function's local URL is set in .env.local (dev only) to test a
 // locally running copy instead of the deployed one — see the note at the
@@ -47,4 +48,5 @@ export const callFunction = async (name, body) => {
   }
 };
 
-export const callAskFaq = (body) => callFunction("ask-faq", body);
+// Every chat request says where this visit came from (lib/arrival).
+export const callAskFaq = (body) => callFunction("ask-faq", { arrival: arrival(), ...body });

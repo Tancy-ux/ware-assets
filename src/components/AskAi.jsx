@@ -277,8 +277,18 @@ const saveLater = (item) => {
 };
 // A tap on a WhatsApp link, with the message it pre-fills: the team
 // pastes a line of what arrived in TechMonk into the Chats search to find
-// this chat.
+// this chat. Taps again while WhatsApp is still opening do nothing (a slow
+// connection had people tapping dozens of times). Returns whether it
+// counted.
+const WHATSAPP_TAP_GAP_MS = 4000;
+let lastWhatsAppTap = 0;
 const savedWhatsAppTap = (e) => {
+  const now = Date.now();
+  if (now - lastWhatsAppTap < WHATSAPP_TAP_GAP_MS) {
+    e?.preventDefault?.();
+    return false;
+  }
+  lastWhatsAppTap = now;
   let text = "";
   try {
     text = new URL(e?.currentTarget?.href ?? "").searchParams.get("text") ?? "";
@@ -286,6 +296,7 @@ const savedWhatsAppTap = (e) => {
     // Not a link we can read: just the tap.
   }
   saveLater({ type: "whatsapp", text: text.slice(0, 300) });
+  return true;
 };
 
 // Tells the server the visitor started over ("reset" / clear chat): ends
@@ -1601,6 +1612,9 @@ const AskAi = ({
     return true;
   };
 
+  // The WhatsApp button just tapped (its message's id): it reads "Opening
+  // WhatsApp…" for a few seconds.
+  const [openingWhatsApp, setOpeningWhatsApp] = useState(null);
   // Seeing it (once a visit) and opening the form are noted in the team's
   // transcript too, so they can see where people stop.
   const contactLogged = useRef(false);
@@ -1976,13 +1990,20 @@ const AskAi = ({
                     target="_blank"
                     rel="noopener noreferrer"
                     className="faq-chat-whatsapp-btn"
-                    onClick={savedWhatsAppTap}
+                    onClick={(e) => {
+                      if (!savedWhatsAppTap(e)) return;
+                      setOpeningWhatsApp(m.id);
+                      setTimeout(() => setOpeningWhatsApp(null), WHATSAPP_TAP_GAP_MS);
+                    }}
+                    aria-busy={openingWhatsApp === m.id}
                   >
                     <span className="faq-chat-whatsapp-icon">
                       <MessageCircle size={17} />
                     </span>
                     <span className="faq-chat-whatsapp-text">
-                      <strong>{TEXTS.whatsappTitle}</strong>
+                      <strong>
+                        {openingWhatsApp === m.id ? TEXTS.whatsappOpening : TEXTS.whatsappTitle}
+                      </strong>
                       <small>{fillText(TEXTS.whatsappSubtitle)}</small>
                     </span>
                     <ArrowUpRight size={16} className="faq-chat-whatsapp-arrow" />

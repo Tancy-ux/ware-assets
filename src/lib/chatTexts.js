@@ -37,6 +37,8 @@ export const TEXTS = {
 
   // WhatsApp card
   whatsappTitle: "Chat with the Ware team",
+  // For a few seconds after the WhatsApp button is tapped.
+  whatsappOpening: "Opening WhatsApp…",
   whatsappSubtitle: "Continue on WhatsApp · {hours}",
 
   // When the assistant can't answer (AI down or out of quota)
@@ -47,7 +49,7 @@ export const TEXTS = {
   nameBoxTitle: "What should we call you?",
   nameBoxThanks: "Lovely to meet you, {name}!",
   // Right after they give their name: an optional number, asked once
-  numberBoxTitle: "Would you like us to WhatsApp you a few ideas? Add your number (optional).",
+  numberBoxTitle: "Add your number in case we get disconnected, and we'll reach you on WhatsApp (optional).",
   numberBoxNote: "Only for your enquiry, never spam.",
   noThanks: "No thanks",
 

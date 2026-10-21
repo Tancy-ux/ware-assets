@@ -855,6 +855,10 @@ async function dailyNumbers(db: any, conversations: { started_at: string }[]) {
 // chat (its "log" mode), followed by the message it pre-filled. Each
 // chat's latest tap in [since, until), by id.
 const WHATSAPP_NOTE = "Opened WhatsApp to chat with the team";
+// How long a chat keeps its network id after its last message.
+const NETWORK_ID_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+let networkCleanedAt = 0;
 // deno-lint-ignore no-explicit-any
 async function whatsappTaps(db: any, since: string | null, until: string | null) {
   let q = db
@@ -1892,6 +1896,18 @@ Deno.serve(async (req) => {
       if (error) throw error;
       // Taps since the list's start; older ones don't matter here.
       const tapsLoading = whatsappTaps(db, since, until);
+      // Network ids are kept 30 days (scripts/supabase-chat-network.sql):
+      // cleared from quieter chats when the list loads, at most hourly
+      // (the list reloads every 30 s). Nothing to do before that column
+      // exists.
+      if (Date.now() - networkCleanedAt > 60 * 60 * 1000) {
+        networkCleanedAt = Date.now();
+        db.from("chat_conversations")
+          .update({ network_id: null })
+          .lt("last_message_at", new Date(Date.now() - NETWORK_ID_DAYS * DAY_MS).toISOString())
+          .not("network_id", "is", null)
+          .then(() => {}, () => {});
+      }
       const [numbers, waiting] = await Promise.all([
         dailyNumbers(db, data ?? []),
         awaitingTeam(
@@ -1948,6 +1964,13 @@ Deno.serve(async (req) => {
           needsReply: waiting.has(c.id),
           // When they last tapped a WhatsApp button in the chat.
           whatsappAt: taps.get(c.id) ?? null,
+          // A hash of their network (never the IP): chats sharing it may
+          // be the same person (scripts/supabase-chat-network.sql).
+          networkId: c.network_id ?? null,
+          // Where this visit came from ("Glance", "Google search"…), and
+          // its ad campaign (scripts/supabase-chat-network.sql).
+          cameFrom: c.came_from ?? null,
+          cameFromCampaign: c.came_from_campaign || null,
           // scripts/supabase-chat-insights.sql; null before that's run.
           topic: c.topic ?? null,
           interest: c.interest ?? null,
@@ -2513,6 +2536,27 @@ Deno.serve(async (req) => {
       // deno-lint-ignore no-explicit-any
       const turns = (c: any) => c.chat_messages?.[0]?.count ?? 0;
 
+      // Where chats come from (ask-faq's cameFrom: Glance, Google Display
+      // ad, Instagram…): chats, real conversations, leads, WhatsApp taps,
+      // and how many were spam or paused for junk. Spam is counted here
+      // even with "Hide test and junk" on, since that's the point; only
+      // the team's own chats are left out.
+      const taps = await whatsappTaps(db, since, until);
+      const sourceRows = new Map<string, {
+        source: string; chats: number; real: number; leads: number; whatsapp: number; junk: number;
+      }>();
+      for (const c of (allChats ?? []).filter((c) => !isInternal(c))) {
+        if (!c.came_from) continue;
+        const row = sourceRows.get(c.came_from) ??
+          { source: c.came_from, chats: 0, real: 0, leads: 0, whatsapp: 0, junk: 0 };
+        row.chats++;
+        if (turns(c) >= 2) row.real++;
+        if (c.visitor_phone || c.visitor_email) row.leads++;
+        if (taps.has(c.id)) row.whatsapp++;
+        if (isSpam(c) || c.ai_paused_at) row.junk++;
+        sourceRows.set(c.came_from, row);
+      }
+
       // Where chats start: chats per first page, with the product's or
       // collection's real name and photo when it is one.
       const startCounts = new Map<string, number>();
@@ -2580,6 +2624,7 @@ Deno.serve(async (req) => {
         askedAbout: [...askCounts]
           .map(([label, n]) => ({ label, chats: n }))
           .sort((a, b) => b.chats - a.chats),
+        sources: [...sourceRows.values()].sort((a, b) => b.chats - a.chats),
         ordersScanned: shopOrders.scanned,
         trackingFrom: TRACKING_FROM,
         ordersError,

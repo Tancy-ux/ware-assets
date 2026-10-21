@@ -170,6 +170,35 @@ const Avatar = ({ c, dot }) => (
 
 // Short, stable tag for grouping anonymous visitors by eye.
 const visitorTag = (id) => `#${id.slice(0, 6)}`;
+// ask-faq's note for a WhatsApp tap; repeats this close together show once.
+const WHATSAPP_NOTE = "Opened WhatsApp to chat with the team";
+const WHATSAPP_REPEAT_MS = 60 * 1000;
+// Today warns about this many chats from one network within the window.
+const POSSIBLE_SPAM_CHATS = 3;
+const POSSIBLE_SPAM_WINDOW_MS = 60 * 60 * 1000;
+const possibleSpamGroups = (conversations) => {
+  const since = Date.now() - POSSIBLE_SPAM_WINDOW_MS;
+  const groups = new Map();
+  for (const c of conversations) {
+    if (!c.networkId || c.internal || Date.parse(c.startedAt) < since) continue;
+    groups.set(c.networkId, [...(groups.get(c.networkId) ?? []), c]);
+  }
+  return [...groups]
+    .filter(([, chats]) => chats.length >= POSSIBLE_SPAM_CHATS && !chats.every(isSpamChat))
+    .map(([networkId, chats]) => {
+      // The source most of them came from.
+      const sources = chats.map((c) => c.cameFrom).filter(Boolean);
+      const top = sources.sort(
+        (a, b) => sources.filter((x) => x === b).length - sources.filter((x) => x === a).length,
+      )[0];
+      return {
+        networkId,
+        ids: chats.map((c) => c.id),
+        paused: chats.filter(isSpamChat).length,
+        cameFrom: top ?? null,
+      };
+    });
+};
 // They tapped a WhatsApp button in the chat. The transcript note has the
 // message it pre-filled: search a line of what arrived in TechMonk to
 // find the chat.
@@ -283,6 +312,8 @@ const ChatLogs = () => {
     hits: new Map(),
   });
   const [visitorFilter, setVisitorFilter] = useState(null);
+  // "Same network": only chats from one network (a hash, never the IP).
+  const [networkFilter, setNetworkFilter] = useState(null);
   // One of VIEWS' ids.
   const [view, setView] = useState("all");
   // Date filter: one of RANGES' ids; "custom" uses the two dates.
@@ -664,6 +695,27 @@ const ChatLogs = () => {
     );
   };
 
+  // Today's "Possible spam": mark every chat from one network as spam
+  // once the team has looked (the AI stops and they leave the reports).
+  const markNetworkSpam = async (ids) => {
+    const todo = ids.filter((id) => !isSpamChat(conversations.find((c) => c.id === id) ?? {}));
+    let done = 0;
+    for (const id of todo) {
+      const data = await api({ action: "spam", conversationId: id, spam: true }, { quiet: true });
+      if (!data || data.error) continue;
+      done++;
+      patchConversation(id, {
+        spam: data.spam,
+        internal: data.internal,
+        takeover: data.takeover,
+        aiPaused: data.aiPaused,
+        needsReply: false,
+      });
+    }
+    if (done < todo.length) toast.error(`Marked ${done} of ${todo.length} as spam. Try the rest again.`);
+    else toast.success(`Marked ${done} chat${done === 1 ? "" : "s"} as spam.`);
+  };
+
   const deleteConversation = async () => {
     setMenuOpen(false);
     const convo = conversations.find((c) => c.id === selectedId);
@@ -757,6 +809,7 @@ const ChatLogs = () => {
       (c) =>
         inView(c) &&
         (!visitorFilter || c.visitorId === visitorFilter) &&
+        (!networkFilter || c.networkId === networkFilter) &&
         (!q ||
           messageHits.has(c.id) ||
           (phoneQuery &&
@@ -778,7 +831,18 @@ const ChatLogs = () => {
             .filter(Boolean)
             .some((s) => s.toLowerCase().includes(q))),
     );
-  }, [conversations, search, view, visitorFilter, messageHits]);
+  }, [conversations, search, view, visitorFilter, networkFilter, messageHits]);
+
+  // How many chats in the list share each network: two or more may be one
+  // person starting fresh chats (or several people on one connection;
+  // mobile networks share them).
+  const networkCounts = useMemo(() => {
+    const counts = new Map();
+    for (const c of conversations) {
+      if (c.networkId) counts.set(c.networkId, (counts.get(c.networkId) ?? 0) + 1);
+    }
+    return counts;
+  }, [conversations]);
 
   const selected = conversations.find((c) => c.id === selectedId);
 
@@ -792,6 +856,29 @@ const ChatLogs = () => {
       }
     }
     return [...seen.values()];
+  }, [messages]);
+
+  // WhatsApp taps within a minute of the one before count as one note
+  // with "× N" (one shopper tapped 44 times in 41 seconds): the first
+  // note's count, and the repeats to leave out.
+  const whatsappRepeats = useMemo(() => {
+    const counts = new Map();
+    const hidden = new Set();
+    let first = null;
+    let lastAt = 0;
+    for (const m of messages) {
+      if (m.sender !== "system" || !m.answer?.startsWith(WHATSAPP_NOTE)) continue;
+      const at = Date.parse(m.created_at);
+      if (first && at - lastAt < WHATSAPP_REPEAT_MS) {
+        counts.set(first.id, counts.get(first.id) + 1);
+        hidden.add(m.id);
+      } else {
+        first = m;
+        counts.set(m.id, 1);
+      }
+      lastAt = at;
+    }
+    return { counts, hidden };
   }, [messages]);
 
   // How many different days they've messaged in this chat: "1 day", or
@@ -835,6 +922,11 @@ const ChatLogs = () => {
         .map((c) => ({ id: c.id, title: titleOf(c), preview: c.preview, ago: timeAgo(c.lastMessageAt) })),
     [conversations],
   );
+  // Today's "Possible spam": POSSIBLE_SPAM_CHATS or more store chats from
+  // one network that started in the last hour (one person in new
+  // browsers, or many sharing a mobile network: the team checks).
+  const possibleSpam = useMemo(() => possibleSpamGroups(conversations), [conversations]);
+
   // Where Today's tiles go; each sets the date range its number is for.
   const goFromToday = {
     needs: () => {
@@ -855,6 +947,12 @@ const ChatLogs = () => {
       if (range !== "7d") changeRange({ range: "7d" });
       setStatsView("gaps");
       setTab("stats");
+    },
+    // "Review" on a possible-spam warning: just that network's chats.
+    network: (networkId) => {
+      setTab("conversations");
+      setView("all");
+      setNetworkFilter(networkId);
     },
   };
 
@@ -1080,6 +1178,8 @@ const ChatLogs = () => {
             canStats={can("stats")}
             canCarts={can("carts")}
             waiting={waiting}
+            possibleSpam={possibleSpam}
+            onMarkSpam={can("edit") ? markNetworkSpam : null}
             onOpenChat={openFromResults}
             go={goFromToday}
             refreshKey={statsRefresh}
@@ -1160,6 +1260,19 @@ const ChatLogs = () => {
               </button>
             ))}
           </div>
+
+          {networkFilter && (
+            <div className="chats-filter-chip">
+              Same network · {networkCounts.get(networkFilter) ?? 0} chats
+              <button
+                type="button"
+                onClick={() => setNetworkFilter(null)}
+                aria-label="Show every network"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
 
           {visitorFilter && (
             <div className="chats-filter-chip">
@@ -1356,6 +1469,12 @@ const ChatLogs = () => {
                         </a>
                       </span>
                     )}
+                    {/* Where this visit came from (an ad, search…). */}
+                    {selected.cameFrom && (
+                      <span title={selected.cameFromCampaign ? `Campaign: ${selected.cameFromCampaign}` : undefined}>
+                        Came from: {selected.cameFrom}
+                      </span>
+                    )}
                     <button
                       type="button"
                       className="chats-meta-btn"
@@ -1364,6 +1483,17 @@ const ChatLogs = () => {
                     >
                       {visitorTag(selected.visitorId)}
                     </button>
+                    {networkCounts.get(selected.networkId) > 1 && (
+                      <button
+                        type="button"
+                        className="chats-meta-btn"
+                        onClick={() => setNetworkFilter(selected.networkId)}
+                        title="Chats from the same internet connection: maybe the same person in new browsers, or people sharing a mobile network. Tap to list them."
+                      >
+                        Same network as {networkCounts.get(selected.networkId) - 1} other
+                        {networkCounts.get(selected.networkId) === 2 ? " chat" : " chats"}
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="chats-detail-actions">
@@ -1466,6 +1596,8 @@ const ChatLogs = () => {
               >
                 {loadingMessages && <p className="chats-empty">Loading...</p>}
                 {messages.map((m, i) => {
+                  // Repeat WhatsApp taps are folded into the first one.
+                  if (whatsappRepeats.hidden.has(m.id)) return null;
                   const prev = messages[i - 1];
                   // A date marker at the start of each day.
                   const newDay =
@@ -1480,11 +1612,16 @@ const ChatLogs = () => {
                     </div>
                   );
                   if (m.sender === "system") {
+                    // "Opened WhatsApp…" notes carry the message it
+                    // pre-filled on the next line: shown on hover.
+                    const [note, ...more] = (m.answer ?? "").split("\n");
+                    const times = whatsappRepeats.counts.get(m.id);
                     return (
                       <div key={m.id} className="chats-turn">
                         {dateMarker}
-                        <div className="chats-system-note">
-                          {m.answer} · {formatTime(m.created_at)}
+                        <div className="chats-system-note" title={more.join("\n") || undefined}>
+                          {note}
+                          {times > 1 && <strong> × {times}</strong>} · {formatTime(m.created_at)}
                         </div>
                       </div>
                     );

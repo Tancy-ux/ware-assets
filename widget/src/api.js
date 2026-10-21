@@ -1,3 +1,4 @@
+import { arrival } from "../../src/lib/arrival";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../../src/lib/supabaseConfig";
 
 // Stands in for src/lib/askFaq.js in the store build (see vite.config.js):
@@ -80,6 +81,8 @@ export const callAskFaq = async (body) => {
   const customer = account();
   return callFunction("ask-faq", {
     ...body,
+    // Where this visit came from (src/lib/arrival).
+    arrival: arrival(),
     page: location.pathname,
     ...(cart ? { cart } : {}),
     ...(customer ? { account: customer } : {}),
