@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowUpRight,
+  Ban,
   BarChart3,
   BellRing,
   BookOpen,
@@ -195,14 +196,19 @@ const thumb = (url) =>
 // The list's quick filters.
 // Each with its icon and (muted) colour, see .chats-view-<id>.
 // Chats from the team's own site (Ask AI there) only show under
-// "Internal", so they're never mistaken for store visitors.
-const external = (test) => (c) => !c.internal && test(c);
+// "Internal", so they're never mistaken for store visitors; spam (marked,
+// or paused by the bot for junk) only under "Spam".
+const isSpamChat = (c) => !!(c.spam || c.aiPaused);
+const external = (test) => (c) => !c.internal && !isSpamChat(c) && test(c);
 const VIEWS = [
   { id: "all", label: "All", icon: MessagesSquare, test: external(() => true) },
   { id: "needs", label: "Needs reply", icon: BellRing, test: external((c) => c.needsReply) },
   { id: "leads", label: "Leads", icon: UserPlus, test: external(isLead) },
   { id: "takeover", label: "Taken over", icon: UserRound, test: external((c) => c.takeover) },
   { id: "zoho", label: "In Zoho", icon: CircleCheck, test: external((c) => !!c.zohoLeadId) },
+  // Marked as spam, or paused by the bot after junk messages (ask-faq
+  // pauseIfJunk). Left out of the reports too (chat-admin isSpam).
+  { id: "spam", label: "Spam", icon: Ban, test: (c) => !c.internal && isSpamChat(c) },
   { id: "internal", label: "Internal", icon: Building2, test: (c) => !!c.internal },
 ];
 
@@ -457,7 +463,10 @@ const ChatLogs = () => {
     setLoadingMessages(false);
     if (data) {
       setMessages(data.messages);
-      patchConversation(id, { takeover: data.takeover });
+      patchConversation(id, {
+        takeover: data.takeover,
+        ...(typeof data.aiPaused === "boolean" ? { aiPaused: data.aiPaused } : {}),
+      });
     }
   };
 
@@ -471,7 +480,8 @@ const ChatLogs = () => {
     if (!data) return;
     patchConversation(selectedId, {
       takeover: data.takeover,
-      ...(data.takeover ? {} : { needsReply: false }),
+      // Handing back also ends spam (chat-admin "takeover").
+      ...(data.takeover ? {} : { needsReply: false, aiPaused: false, spam: false }),
     });
     toast.success(
       on
@@ -617,6 +627,26 @@ const ChatLogs = () => {
       internal: !selected?.internal,
     });
     if (data) patchConversation(selectedId, { internal: data.internal });
+  };
+
+  // ⋯ menu: Mark as spam (also pauses the AI) / Not spam (turns it back on).
+  const toggleSpam = async () => {
+    setMenuOpen(false);
+    const spam = !isSpamChat(selected ?? {});
+    const data = await api({ action: "spam", conversationId: selectedId, spam });
+    if (!data) return;
+    patchConversation(selectedId, {
+      spam: data.spam,
+      internal: data.internal,
+      takeover: data.takeover,
+      aiPaused: data.aiPaused,
+      needsReply: false,
+    });
+    toast.success(
+      spam
+        ? "Marked as spam. The AI won't reply, and it's left out of the reports."
+        : "Not spam. The AI will answer this chat again.",
+    );
   };
 
   const deleteConversation = async () => {
@@ -1041,9 +1071,10 @@ const ChatLogs = () => {
           </div>
 
           <div className="chats-views">
-            {/* "Internal" only shows when there are some (or it's open). */}
+            {/* "Internal" and "Spam" only show when there are some (or
+                they're open). */}
             {VIEWS.filter(
-              (v) => v.id !== "internal" || counts.internal > 0 || view === "internal",
+              (v) => !["internal", "spam"].includes(v.id) || counts[v.id] > 0 || view === v.id,
             ).map((v) => (
               <button
                 key={v.id}
@@ -1121,6 +1152,11 @@ const ChatLogs = () => {
                       </small>
                     )}
                     {c.needsReply && <span className="chats-tag chats-tag-alert">Needs reply</span>}
+                    {isSpamChat(c) && (
+                      <span className="chats-tag chats-tag-spam" title="Spam: the AI is paused, and it's left out of the reports">
+                        Spam
+                      </span>
+                    )}
                     {isLead(c) && <span className="chats-tag chats-tag-lead">Lead</span>}
                     {c.zohoLeadId && (
                       <span className="chats-tag chats-tag-zoho" title="Lead in Zoho">
@@ -1223,6 +1259,14 @@ const ChatLogs = () => {
                       {selected.needsReply && (
                         <span className="chats-tag chats-tag-alert">Needs reply</span>
                       )}
+                      {isSpamChat(selected) && (
+                        <span
+                          className="chats-tag chats-tag-spam"
+                          title="The AI won't reply and it's left out of the reports. Not spam (⋯) or Hand back to AI turns it on again."
+                        >
+                          Spam · AI paused
+                        </span>
+                      )}
                       {selected.zohoLeadId && (
                         <span className="chats-tag chats-tag-zoho">Zoho ✓</span>
                       )}
@@ -1305,6 +1349,12 @@ const ChatLogs = () => {
                           <button type="button" role="menuitem" onClick={toggleInternal}>
                             <Building2 size={14} />
                             {selected.internal ? "Not internal (a real customer)" : "Mark as internal"}
+                          </button>
+                        )}
+                        {can("edit") && !selected.internal && (
+                          <button type="button" role="menuitem" onClick={toggleSpam}>
+                            <Ban size={14} />
+                            {isSpamChat(selected) ? "Not spam (turn the AI back on)" : "Mark as spam"}
                           </button>
                         )}
                         <button
@@ -1837,6 +1887,8 @@ const NOT_ANSWERED = {
   ai_failed: "AI didn't respond",
   error: "something went wrong",
   offline: "the chat couldn't reach us",
+  noise: "didn't make sense",
+  burst: "too many messages in a minute",
 };
 
 // What the store chat showed under an AI reply besides its text and
@@ -1861,6 +1913,11 @@ const ReplyExtras = ({ extras }) => {
         <div className="chats-extra-note chats-extra-unanswered">
           <TriangleAlert size={13} /> Not answered by the AI ·{" "}
           {NOT_ANSWERED[notAnswered] ?? notAnswered}
+        </div>
+      )}
+      {has("junk") && (
+        <div className="chats-extra-note chats-extra-unanswered">
+          <TriangleAlert size={13} /> The AI read this as junk (counts toward pausing the chat)
         </div>
       )}
       {has("atelier_catalog") && link(TEXTS.atelierCatalogUrl, TEXTS.bespokeCatalog)}
