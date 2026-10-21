@@ -148,6 +148,11 @@ const SCENARIOS = {
   ],
   "Discounts": [
     ["Any discount for first time buyers?", [["mentions 5% off the first order", has(/5\s?%/)]]],
+    // Circle of Ware, HoReCa and bulk discounts are for that type of client only.
+    ["is there a discount", [
+      ["mentions 5% off the first order", has(/5\s?%/)],
+      ["no Circle of Ware tiers", not(/circle of ware|7\.5\s?%|10\s?%/i)],
+    ]],
   ],
   // Details first, the catalogue with the next reply.
   "Gift catalogue": [
