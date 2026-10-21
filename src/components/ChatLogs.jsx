@@ -800,7 +800,11 @@ const ChatLogs = () => {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const inView = VIEWS.find((v) => v.id === view)?.test ?? (() => true);
+    // A network's chats are listed whatever they are (spam and paused
+    // too), so Review shows the whole group.
+    const inView = networkFilter
+      ? () => true
+      : VIEWS.find((v) => v.id === view)?.test ?? (() => true);
     // "98765 43210", "+91-9876543210" and "9876543210" all find the same
     // number.
     const digits = q.replace(/\D/g, "");
@@ -925,7 +929,12 @@ const ChatLogs = () => {
   // Today's "Possible spam": POSSIBLE_SPAM_CHATS or more store chats from
   // one network that started in the last hour (one person in new
   // browsers, or many sharing a mobile network: the team checks).
-  const possibleSpam = useMemo(() => possibleSpamGroups(conversations), [conversations]);
+  // "Looks fine" on a warning hides it for this visit.
+  const [spamCleared, setSpamCleared] = useState(() => new Set());
+  const possibleSpam = useMemo(
+    () => possibleSpamGroups(conversations).filter((g) => !spamCleared.has(g.networkId)),
+    [conversations, spamCleared],
+  );
 
   // Where Today's tiles go; each sets the date range its number is for.
   const goFromToday = {
@@ -1180,6 +1189,7 @@ const ChatLogs = () => {
             waiting={waiting}
             possibleSpam={possibleSpam}
             onMarkSpam={can("edit") ? markNetworkSpam : null}
+            onClearSpam={(networkId) => setSpamCleared((prev) => new Set(prev).add(networkId))}
             onOpenChat={openFromResults}
             go={goFromToday}
             refreshKey={statsRefresh}

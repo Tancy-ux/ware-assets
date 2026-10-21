@@ -459,8 +459,9 @@ phones the menu is icons only.
 **Today** (`ChatToday.jsx`): a greeting with how many chats are waiting on
 us; a **Possible spam** warning when 3+ store chats from one network
 started in the last hour (with where most came from and how many are
-already paused): **Review** lists just those chats, **Mark all as spam**
-(edit tick, after a confirm) marks them; then four tiles that each open their page with the matching date
+already paused): **Review** lists just those chats (spam and paused ones
+too), **Looks fine** hides the warning for this visit, **Mark all as
+spam** (edit tick, after a confirm) marks them; then four tiles that each open their page with the matching date
 range: **Needs reply** (→ Conversations, Needs reply), **Chats today**
 (with today's leads; → Conversations, Today), **Open carts** (₹ still in
 carts from the last 30 days; → Stats → Overview), **Couldn't answer**

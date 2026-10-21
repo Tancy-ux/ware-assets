@@ -48,7 +48,7 @@ const Tile = ({ label, value, sub, onClick, alert = false }) => (
 // preview, ago }). go: { needs, today, carts, gaps } to open each page.
 // possibleSpam: groups of chats from one network in the last hour ({
 // networkId, ids, paused, cameFrom }); onMarkSpam(ids) marks them, or null
-// for logins that can't.
+// for logins that can't; onClearSpam(networkId) hides one ("Looks fine").
 const ChatToday = ({
   api,
   me,
@@ -57,6 +57,7 @@ const ChatToday = ({
   waiting,
   possibleSpam = [],
   onMarkSpam,
+  onClearSpam,
   onOpenChat,
   go,
   refreshKey = 0,
@@ -99,6 +100,9 @@ const ChatToday = ({
           <div className="chats-today-spam-actions">
             <button type="button" className="chats-btn" onClick={() => go.network(g.networkId)}>
               Review
+            </button>
+            <button type="button" className="chats-btn" onClick={() => onClearSpam(g.networkId)}>
+              Looks fine
             </button>
             {onMarkSpam && (
               <button
