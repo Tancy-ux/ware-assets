@@ -349,7 +349,7 @@ the tab doesn't sign you out; Log out clears it). A team member who is
 turned off or removed is locked out at once regardless. Sign-in attempts: 10 per 10 minutes, 30 per day per
 connection.
 
-**Layout**: left menu (Conversations, Contacts, Stats, Team, Bot, and who's signed in
+**Layout**: left menu (Today, Conversations, Contacts, Stats, Team, Bot, and who's signed in
 with Log out), a title bar with the search and **Refresh**, then the
 section. Phones work like WhatsApp Business: icons in a slim top bar,
 search + refresh, one swipeable row of filters, the list; a chat opens full
@@ -359,8 +359,8 @@ screen with ← back.
 ticks: see phone numbers & emails, see the Contacts list, take over & reply, edit details, draft
 the requirement with AI ("Draft from chat", off unless ticked), write
 replies with AI ("AI reply", off unless ticked), send to
-Zoho, Stats, see carts (the Stats **Carts** tab; off unless ticked; with
-only this tick, Stats opens straight on Carts), delete chats, manage team. Checked on the server on every
+Zoho, Stats, see carts (the **Carts** summary on Stats → Overview and the
+Open carts tile on Today; off unless ticked), delete chats, manage team. Checked on the server on every
 action (contacts are masked server-side), so turning someone off or
 changing ticks applies straight away. Nobody can give a permission they
 don't have. Team replies show the sender's name ("Tani · Ware team") to the
@@ -412,7 +412,7 @@ the cursor.
   `ware-chat.js` on the store to show the cards.
 
 **Transcript = what the shopper saw**: taps are saved in the chat's own
-words ("Show me more products like this", "Dimensions", the designer-call
+words ("Show me more products like this", "Size & weight", the designer-call
 offer), and each AI reply keeps what else was shown under it (catalogue
 and map links, WhatsApp card, name / number form or prompt, designer-call
 buttons, gift photos; `chat_messages.extras`), drawn under the reply.
@@ -429,7 +429,8 @@ card. Masked like other contacts for logins without "contacts".
 **Internal chats**: chats started from this site's Ask AI (or a local test)
 are saved with `source = internal`; those and any chat whose name has "test"
 anywhere in it ("Tanu test", "Tester") are tagged **Internal** and shown only under
-the Internal filter (hidden when there are none), never in Needs reply /
+the Internal filter (hidden when there are none; **Needs reply**, **Taken
+over** and **Spam** also hide at 0), never in Needs reply /
 Leads / All; Stats counts them with the test chats. **Mark as internal**
 in the chat's ⋯ menu (edit tick) moves any chat there; on an internal chat
 it reads **Not internal (a real customer)**, which also overrides a "test"
@@ -450,9 +451,19 @@ switch on the right.
 **A page of its own**: /chats has no site header (App.jsx renders it on its own, tab title "WareBot") and fills the screen. **Ware assets home**, above your name in the menu (a house icon on phones), goes back to the rest of the site.
 
 **Left menu**: titled **WareBot** (the sign-in page too) with a green
-**Live** pill, then Conversations (with a red count of chats needing a
-reply, hidden at 0), Stats, Team, Bot. The open section is dark green
-with a thin bar on its left; on phones the menu is icons only.
+**Live** pill, then Today (where the page opens), Conversations (with a
+red count of chats needing a reply, hidden at 0), Contacts, Stats, Team,
+Bot. The open section is dark green with a thin bar on its left; on
+phones the menu is icons only.
+
+**Today** (`ChatToday.jsx`): a greeting with how many chats are waiting on
+us, then four tiles that each open their page with the matching date
+range: **Needs reply** (→ Conversations, Needs reply), **Chats today**
+(with today's leads; → Conversations, Today), **Open carts** (₹ still in
+carts from the last 30 days; → Stats → Overview), **Couldn't answer**
+(questions this week; → Stats → Couldn't answer). Under them, the five
+newest chats waiting on us, each opening the chat. Tiles show only with
+the stats / carts ticks; test and junk chats are left out.
 
 **Conversations tab**: three columns (list · chat · visitor panel), with a
 slim 180 px menu on the left. Below 1180 px wide the panel opens from the
@@ -561,7 +572,7 @@ filter's range; internal and test chats are left out.
   "contact-note"). Search finds notes too.
 - Filters: All, **To follow up** (nobody replied, not in Zoho, no
   order), **Not in Zoho** (not sent and not put aside), **Sent to Zoho**,
-  **Don't send now**, **AI didn't answer**, Has a cart, Ordered.
+  **Don't send now**, **Couldn't answer**, Has a cart, Ordered.
 - **Tick boxes** (with the Zoho tick) on people not in Zoho: a bar shows
   "N selected" with one type of client and **Send to Zoho** (one after
   the other, then one summary: new leads, matched leads, anything Zoho
@@ -619,9 +630,19 @@ same verify token, subscribe to **messages**. Until messages arrive, the
 owner's WhatsApp section shows each step ticked off, and a button that
 subscribes our app to the WhatsApp account (`chat-admin` "wa-setup").
 
-**Stats tab** (same date filter), with tabs **Overview**, **Carts**,
-**Journeys**, **Products**, **Couldn't answer** and, for the owner only, **AI cost**
-(Carts needs the carts tick, the others the stats tick):
+**Stats tab** (same date filter, needs the stats tick), with its tabs in
+two groups, each name above its tabs: **Sales** (**Overview**,
+**Journeys**, **Products**) and **Bot** (**Couldn't answer** and, for the
+owner only, **AI cost**). Overview's tiles are Chats, **Leads**, Orders
+from chats and **Couldn't answer**; "The team" table shows only once two
+or more people are replying.
+
+- **Carts** (on Overview, needs the carts tick): people who chatted with
+  something in their cart in the period: **Had a cart**, **Ordered after**
+  (and the % of them), **Still in carts** (₹ and how many, no order since)
+  and **Average cart**, plus how many open carts are from someone who left
+  a phone or email (find them under Contacts). The cart is as it was when
+  they last chatted; the chat can't tell if they emptied it later.
 
 - **AI cost** (owner only): what Gemini cost in the period, as three
   numbers: **Real customers** (shoppers' typed questions), **Tests &
@@ -647,15 +668,6 @@ subscribes our app to the WhatsApp account (`chat-admin` "wa-setup").
   number opening Shopify admin, date, total, amount added from the chat,
   link to the chat, and the visitor's browser tag like `#04174e`, shown even
   when that chat is gone) and **Orders from items added in chat**.
-- **Carts tab** (needs the carts tick): a headline "₹X in N carts, no
-  order since", then everyone who had something in their cart when they
-  last chatted, **newest first** (tap the **Cart** or **Last chatted**
-  heading to sort by it; tap again to flip the order): the chat (with its browser tag for
-  "Visitor N", and a **Lead** tag if they left a phone or email), the cart
-  *as it was when they last chatted*, last chatted, and **Since then**:
-  **Ordered** when Shopify has an order from the same browser after the
-  chat, blank otherwise. The chat only reads the cart while they're
-  chatting, so it can't tell if they emptied it later.
 - **Products tab** (`chat-admin` "products"): every product the bot
   showed in the range, with its photo and price: **Bot showed it** (in how
   many chats), **Chatted on its page** (chats while on its product page),
@@ -667,8 +679,9 @@ subscribes our app to the WhatsApp account (`chat-admin` "wa-setup").
   button -> Got to the cart -> Tapped checkout), the same split into
   **Tapped and chatted** / **Tapped but didn't chat**, then one row per
   browser (name or Visitor N if they chatted, device, pages, cart with its
-  value, checkout, last seen) with filters Everyone / Chatted / Didn't
-  chat. Tap a row for their timeline (each page with its time, the tap,
+  value, checkout, order, last seen) with filters Everyone / Chatted /
+  Didn't chat. Every column sorts (tap the heading for most to least, again
+  to flip): Cart by its ₹ value, Order by its total; newest first to start. Tap a row for their timeline (each page with its time, the tap,
   adds to cart, checkout taps) and **Open their chat**. "Got to the cart"
   = added something, opened /cart, or a page view showed items in the
   cart. Hide test and junk drops internal visits and browsers whose
@@ -791,11 +804,11 @@ like to know about the {product}?" and one button per detail it has:
 | Button | Metafield |
 |---|---|
 | What's in the set? | `custom.this_set_includes` |
-| Dimensions | `my_fields.set_dimensions` |
-| Volume | `my_fields.set_volumes` |
-| Weight | `my_fields.set_weight` |
+| Size & weight | `my_fields.set_dimensions`, `my_fields.set_volumes`, `my_fields.set_weight` |
 
-plus **Show me more like this** (§5.4). Empty metafields get no button, and
+plus **Show me more like this** (§5.4). **Size & weight** answers with
+whichever of the three the piece has, one after the other. Empty
+metafields get no button, and
 **What's in the set?** only shows when the title has "set" in it ("Set of
 2", "Serveware Set", "Table Setting"). A detail that's one line (a single
 piece, e.g. "Eclipse Pasta Bowl: 305ml") is answered with just the value:
@@ -886,7 +899,8 @@ block at the top of `delivery.ts`.
   details form (no details card after it).
 - The Chats transcript shows each of these as a grey note: *Shared their
   name: …*, *Closed the name box without a name*, *Left their number (in
-  the box after their name / details form)*, *Skipped the number box*.
+  the box after their name / details form)*, *Skipped the number box*,
+  *Closed the details card without leaving any*.
 - **"Want our team to follow up with you?" → Enter your details** (name +
   phone) from the shopper's 6th typed message, or straight away for bulk /
   corporate / custom / Atelier enquiries. **Not now** hides it. It shows

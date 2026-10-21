@@ -220,6 +220,17 @@ export const ChatAiCost = ({ api, request }) => {
 const percent = (n, of) => (of ? `${Math.round((n / of) * 100)}%` : "–");
 const formatTime = (iso) =>
   new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+// How each column of "Each person's journey" sorts. A cart with no value
+// read still counts above no cart.
+const JOURNEY_GET = {
+  title: (p) => (p.title ?? "").toLowerCase(),
+  pages: (p) => p.pages ?? 0,
+  cart: (p) => (p.cart ? (p.cartValue || 0.5) : 0),
+  checkout: (p) => (p.checkout ? 1 : 0),
+  ordered: (p) => (p.orders ?? []).reduce((s, o) => s + (o.total ?? 0), 0),
+  lastAt: (p) => String(p.lastAt ?? ""),
+};
+
 const WHO = [
   { id: "all", label: "Everyone" },
   { id: "chatted", label: "Chatted" },
@@ -268,6 +279,8 @@ export const ChatJourneys = ({ api, request, onOpenChat }) => {
   const { loading, data } = useStatsData(api, "journeys", request);
   const [who, setWho] = useState("all");
   const [openId, setOpenId] = useState(null);
+  const [sort, setSort] = useState({ by: "lastAt", desc: true });
+  const head = (by, label) => <SortHead by={by} label={label} sort={sort} setSort={setSort} />;
 
   if (loading) return <p className="chats-results-note">Loading…</p>;
   if (data?.missingTable) {
@@ -297,8 +310,10 @@ export const ChatJourneys = ({ api, request, onOpenChat }) => {
     { label: "Tapped checkout", n: all.checkout },
     { label: "Ordered", n: all.ordered, title: "Placed an order in this period (cancelled ones don't count)" },
   ];
-  const people = data.people.filter(
-    (p) => who === "all" || (who === "chatted") === !!p.conversationId,
+  const people = sortRows(
+    data.people.filter((p) => who === "all" || (who === "chatted") === !!p.conversationId),
+    sort,
+    JOURNEY_GET,
   );
 
   return (
@@ -367,7 +382,7 @@ export const ChatJourneys = ({ api, request, onOpenChat }) => {
       <section className="chats-card chats-orders-card">
         <h3>
           Each person&apos;s journey
-          <span> · newest first, tap a row to see the pages</span>
+          <span> · tap a heading to sort, a row to see the pages</span>
         </h3>
         <div className="chats-views chats-page-filters">
           {WHO.map((w) => (
@@ -388,12 +403,12 @@ export const ChatJourneys = ({ api, request, onOpenChat }) => {
             <table className="chats-results-orders">
               <thead>
                 <tr>
-                  <th>Person</th>
-                  <th>Pages</th>
-                  <th>Cart</th>
-                  <th>Checkout</th>
-                  <th>Order</th>
-                  <th>Last seen</th>
+                  {head("title", "Person")}
+                  {head("pages", "Pages")}
+                  {head("cart", "Cart")}
+                  {head("checkout", "Checkout")}
+                  {head("ordered", "Order")}
+                  {head("lastAt", "Last seen")}
                 </tr>
               </thead>
               <tbody>

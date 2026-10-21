@@ -30,6 +30,7 @@ import {
   Search,
   Send,
   Sparkles,
+  Sun,
   Trash2,
   TriangleAlert,
   UserPlus,
@@ -41,6 +42,7 @@ import { toast } from "react-toastify";
 import { Link } from "react-router-dom";
 import { callFunction } from "../lib/askFaq";
 import ChatResults from "./ChatResults";
+import ChatToday from "./ChatToday";
 import LeadCard from "./LeadCard";
 import ChatTeam from "./ChatTeam";
 import ChatBot from "./ChatBot";
@@ -305,8 +307,10 @@ const ChatLogs = () => {
     const el = transcriptRef.current;
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
   }, [messages]);
-  // "conversations", "contacts", "stats", "team" or "bot".
-  const [tab, setTab] = useState("conversations");
+  // "today", "conversations", "contacts", "stats", "team" or "bot". The admin opens on Today.
+  const [tab, setTab] = useState("today");
+  // The Stats tab to open on (Today's "Couldn't answer" opens on "gaps").
+  const [statsView, setStatsView] = useState("stats");
   // "Teach the bot" from Stats: the instruction to start on the Bot page.
   const [botDraft, setBotDraft] = useState(null);
   const clearBotDraft = useCallback(() => setBotDraft(null), []);
@@ -809,6 +813,38 @@ const ChatLogs = () => {
     open(id);
   };
 
+  // Today: the chats waiting on us, newest first.
+  const waiting = useMemo(
+    () =>
+      conversations
+        .filter(VIEWS.find((v) => v.id === "needs").test)
+        .sort((a, b) => String(b.lastMessageAt).localeCompare(String(a.lastMessageAt)))
+        .map((c) => ({ id: c.id, title: titleOf(c), preview: c.preview, ago: timeAgo(c.lastMessageAt) })),
+    [conversations],
+  );
+  // Where Today's tiles go; each sets the date range its number is for.
+  const goFromToday = {
+    needs: () => {
+      setTab("conversations");
+      setView("needs");
+    },
+    today: () => {
+      if (range !== "today") changeRange({ range: "today" });
+      setTab("conversations");
+      setView("all");
+    },
+    carts: () => {
+      if (range !== "30d") changeRange({ range: "30d" });
+      setStatsView("stats");
+      setTab("stats");
+    },
+    gaps: () => {
+      if (range !== "7d") changeRange({ range: "7d" });
+      setStatsView("gaps");
+      setTab("stats");
+    },
+  };
+
   const refresh = () => {
     loadList();
     setStatsRefresh((n) => n + 1);
@@ -885,11 +921,12 @@ const ChatLogs = () => {
   const seenShown = seenOpen ?? !selected?.takeover;
 
   const NAV = [
+    // What needs us right now; where the admin opens.
+    { id: "today", label: "Today", icon: Sun, show: true },
     { id: "conversations", label: "Conversations", icon: MessagesSquare, show: true },
     // One row per person who left a phone or email.
     { id: "contacts", label: "Contacts", icon: Contact, show: can("people") },
-    // Stats has an Overview tab and a Carts tab; either tick opens it.
-    { id: "stats", label: "Stats", icon: BarChart3, show: can("stats") || can("carts") },
+    { id: "stats", label: "Stats", icon: BarChart3, show: can("stats") },
     { id: "team", label: "Team", icon: Users, show: can("users") },
     // The bot's instructions: the owner login only.
     { id: "bot", label: "Bot", icon: Bot, show: !!me?.owner },
@@ -897,8 +934,8 @@ const ChatLogs = () => {
     // number's chats (read only for now).
     {
       id: "whatsapp",
-      label: "Chats",
-      title: "WhatsApp chats",
+      label: "Conversations",
+      title: "WhatsApp conversations",
       icon: MessageCircle,
       show: WHATSAPP_ON && can("whatsapp"),
       group: "whatsapp",
@@ -939,7 +976,10 @@ const ChatLogs = () => {
               className={`chats-nav-item${tab === n.id ? " chats-nav-item-active" : ""}`}
               aria-current={tab === n.id ? "page" : undefined}
               title={n.title ?? n.label}
-              onClick={() => setTab(n.id)}
+              onClick={() => {
+                if (n.id === "stats") setStatsView("stats");
+                setTab(n.id);
+              }}
             >
               <n.icon size={17} />
               {n.label}
@@ -994,7 +1034,7 @@ const ChatLogs = () => {
             );
           })()}
         </h2>
-        {["conversations", "contacts", "stats"].includes(tab) && refreshButton}
+        {["today", "conversations", "contacts", "stats"].includes(tab) && refreshButton}
       </header>
       {tab === "bot" && me?.owner ? (
         <div className="chats-stats">
@@ -1019,12 +1059,24 @@ const ChatLogs = () => {
             onPushed={patchConversation}
           />
         </div>
-      ) : tab === "stats" && (can("stats") || can("carts")) ? (
+      ) : tab === "today" ? (
+        <div className="chats-stats">
+          <ChatToday
+            api={api}
+            me={me}
+            canStats={can("stats")}
+            canCarts={can("carts")}
+            waiting={waiting}
+            onOpenChat={openFromResults}
+            go={goFromToday}
+            refreshKey={statsRefresh}
+          />
+        </div>
+      ) : tab === "stats" && can("stats") ? (
         <div className="chats-stats">
           <ChatResults
             isOwner={!!me?.owner}
-            canStats={can("stats")}
-            canCarts={can("carts")}
+            initialView={statsView}
             toolbar={<div className="chats-stats-filter">{dateFilter}</div>}
             token={token}
             bounds={bounds}
@@ -1071,10 +1123,13 @@ const ChatLogs = () => {
           </div>
 
           <div className="chats-views">
-            {/* "Internal" and "Spam" only show when there are some (or
-                they're open). */}
+            {/* "Needs reply", "Taken over", "Internal" and "Spam" only
+                show when there are some (or they're open). */}
             {VIEWS.filter(
-              (v) => !["internal", "spam"].includes(v.id) || counts[v.id] > 0 || view === v.id,
+              (v) =>
+                !["needs", "takeover", "internal", "spam"].includes(v.id) ||
+                counts[v.id] > 0 ||
+                view === v.id,
             ).map((v) => (
               <button
                 key={v.id}
@@ -1881,8 +1936,6 @@ const linkify = (text) =>
 const NOT_ANSWERED = {
   too_long: "message too long",
   too_many: "too many messages at once",
-  noise: "keyboard mash, no AI",
-  burst: "too many in a minute",
   busy: "AI busy",
   ai_failed: "AI didn't respond",
   error: "something went wrong",

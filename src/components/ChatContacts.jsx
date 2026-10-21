@@ -29,7 +29,7 @@ const FILTERS = [
   { id: "nozoho", label: "Not in Zoho", test: (p) => !p.zohoUrl && !p.skippedAt },
   { id: "zoho", label: "Sent to Zoho", test: (p) => !!p.zohoUrl },
   { id: "skipped", label: "Don't send now", test: (p) => !!p.skippedAt },
-  { id: "unanswered", label: "AI didn't answer", test: (p) => p.unanswered > 0 },
+  { id: "unanswered", label: "Couldn't answer", test: (p) => p.unanswered > 0 },
   { id: "cart", label: "Has a cart", test: (p) => p.cartValue > 0 },
   { id: "ordered", label: "Ordered", test: (p) => p.ordered === true },
 ];
@@ -737,7 +737,7 @@ const ChatContacts = ({
                             className="chats-tag chats-tag-alert"
                             title={`${p.unanswered} message${p.unanswered === 1 ? "" : "s"} the AI didn't answer`}
                           >
-                            AI didn&apos;t answer{p.unanswered > 1 ? ` ×${p.unanswered}` : ""}
+                            Couldn&apos;t answer{p.unanswered > 1 ? ` ×${p.unanswered}` : ""}
                           </span>
                         )}
                         {p.replied && <span className="chats-tag">Replied</span>}

@@ -2268,6 +2268,7 @@ function readContact(raw: unknown) {
 const CHAT_EVENTS: Record<string, string> = {
   "name-closed": "Closed the name box without a name",
   "number-skipped": "Skipped the number box",
+  "contact-closed": "Closed the details card without leaving any",
 };
 
 // A grey note in the Chats transcript (like "Visitor reset the chat").

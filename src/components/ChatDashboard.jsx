@@ -3,22 +3,24 @@ import { ArrowDownRight, ArrowUpRight, ExternalLink, Minus } from "lucide-react"
 import { useStatsData } from "./useStatsData";
 import { formatWhen, rupees } from "./chatTableUtils";
 import { pageKind, pageKindLabel, pageLabel, pageUrl } from "../lib/storePages";
+import { openCartsOf } from "../lib/carts";
 
 // Stats → Overview: the period at a glance, top to bottom. Four headline
 // numbers with the change from the period before (same length), each with
 // the figures that belong to it; one day-by-day chart (week by week for
 // long ranges); the orders; where chats start and what people ask about;
 // when shoppers write and (owner only) what each team member did. Numbers
-// from chat-admin's "dashboard", lists from "results". Carts, Journeys,
-// Products, Couldn't answer and AI cost have their own tabs.
+// from chat-admin's "dashboard", lists from "results" (carts too, for
+// logins allowed to see them). Journeys, Products, Couldn't answer and AI
+// cost have their own tabs.
 
 // What the day-by-day chart can show.
 const MEASURES = [
   { id: "chats", label: "Chats" },
-  { id: "leads", label: "Left details" },
+  { id: "leads", label: "Leads" },
   { id: "orders", label: "Orders" },
   { id: "revenue", label: "Order value", money: true },
-  { id: "unanswered", label: "AI didn't answer" },
+  { id: "unanswered", label: "Couldn't answer" },
 ];
 
 const dayLabel = (day, weekly) => {
@@ -134,6 +136,8 @@ const ChatDashboard = ({ api, request, results, resultsLoading, onOpenChat, onSh
   if (!data) return <p className="chats-results-note">Couldn&apos;t load the overview.</p>;
 
   const t = data.totals;
+  // "The team" only once there's more than one of us replying.
+  const showTeam = data.team?.length > 1;
   const orderList = results?.list ?? [];
   // The four headline numbers; each folds in the figures that belong to it.
   const tiles = [
@@ -144,7 +148,7 @@ const ChatDashboard = ({ api, request, results, resultsLoading, onOpenChat, onSh
     },
     {
       id: "leads",
-      label: "Left their details",
+      label: "Leads",
       sub: t.zoho ? `${t.zoho} sent to Zoho` : "None sent to Zoho yet",
     },
     {
@@ -163,7 +167,7 @@ const ChatDashboard = ({ api, request, results, resultsLoading, onOpenChat, onSh
     },
     {
       id: "unanswered",
-      label: "AI didn't answer",
+      label: "Couldn't answer",
       better: "down",
       action: t.unanswered > 0 && { label: "See the questions", onClick: onShowGaps },
     },
@@ -257,6 +261,8 @@ const ChatDashboard = ({ api, request, results, resultsLoading, onOpenChat, onSh
         )}
       </section>
 
+      {Array.isArray(results?.carts) && <CartsInsight carts={results.carts} />}
+
       <div className="chats-stats-pair chats-stats-pair-wide">
         <ChatPages pages={results?.pages} loading={resultsLoading} />
         <section className="chats-card">
@@ -278,7 +284,7 @@ const ChatDashboard = ({ api, request, results, resultsLoading, onOpenChat, onSh
         </section>
       </div>
 
-      <div className={`chats-stats-pair${data.team ? " chats-stats-pair-wide" : ""}`}>
+      <div className={`chats-stats-pair${showTeam ? " chats-stats-pair-wide" : ""}`}>
         <section className="chats-card">
           <h3>
             When shoppers write
@@ -299,37 +305,34 @@ const ChatDashboard = ({ api, request, results, resultsLoading, onOpenChat, onSh
           />
         </section>
 
-        {/* Owner only (the server leaves it out for everyone else). */}
-        {data.team && (
+        {/* Owner only (the server leaves it out for everyone else), and
+            only with two or more people on it. */}
+        {showTeam && (
           <section className="chats-card">
             <h3>
               The team
               <span> · in this period</span>
             </h3>
-            {!data.team.length ? (
-              <p className="chats-results-note">No replies or Zoho leads from the team yet.</p>
-            ) : (
-              <table className="chats-results-orders">
-                <thead>
-                  <tr>
-                    <th>Who</th>
-                    <th>Replies</th>
-                    <th>Chats</th>
-                    <th>Sent to Zoho</th>
+            <table className="chats-results-orders">
+              <thead>
+                <tr>
+                  <th>Who</th>
+                  <th>Replies</th>
+                  <th>Chats</th>
+                  <th>Sent to Zoho</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.team.map((m) => (
+                  <tr key={m.name}>
+                    <td>{m.name}</td>
+                    <td>{m.replies}</td>
+                    <td>{m.chats}</td>
+                    <td>{m.zoho}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {data.team.map((m) => (
-                    <tr key={m.name}>
-                      <td>{m.name}</td>
-                      <td>{m.replies}</td>
-                      <td>{m.chats}</td>
-                      <td>{m.zoho}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+                ))}
+              </tbody>
+            </table>
           </section>
         )}
       </div>
@@ -347,6 +350,61 @@ const ChatDashboard = ({ api, request, results, resultsLoading, onOpenChat, onSh
           })}.`}
       </p>
     </>
+  );
+};
+
+// Carts in this period, at a glance: how many people who chatted had
+// something in their cart, how many went on to order, what's still
+// sitting there, and how many of those left a way to reach them.
+const CartsInsight = ({ carts }) => {
+  const open = openCartsOf(carts);
+  const ordered = carts.length - open.length;
+  const openValue = open.reduce((s, c) => s + (c.value ?? 0), 0);
+  const valued = carts.filter((c) => c.value > 0);
+  const average = valued.length
+    ? valued.reduce((s, c) => s + c.value, 0) / valued.length
+    : 0;
+  const reachable = open.filter((c) => c.lead).length;
+  const share = (n) => (carts.length ? `${Math.round((n / carts.length) * 100)}%` : "–");
+  const stats = [
+    { label: "Had a cart", value: carts.length, sub: "when they last chatted" },
+    { label: "Ordered after", value: ordered, sub: `${share(ordered)} of them`, good: ordered > 0 },
+    { label: "Still in carts", value: rupees(openValue), sub: `${open.length} cart${open.length === 1 ? "" : "s"}, no order` },
+    { label: "Average cart", value: average ? rupees(average) : "–", sub: "across carts with a value" },
+  ];
+  return (
+    <section className="chats-card">
+      <h3>
+        Carts
+        <span> · people who chatted with something in their cart</span>
+      </h3>
+      {!carts.length ? (
+        <p className="chats-results-note">Nobody had a cart in this period.</p>
+      ) : (
+        <>
+          <div className="chats-carts-insight">
+            {stats.map((s) => (
+              <div
+                key={s.label}
+                className={`chats-funnel-step${s.good ? " chats-funnel-good" : ""}`}
+              >
+                <span className="chats-funnel-label">{s.label}</span>
+                <strong>{s.value}</strong>
+                <span className="chats-funnel-sub">{s.sub}</span>
+              </div>
+            ))}
+          </div>
+          {reachable > 0 && (
+            <p className="chats-results-note">
+              {reachable === 1
+                ? "1 open cart is from someone who left a phone number or email."
+                : `${reachable} open carts are from people who left a phone number or email.`}{" "}
+              Worth a follow-up (find them under Contacts).
+            </p>
+          )}
+        </>
+      )}
+    </section>
   );
 };
 

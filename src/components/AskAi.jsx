@@ -988,16 +988,21 @@ const AskAi = ({
       .map((m) => m.optionFor.id);
 
   // The options for a piece: "Show me more like this" and one per detail
-  // it has, minus the ones already asked (`used`). `one`: the answer when
-  // the detail is a single line ("Eclipse Pasta Bowl: 305ml" → "It holds
+  // it has, minus the ones already asked (`used`). "Size & weight" answers
+  // with whichever of `parts` the piece has. `one`: the answer when a
+  // detail is a single line ("Eclipse Pasta Bowl: 305ml" → "It holds
   // 305ml."), so the piece's name isn't said twice.
+  const DETAILS = {
+    includes: { answer: () => TEXTS.infoIncludes },
+    dimensions: { answer: () => TEXTS.infoDimensions, one: () => TEXTS.infoDimensionsOne },
+    volume: { answer: () => TEXTS.infoVolume, one: () => TEXTS.infoVolumeOne },
+    weight: { answer: () => TEXTS.infoWeight, one: () => TEXTS.infoWeightOne },
+  };
   const PRODUCT_OPTIONS = [
     { id: "stock", label: () => TEXTS.optCheckStock },
     { id: "similar", label: () => TEXTS.optMoreLikeThis },
-    { id: "includes", label: () => TEXTS.optIncludes, answer: () => TEXTS.infoIncludes },
-    { id: "dimensions", label: () => TEXTS.optDimensions, answer: () => TEXTS.infoDimensions, one: () => TEXTS.infoDimensionsOne },
-    { id: "volume", label: () => TEXTS.optVolume, answer: () => TEXTS.infoVolume, one: () => TEXTS.infoVolumeOne },
-    { id: "weight", label: () => TEXTS.optWeight, answer: () => TEXTS.infoWeight, one: () => TEXTS.infoWeightOne },
+    { id: "includes", label: () => TEXTS.optIncludes, parts: ["includes"] },
+    { id: "size", label: () => TEXTS.optSize, parts: ["dimensions", "volume", "weight"] },
   ];
   // "What's in the set?" only for sets ("set", "Set of 2", "Table Setting").
   const isSet = (product) => /\bset(s|ting)?\b/i.test(product.title ?? "");
@@ -1007,7 +1012,8 @@ const AskAi = ({
         !used.includes(o.id) &&
         (o.id === "similar" ||
           (o.id === "stock" && product.soldOut) ||
-          (product.info?.[o.id] && (o.id !== "includes" || isSet(product)))),
+          (o.parts?.some((k) => product.info?.[k]) &&
+            (o.id !== "includes" || isSet(product)))),
     );
 
   // "Anything you'd like to know about the Uno Katori?" with the options
@@ -1049,13 +1055,19 @@ const AskAi = ({
       checkStock(product, question, nowUsed);
       return;
     }
-    const value = product.info[option.id];
-    const single = option.one && !value.includes("\n");
-    const answer = fillText(single ? option.one() : option.answer(), {
-      name,
-      // One line: just the value ("Eclipse Pasta Bowl: 305ml" → "305ml").
-      value: single ? value.replace(/^[^:\d]+:\s*/, "").replace(/\.$/, "") : value,
-    });
+    const answer = option.parts
+      .filter((k) => product.info[k])
+      .map((k) => {
+        const value = product.info[k];
+        const detail = DETAILS[k];
+        const single = detail.one && !value.includes("\n");
+        return fillText(single ? detail.one() : detail.answer(), {
+          name,
+          // One line: just the value ("Eclipse Pasta Bowl: 305ml" → "305ml").
+          value: single ? value.replace(/^[^:\d]+:\s*/, "").replace(/\.$/, "") : value,
+        });
+      })
+      .join("\n\n");
     // Logged for the team like any reply (no AI).
     callAskFaq({
       mode: "info",
@@ -1571,7 +1583,11 @@ const AskAi = ({
     return true;
   };
 
-  const dismissContact = () => updateContactPrefs({ dismissed: true });
+  // Closing it is noted in the team's transcript, like the name box.
+  const dismissContact = () => {
+    updateContactPrefs({ dismissed: true });
+    saveLater({ type: "event", kind: "contact-closed" });
+  };
 
   const copyText = async (text, key) => {
     try {

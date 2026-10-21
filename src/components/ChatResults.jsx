@@ -1,25 +1,15 @@
 import { useEffect, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { callFunction } from "../lib/askFaq";
 import { ChatGaps, ChatJourneys, ChatProducts, ChatAiCost } from "./ChatInsights";
 import ChatDashboard from "./ChatDashboard";
 
 // The Chats page's Stats tab: how the store chat did in the chosen date
 // range, as tabs (Overview is ChatDashboard; the rest are below and in
-// ChatInsights). chat-admin's "results" is loaded here for every tab: the
-// orders (from Shopify; the chat tags the shopper's cart, so an order
-// either came from someone who chatted first, or has items added with the
-// chat's own + button), pages, topics and carts.
-
-const rupees = (n) => `₹${Math.round(n).toLocaleString("en-IN")}`;
-
-const formatDate = (iso) =>
-  new Date(iso).toLocaleString([], {
-    day: "numeric",
-    month: "short",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+// ChatInsights), in two groups: Sales and the bot. chat-admin's "results"
+// is loaded here for every tab: the orders (from Shopify; the chat tags
+// the shopper's cart, so an order either came from someone who chatted
+// first, or has items added with the chat's own + button), pages and
+// topics, and the carts (on Overview).
 
 // How often the open Stats tab reloads by itself.
 const STATS_REFRESH_MS = 2 * 60 * 1000;
@@ -43,10 +33,8 @@ const ChatResults = ({
   handleResponse,
   onOpenChat,
   toolbar,
-  // What this login may see: Overview, Products and Couldn't answer with
-  // Stats; the Carts tab with Carts.
-  canStats = true,
-  canCarts = false,
+  // The tab to open on (Today's "Couldn't answer" opens on "gaps").
+  initialView = "stats",
   // For the Products and Couldn't answer tabs.
   api,
   // "Teach the bot" on a question it couldn't answer (owner only).
@@ -54,10 +42,7 @@ const ChatResults = ({
   // The AI cost tab (owner only).
   isOwner = false,
 }) => {
-  const [view, setView] = useState(canStats ? "stats" : "carts");
-  // Carts table order: by cart value or last chatted, either way (newest
-  // first to start with).
-  const [cartSort, setCartSort] = useState({ by: "date", desc: true });
+  const [view, setView] = useState(initialView);
   const [hideTest, setHideTest] = useState(readHideTest);
   // Keyed by what it's for, so a new choice shows "…" until it loads.
   const [result, setResult] = useState({ key: null, data: null });
@@ -113,68 +98,47 @@ const ChatResults = ({
 
   const loading = result.key !== key;
   const data = loading ? null : result.data;
-  // What's sitting in carts that hasn't been ordered (from the carts list).
-  const openCarts = Array.isArray(data?.carts)
-    ? data.carts.filter((c) => !c.ordered)
-    : [];
-  const openCartsValue = openCarts.reduce((s, c) => s + (c.value ?? 0), 0);
-  const sortedCarts = Array.isArray(data?.carts)
-    ? [...data.carts].sort((a, b) => {
-        const diff =
-          cartSort.by === "value"
-            ? (a.value ?? 0) - (b.value ?? 0)
-            : String(a.lastAt).localeCompare(String(b.lastAt));
-        return cartSort.desc ? -diff : diff;
-      })
-    : [];
-  // A column heading that sorts the carts table (tap again to flip).
-  const sortHead = (by, label) => {
-    const on = cartSort.by === by;
-    const Icon = on ? (cartSort.desc ? ArrowDown : ArrowUp) : ArrowUpDown;
-    return (
-      <th aria-sort={on ? (cartSort.desc ? "descending" : "ascending") : "none"}>
-        <button
-          type="button"
-          className={`chats-sort${on ? " chats-sort-on" : ""}`}
-          onClick={() =>
-            setCartSort({ by, desc: on ? !cartSort.desc : true })
-          }
-        >
-          {label}
-          <Icon size={13} />
-        </button>
-      </th>
-    );
-  };
 
-  const tabs = [
-    canStats && ["stats", "Overview"],
-    canCarts && ["carts", "Carts"],
-    canStats && ["journeys", "Journeys"],
-    canStats && ["products", "Products"],
-    canStats && ["gaps", "Couldn't answer"],
-    isOwner && ["cost", "AI cost"],
-  ].filter(Boolean);
+  // Sales: how the chat sells. Bot: how well it answers, and what it costs.
+  const TAB_GROUPS = [
+    {
+      label: "Sales",
+      tabs: [
+        ["stats", "Overview"],
+        ["journeys", "Journeys"],
+        ["products", "Products"],
+      ],
+    },
+    {
+      label: "Bot",
+      tabs: [["gaps", "Couldn't answer"], isOwner && ["cost", "AI cost"]].filter(Boolean),
+    },
+  ];
   const request = { ...bounds, hideTest, refreshKey };
 
   return (
     <div className="chats-stats-body">
-      {tabs.length > 1 && (
-        <div className="chats-stats-tabs" role="tablist">
-          {tabs.map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={view === id}
-              className={`chats-stats-tab${view === id ? " chats-stats-tab-active" : ""}`}
-              onClick={() => setView(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
+      <div className="chats-stats-tabs" role="tablist">
+        {TAB_GROUPS.map((g) => (
+          <div key={g.label} className="chats-stats-tab-group">
+            <span className="chats-stats-tab-group-label">{g.label}</span>
+            <div className="chats-stats-tab-row">
+              {g.tabs.map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={view === id}
+                  className={`chats-stats-tab${view === id ? " chats-stats-tab-active" : ""}`}
+                  onClick={() => setView(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
       <div className="chats-stats-toolbar">
         {toolbar}
         <label className="chats-switch">
@@ -200,73 +164,6 @@ const ChatResults = ({
           onOpenChat={onOpenChat}
           onShowGaps={() => setView("gaps")}
         />
-      )}
-
-      {/* The Carts tab; only for logins allowed to see carts (the server
-          leaves it out otherwise). */}
-      {view === "carts" && Array.isArray(data?.carts) && (
-        <section className="chats-card chats-orders-card">
-          {openCarts.length > 0 && (
-            <p className="chats-carts-headline">
-              <strong>{rupees(openCartsValue)}</strong> in{" "}
-              {openCarts.length} cart{openCarts.length === 1 ? "" : "s"}, no
-              order since
-            </p>
-          )}
-          <p className="chats-card-sub">
-            What was in their cart the last time they chatted, newest first
-            (sort by cart value or date from the column headings).
-            The chat only sees the cart while they're chatting, so they may
-            have changed or emptied it since. <strong>Ordered</strong> means
-            Shopify has an order from the same browser after they chatted.
-          </p>
-          {data.carts.length === 0 ? (
-            <p className="chats-results-note">Nobody in this period.</p>
-          ) : (
-            <table className="chats-results-orders">
-              <thead>
-                <tr>
-                  <th>Chat</th>
-                  {sortHead("value", "Cart when they last chatted")}
-                  {sortHead("date", "Last chatted")}
-                  <th>Since then</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedCarts.map((c) => (
-                  <tr key={c.conversationId}>
-                    <td>
-                      <button
-                        type="button"
-                        className="chats-results-chat"
-                        onClick={() => onOpenChat(c.conversationId)}
-                      >
-                        {c.title}
-                      </button>
-                      {/^Visitor /.test(c.title) && (
-                        <small className="chats-carts-tag">{c.tag}</small>
-                      )}
-                      {/* They left a phone or email: someone to follow up. */}
-                      {c.lead && (
-                        <span className="chats-tag chats-tag-lead chats-carts-lead">
-                          Lead
-                        </span>
-                      )}
-                    </td>
-                    <td>{c.cart}</td>
-                    <td>{formatDate(c.lastAt)}</td>
-                    <td>
-                      {/* Blank: no order from them yet. */}
-                      {c.ordered && (
-                        <span className="chats-tag chats-tag-lead">Ordered</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </section>
       )}
 
       {view === "journeys" && (
