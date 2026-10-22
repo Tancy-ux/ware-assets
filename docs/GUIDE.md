@@ -441,8 +441,12 @@ by the next message.
 The page fits the screen: header, summary, search and the open chat's
 header stay put; the list, the transcript and the side panel scroll inside
 their own boxes. **Live**: the list re-checks every 30 s while the page is
-in view (an open AI chat reloads when a new message arrives). **Refresh**
-reloads the list and the stats.
+in view, asking only for chats with a new message (`changedSince`), and
+reloads the whole list every 5 minutes (an open AI chat reloads when a new
+message arrives). **Refresh** reloads the list and the stats. Today's tiles
+use the quick `dashboard` `light` mode (totals only: no Shopify orders, no
+period before). Each page of the site loads on its own (`lazy` in
+App.jsx), so WareBot doesn't download the brand pages or the FAQ.
 
 **Summary cards** (top, click one to filter the list): *need reply*, *new
 leads today*, *chats · <date range>*, *in Zoho*. **Conversations | Stats**
@@ -779,7 +783,27 @@ browser, so it's still there on the next page.
   page, turns into a ✓, and shows **"✓ Added to your cart · View cart"**
   for 4.5 s. Products with options (size/colour) link to their page.
 - Recommendations show 4 cards and **Show more** (6 at a time, up to 16),
-  all in budget, in stock, from the same range, max 2 colours per design.
+  all in budget, in stock, from the same range, max 2 colours per design,
+  and the **same kind of piece** as the reply is about (`pieceKind`: cups
+  with cups, not plates or napkins). Asked for one person ("one good
+  piece", "a single cup", "for myself", `FOR_ONE_WORDS`), sets for 4 or
+  more are left out, and the kind comes from their last messages ("a good
+  ceramic cup"). With no single pieces, the bot says so and shows the
+  smallest sets.
+- **Pills under a question**: when the bot asks their budget (none known
+  yet), **Under ₹2,500 · Under ₹5,000 · No fixed budget** (`BUDGET_CHOICES`
+  in ask-faq; meanwhile cards stay at ₹5,000 or under); when it asks them
+  to pick something else (a kind of piece, a style, an occasion), 2–4 short
+  answers the model suggests from the catalogue ("Serving bowls · Platters &
+  trays · Serveware sets"). Only under the latest reply; tapping one sends
+  it. A gift with no budget yet gets the budget question first. **Casual
+  chats only**: bulk, corporate, custom and quote enquiries keep their own
+  flow (numbered questions, then the quote form), and the details card
+  never shows alongside pills (it waits for the next reply).
+- **"How do I order?"** for an ordinary piece: tap + to add it to the cart
+  and check out on the website, or ask for the team on WhatsApp. Payment
+  links, sharing an address, same-day, bulk or custom orders get the
+  WhatsApp button straight away.
 - Sold-out cards say "Sold out" and offer **similar pieces in stock**.
 - **Ware Atelier** pieces show "Price on request" and **Enquire** (WhatsApp).
 - Arrows ‹ › scroll card rows on desktop; swipe on phones.
@@ -899,11 +923,21 @@ The bot asks for a pincode and then quotes exactly what code works out:
   within ₹1 of a round hundred are rounded down).
 - **Place**: India Post pincode API (town, district, state; state spelling
   differences like Orissa/Odisha are handled).
-- **Days**: Mumbai and Navi Mumbai 2–3 working days, plus *same-day delivery
-  for ₹350 extra*; these states 3–5: Bihar, Chandigarh, Chhattisgarh, Delhi,
+- **Days**: Mumbai and Navi Mumbai 2–3 working days, plus *same-day
+  delivery for prepaid orders only (not COD), ₹350 on orders under ₹5,000*;
+  these states 3–5: Bihar, Chandigarh, Chhattisgarh, Delhi,
   Goa, Gujarat, Haryana, Jharkhand, Karnataka, Kerala, Madhya Pradesh,
   Maharashtra, Punjab, Rajasthan, Tamil Nadu, Telangana, Uttar Pradesh;
   everywhere else 4–7 (matches the FAQ). *All orders are dispatched within 24 hours.*
+- **Arrival dates**: each rate also says when it should arrive if ordered
+  now (`arrivalWindow`: dispatched the next working day, then the transit's
+  working days, Sundays off, India time), e.g. "ordered now, it should
+  arrive Sat, 24 Oct to Mon, 26 Oct". Asked "by Friday?" / "tomorrow?" /
+  "before the 10th?", the bot answers that first from these dates: in time,
+  or honestly that it may not make it, with same-day (Mumbai, prepaid) or
+  the team on WhatsApp. It never says "easily", "comfortably",
+  "definitely", "guaranteed" or "for sure" about a date. The bot is told
+  today's date and time (India) in every prompt, and says them if asked.
 - **Outside India**: prices differ (products are roughly +95%), so the team
   quotes them (WhatsApp); the bot may share times after dispatch: Dubai
   12–15, UK 15–20, USA 20–45 business days.

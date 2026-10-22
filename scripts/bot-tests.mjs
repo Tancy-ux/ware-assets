@@ -154,11 +154,87 @@ const SCENARIOS = {
       ["no Circle of Ware tiers", not(/circle of ware|7\.5\s?%|10\s?%/i)],
     ]],
   ],
+  // Priyal's chat (21 Oct): a straight answer about Friday, no "easily",
+  // and cards that fit "one good piece" (no plates, napkins or big sets).
+  "Delivery by a day, one piece": [
+    ["I want to by friday. Pincode-400049", [
+      ["answers about Friday", has(/friday/i)],
+      ["no sure-thing words", not(/\b(easily|comfortably|definitely|guaranteed|for sure)\b/i)],
+    ]],
+    ["So i need a good ceramic cup by friday to gift someone", [
+      ["no sure-thing words", not(/\b(easily|comfortably|definitely|guaranteed|for sure)\b/i)],
+    ]],
+    ["I want one good peice", [
+      ["only cups / drink sets", (r) => (r.products ?? []).every((p) => !/plate|napkin|starter|table setting|runner|mat\b/i.test(p.title))],
+      ["no sets for 4 or more", (r) => (r.products ?? []).every((p) => !/set of ([4-9]|\d{2})|\(([4-9]|\d{2}) pieces?\)/i.test(p.title))],
+      ["still suggests something", (r) => (r.products ?? []).length > 0],
+    ]],
+  ],
+  "Delivery tomorrow": [
+    ["can it reach tomorrow? pincode 400013", [
+      ["says it may not, offers same-day", has(/same.day/i)],
+      ["same-day is prepaid only", has(/prepaid/i)],
+      ["no sure-thing words", not(/\b(easily|comfortably|definitely|guaranteed|for sure)\b/i)],
+    ]],
+  ],
+  "Delivery before a date elsewhere": [
+    ["will a dinner set reach Bangalore 560001 before the 10th of next month?", [
+      ["no sure-thing words", not(/\b(easily|comfortably|definitely|guaranteed|for sure)\b/i)],
+      ["gives an answer about the date", has(/\b(should|may|might|reach|arrive)\b/i)],
+    ]],
+  ],
+  // A gift with no budget: it asks, with the three budget pills; a pill
+  // then works as a budget; a choice it asks about comes with pills.
+  "Budget pills": [
+    ["hi, looking for a gift for my mom's birthday", [
+      ["budget pills", (r) => (r.choices ?? []).includes("Under ₹2,500")],
+      ["nothing over ₹5,000 shown yet", (r) => (r.products ?? []).every((p) => Number(String(p.price).replace(/\D/g, "")) <= 5000)],
+    ]],
+    ["Under ₹2,500", [
+      ["all within ₹2,500", (r) => (r.products ?? []).length > 0 && (r.products ?? []).every((p) => Number(String(p.price).replace(/\D/g, "")) <= 2500)],
+      ["no budget pills again", (r) => !(r.choices ?? []).includes("Under ₹2,500")],
+    ]],
+  ],
+  "No fixed budget": [
+    ["something nice for my sister's wedding", [
+      ["budget pills", (r) => (r.choices ?? []).includes("No fixed budget")],
+    ]],
+    ["No fixed budget", [
+      ["shows pieces", (r) => (r.products ?? []).length > 0],
+      ["doesn't ask the budget again", (r) => !(r.choices ?? []).includes("No fixed budget")],
+    ]],
+  ],
+  // Asking what Ware Atelier is: the gentle one-line ask, not the open form.
+  "What is Atelier": [
+    ["what is ware atelier", [
+      ["no open quote form", (r) => !(r.askForDetails && r.detailsKind === "quote")],
+    ]],
+  ],
+  "Bulk with a date": [
+    ["need 50 gift sets by 28th october in delhi", [
+      ["no pills for bulk", (r) => !(r.choices ?? []).length],
+    ]],
+  ],
+  // An ordinary piece: + to cart and check out, not straight to WhatsApp.
+  "How to order": [
+    ["how do i order the flare tea cups?", [
+      ["points to the cart / website", has(/\b(cart|checkout|check out|website)\b/i)],
+      ["no WhatsApp button", (r) => !r.whatsappUrl],
+    ]],
+  ],
+  // It knows today's date (India time), and says it when asked.
+  "Today's date": [
+    ["what day is today", [
+      ["says today's weekday", has(new RegExp(new Date().toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", weekday: "long" }), "i"))],
+    ]],
+  ],
   // A number typed in the chat counts as their details; a plain "yes"
   // after a call question opens the form; bulk asks open it with a quote.
   "Leaving details": [
     ["I need 50 corporate gifts for my team", [
+      // Bulk keeps its own flow: the quote form, no pills.
       ["asks with the quote form", (r) => r.askForDetails && r.detailsKind === "quote"],
+      ["no pills", (r) => !(r.choices ?? []).length],
     ]],
     ["my number is 9000000001", [
       ["counts as their details", (r) => r.contactSaved === true],

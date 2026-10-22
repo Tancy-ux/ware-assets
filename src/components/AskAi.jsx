@@ -943,6 +943,8 @@ const AskAi = ({
       showReturns: !!data.returnsLink,
       askForDetails: !!data.askForDetails,
       detailsOpen: !!data.detailsOpen,
+      // Tap-to-answer pills (budgets, or the kinds it asked about).
+      choices: Array.isArray(data.choices) ? data.choices : [],
       // How the details card asks: "call" / "quote" open the form, "ideas"
       // is a one-line offer (also when only the message count brought it).
       detailsKind: data.detailsOpen
@@ -2151,6 +2153,25 @@ const AskAi = ({
                     <ArrowUpRight size={13} />
                   </a>
                 ))}
+                {/* Pills answering the reply's question ("Under ₹2,500",
+                    "Tea cups"…): only under the latest message, and gone
+                    once they answer. */}
+                {m.choices?.length > 0 && messages[messages.length - 1]?.id === m.id && (
+                  <div className="ware-chat-options">
+                    <div className="ware-chat-suggestions">
+                      {m.choices.map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          className="ware-chat-suggestion"
+                          onClick={() => ask(c)}
+                        >
+                          {c}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {m.productOptions && (
                   // The details first, "Show me more like this" last; they
                   // wrap onto a new line only when they don't fit.

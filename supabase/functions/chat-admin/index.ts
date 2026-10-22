@@ -432,7 +432,8 @@ type DashTotals = {
 
 // The dashboard's numbers for chats that started in [since, until), with
 // their messages, orders and Zoho leads in the same window. Test and junk
-// chats are left out unless `withTest`.
+// chats are left out unless `withTest`. Without `withOrders` (Today's
+// tiles) Shopify isn't asked, and orders count as 0.
 async function dashboardNumbers(
   // deno-lint-ignore no-explicit-any
   db: any,
@@ -441,6 +442,7 @@ async function dashboardNumbers(
   withTest: boolean,
   fresh: boolean,
   detail: boolean,
+  withOrders = true,
 ) {
   // Chats active in the window (a message in it means their last one is
   // after its start).
@@ -491,7 +493,7 @@ async function dashboardNumbers(
   // deno-lint-ignore no-explicit-any
   let orders: any[] = [];
   try {
-    const shop = await cachedOrders(since, until, fresh);
+    const shop = withOrders ? await cachedOrders(since, until, fresh) : { orders: [] };
     const visitorIds = [...new Set(shop.orders.map((o) => o.visitorId).filter(Boolean))];
     const { data: linked } = visitorIds.length
       ? await db
@@ -1892,6 +1894,9 @@ Deno.serve(async (req) => {
         .limit(LIST_LIMIT);
       if (since) query = query.gte("last_message_at", since);
       if (until) query = query.lt("last_message_at", until);
+      // The page's "Live" check: only chats with a message since then.
+      const changedSince = validDate(body.changedSince);
+      if (changedSince) query = query.gte("last_message_at", changedSince);
       const { data, error } = await query;
       if (error) throw error;
       // Taps since the list's start; older ones don't matter here.
@@ -2461,6 +2466,12 @@ Deno.serve(async (req) => {
     // team.
     if (body.action === "dashboard") {
       const withTest = body.hideTest === false;
+      // "light" (Today's tiles): just the totals, no orders from Shopify,
+      // no day-by-day and no period before. Much quicker.
+      if (body.light) {
+        const { totals } = await dashboardNumbers(db, since, until, withTest, !!body.fresh, false, false);
+        return json({ totals });
+      }
       const now = await dashboardNumbers(db, since, until, withTest, !!body.fresh, true);
       // The period before, as long as this one ("All time" has none).
       let before = null;

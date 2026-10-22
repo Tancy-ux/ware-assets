@@ -65,6 +65,17 @@ const TOKEN_KEY = "chatsToken";
 const TRANSCRIPT_REFRESH_MS = 5000;
 // How often the list checks for new chats and messages ("Live").
 const LIST_REFRESH_MS = 30000;
+// Every 10th check (5 minutes) reloads the whole list.
+const LIST_FULL_EVERY = 10;
+// Chats that changed, put over the list's copies (new ones added), newest
+// first.
+const mergeConversations = (list, changed) => {
+  const byId = new Map(list.map((c) => [c.id, c]));
+  for (const c of changed) byId.set(c.id, c);
+  return [...byId.values()].sort((a, b) =>
+    String(b.lastMessageAt).localeCompare(String(a.lastMessageAt)),
+  );
+};
 // "Products seen" takes this many from each reply's cards, and shows this
 // many before "Show all".
 const SEEN_PER_REPLY = 1;
@@ -453,18 +464,42 @@ const ChatLogs = () => {
     };
   }, [token, handleResponse]);
 
-  // "Live": quietly re-checks the list while the page is in view. Errors
-  // are left for the next manual Refresh to show.
+  // The newest message time in the list, for "Live" to ask only for chats
+  // that changed since.
+  const latestAt = useRef(null);
+  useEffect(() => {
+    latestAt.current = conversations.reduce(
+      (max, c) => (c.lastMessageAt && c.lastMessageAt > (max ?? "") ? c.lastMessageAt : max),
+      null,
+    );
+  }, [conversations]);
+
+  // "Live": quietly re-checks the list while the page is in view: only the
+  // chats with a message since the newest one here (a little earlier, to
+  // be safe), merged in; the whole list every LIST_FULL_EVERY checks, for
+  // changes made from another browser. Errors are left for the next
+  // manual Refresh to show.
   useEffect(() => {
     if (!token) return;
+    let checks = 0;
     const timer = setInterval(async () => {
       if (document.hidden) return;
+      checks++;
+      const changedSince = checks % LIST_FULL_EVERY && latestAt.current
+        ? new Date(Date.parse(latestAt.current) - 2 * 60 * 1000).toISOString()
+        : null;
       const { data } = await callFunction("chat-admin", {
         action: "list",
         token,
         ...rangeBounds(range, customFrom, customTo),
+        ...(changedSince ? { changedSince } : {}),
       });
-      if (data?.conversations) setConversations(data.conversations);
+      if (!data?.conversations) return;
+      if (!changedSince) {
+        setConversations(data.conversations);
+      } else if (data.conversations.length) {
+        setConversations((prev) => mergeConversations(prev, data.conversations));
+      }
     }, LIST_REFRESH_MS);
     return () => clearInterval(timer);
   }, [token, range, customFrom, customTo]);

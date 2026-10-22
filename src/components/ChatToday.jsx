@@ -23,8 +23,9 @@ const requestsFor = (refreshKey) => {
   midnight.setHours(0, 0, 0, 0);
   const daysAgo = (n) => new Date(Date.now() - n * DAY_MS).toISOString();
   return {
-    todayReq: { since: midnight.toISOString(), refreshKey },
-    weekReq: { since: daysAgo(7), refreshKey },
+    // light: just the totals (no Shopify orders, no period before).
+    todayReq: { since: midnight.toISOString(), light: true, refreshKey },
+    weekReq: { since: daysAgo(7), light: true, refreshKey },
     cartsReq: { since: daysAgo(30), refreshKey },
   };
 };

@@ -1,16 +1,19 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
 import { supabase } from "./components/supabase";
 import { ToastContainer } from "react-toastify";
 import HomePage from "./Pages/HomePage";
-import Colors from "./components/Colors";
-import Logos from "./components/Logos";
 import Navbar from "./components/Navbar";
-import Fonts from "./components/Fonts";
 import Login from "./components/Login";
-import AssetLibrary from "./components/AssetLibrary";
-import Faq from "./components/Faq";
-import ChatLogs from "./components/ChatLogs";
+
+// Each page loads when it's opened, so WareBot (the Chats admin) doesn't
+// download the brand pages and the FAQ, and the other way round.
+const Colors = lazy(() => import("./components/Colors"));
+const Logos = lazy(() => import("./components/Logos"));
+const Fonts = lazy(() => import("./components/Fonts"));
+const AssetLibrary = lazy(() => import("./components/AssetLibrary"));
+const Faq = lazy(() => import("./components/Faq"));
+const ChatLogs = lazy(() => import("./components/ChatLogs"));
 
 function App() {
   // The edit buttons follow the "auth" flag, but saving needs a real
@@ -44,7 +47,9 @@ function App() {
   if (standalone) {
     return (
       <>
-        <ChatLogs />
+        <Suspense fallback={null}>
+          <ChatLogs />
+        </Suspense>
         <ToastContainer />
       </>
     );
@@ -58,6 +63,7 @@ function App() {
           targets this wrapper, not body, so the navbar above it always
           stays full-width and never shifts when the drawer opens. */}
       <div id="page-content">
+        <Suspense fallback={null}>
         <Routes>
           <Route path="/login" element={<Login />} />
 
@@ -69,6 +75,7 @@ function App() {
           <Route path="/logos" element={<Logos />} />
           <Route path="/fonts" element={<Fonts />} />
         </Routes>
+        </Suspense>
       </div>
 
       <ToastContainer />

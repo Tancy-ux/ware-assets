@@ -25,7 +25,7 @@ const DISPATCH_NOTE = "All orders are dispatched within 24 hours.";
 
 // Cities, matched on India Post's district / division for the pincode.
 const SAME_DAY_MUMBAI =
-  "Same-day delivery is available in Mumbai and Navi Mumbai for Rs 350 extra.";
+  "Same-day delivery is available in Mumbai and Navi Mumbai for prepaid orders only (not cash on delivery): Rs 350 on orders under Rs 5,000.";
 const CITY_RULES: {
   name: string;
   match: (p: Place) => boolean;
@@ -351,6 +351,34 @@ function deliveryDays(r: Rate, place: Place, city: (typeof CITY_RULES)[number] |
   return state ? STATE_DAYS[state] : DEFAULT_TRANSIT;
 }
 
+// When it should arrive if they order now (India time): dispatched by the
+// next working day (DISPATCH_NOTE), then the transit's working days,
+// Sundays off. "2–3 working days" ordered on a Tuesday evening: Friday to
+// Saturday. Null when the days can't be read.
+const DAY_MS = 24 * 60 * 60 * 1000;
+export function arrivalWindow(days: string, now = new Date()) {
+  const m = days.match(/(\d+)\s*[–-]\s*(\d+)/) ?? days.match(/(\d+)()/);
+  if (!m) return null;
+  const min = Number(m[1]);
+  const max = Number(m[2] || m[1]);
+  // A date in India: shift by +5:30 and read the UTC parts.
+  let day = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  const addWorkingDays = (from: Date, n: number) => {
+    let d = new Date(from);
+    while (n > 0) {
+      d = new Date(d.getTime() + DAY_MS);
+      if (d.getUTCDay() !== 0) n--;
+    }
+    return d;
+  };
+  day = addWorkingDays(day, 1); // dispatched
+  const fmt = (d: Date) =>
+    d.toLocaleDateString("en-IN", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" });
+  const first = addWorkingDays(day, min);
+  const last = addWorkingDays(day, max);
+  return min === max ? fmt(first) : `${fmt(first)} to ${fmt(last)}`;
+}
+
 function describeRate(r: Rate, days: string) {
   const price = r.price === 0 ? "free" : Number.isFinite(r.price) ? rupees(r.price) : "price not set";
   // "Orders ₹0–₹5,000" reads as "under ₹5,000" (free starts at ₹5,000).
@@ -362,7 +390,8 @@ function describeRate(r: Rate, days: string) {
     : min > 0
     ? `on orders of ${rupees(min)} and above`
     : "on any order";
-  return `${r.name}: ${price} ${when}, ${days}`;
+  const arrives = arrivalWindow(days);
+  return `${r.name}: ${price} ${when}, ${days}${arrives ? ` (ordered now, it should arrive ${arrives})` : ""}`;
 }
 
 // Indian pincodes: 6 digits, not starting with 0.
