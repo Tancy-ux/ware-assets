@@ -133,7 +133,11 @@ export const TEXTS = {
   optCheckStock: "Check stock with our team",
   stockReply:
     "The {name} is sold out on our website right now, but we may still have a few pieces. Message us on WhatsApp and we'll check for you.",
-  stockWhatsApp: "Hi! Is the {title} available? I saw it's sold out on the website.\n{url}",
+  // A sold-out Claude / Arc / Horizon piece (each one of a kind), with
+  // similar ones in stock as cards under it.
+  stockReplyOnePiece:
+    "This one is a lovely pick! Each piece is one of a kind, but we'd love to check whether we have it for you. Just tap WhatsApp below. Meanwhile, here are some similar {kind} for you.",
+  stockWhatsApp:"Hi! Is the {title} available? I saw it's sold out on the website.\n{url}",
   optIncludes: "What's in the set?",
   optSize: "Size & weight",
   infoIncludes: "The {name} includes:\n{value}",

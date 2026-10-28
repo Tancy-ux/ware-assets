@@ -95,6 +95,9 @@ const RESTOCK_CHECK_ENABLED = false;
 // new message (and so on, for the up-to-16 similar products).
 const FIRST_PAGE = 4;
 const MORE_PAGE = 6;
+// Claude / Arc / Horizon pieces are numbered one-offs ("105 Petralis
+// Claude vase").
+const ONE_PIECE_TITLE = /^\d+\s.*\b(claude|arc|horizon)\b/i;
 
 // Human takeover: how often the chat checks for team replies, and when it
 // stops bothering (matches the 24h takeover limit in ask-faq).
@@ -1127,14 +1130,31 @@ const AskAi = ({
   };
   // "Check stock with our team" on a sold-out piece: a WhatsApp button
   // with the piece and its link filled in (no AI). Logged like the
-  // details options.
-  const checkStock = (product, question, used) => {
-    const answer = fillText(TEXTS.stockReply, { name: shortName(product.title) });
+  // details options. A numbered Claude / Arc / Horizon piece is one of a
+  // kind: similar ones in stock come as cards under it (the same marble
+  // first, see onePieceAlternatives in ask-faq).
+  const checkStock = async (product, question, used) => {
+    let similar = [];
+    if (ONE_PIECE_TITLE.test(product.title)) {
+      const { data, error } = await callAskFaq({
+        mode: "similar",
+        quiet: true,
+        handle: product.handle,
+        conversationId: getVisitorId(),
+        visitorId: getVisitorId(),
+      });
+      if (!error && !data?.error) similar = data.products ?? [];
+    }
+    const answer = fillText(similar.length ? TEXTS.stockReplyOnePiece : TEXTS.stockReply, {
+      name: shortName(product.title),
+      kind: /tissue/i.test(product.title) ? "tissue boxes" : "vases",
+    });
     callAskFaq({
       mode: "info",
       handle: product.handle,
       question: `${question} (${product.title})`,
       answer,
+      similar: similar.map((p) => p.url?.match(/\/products\/([^/?#]+)/)?.[1]).filter(Boolean),
       conversationId: getVisitorId(),
       visitorId: getVisitorId(),
     }).then(({ error, data }) => {
@@ -1153,6 +1173,8 @@ const AskAi = ({
             url: `${location.origin}/products/${product.handle}`,
           }),
         ),
+        products: similar.slice(0, FIRST_PAGE),
+        moreProducts: similar.slice(FIRST_PAGE),
       },
       {
         historyQuestion: `${question} (${product.title})`,

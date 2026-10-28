@@ -842,6 +842,18 @@ Pairings prefer the same design range, colours and price, mix ceramic and
 marble, and take turns between kinds. A piece of no known kind (tissue box,
 appetiser set…) gets the old mixed list. Sold-out "see similar" is unchanged.
 
+**A sold-out Claude / Arc / Horizon piece asked about by number** ("105
+claude vase", "is 7 noira arc available?"; `soldOutOnePiece`): each number
+is one piece, so the reply always gets the WhatsApp button (we check
+whether we have it) and, as cards, the in-stock pieces in the **same marble**
+(the first word after the number: 105 Petralis Claude → the other Petralis
+Claude vases) and the same kind (vase / tissue box), same shape first, then
+the closest numbers. No piece left in that marble: the closest numbers of
+the same shape. Not used when the piece is in stock or the question could
+mean several pieces ("8 arc"). The wording comes from the Bot rule: warm,
+never "won't be restocked", "Here are some similar vases for you", no marble
+name or numbers in the text.
+
 ### 5.4a Product details on product pages (no AI)
 
 On a product page whose product has any of these metafields, the pill reads
@@ -882,6 +894,12 @@ answers instantly (`stockReply`, no AI) with the WhatsApp button, its
 message pre-filled with the piece and its link (`stockWhatsApp`), and is
 logged like the other options. Sold out = `available: false` in Shopify's
 `/products/<handle>.js`; the test page takes `&soldout=1`.
+For a numbered **Claude / Arc / Horizon** piece (one of a kind) the reply is
+`stockReplyOnePiece` ("This one is a lovely pick! … here are some similar
+vases for you", no marble name) with the in-stock pieces in the same marble
+as cards (ask-faq mode `similar` with `quiet: true`, which uses
+`onePieceAlternatives`; mode `info` logs them via `similar`). "Show me more
+like this" on those pieces gives the same list.
 
 ### 5.5 Ware Atelier (bespoke) pieces
 

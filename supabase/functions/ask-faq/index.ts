@@ -723,6 +723,66 @@ function similarProducts(target: Product, products: Product[]) {
     .map((x) => x.p);
 }
 
+// A sold-out numbered Claude / Arc / Horizon piece asked about by number
+// ("105 claude vase", "is arc 8 espara available?"). Each number is one
+// piece, so the alternatives are the in-stock ones in the same marble (the
+// first word after the number: 105 Petralis Claude -> other Petralis
+// Claude) and the same kind (vase / tissue box), same shape first, then the
+// closest numbers; with none in that marble, the closest numbers of the
+// same shape. Null when it isn't one, it's ambiguous or it's in stock.
+const ONE_PIECE_RANGE = /\b(claude|arc|horizon)\b/i;
+function soldOutOnePiece(question: string, products: Product[]) {
+  const range = question.match(ONE_PIECE_RANGE)?.[1].toLowerCase();
+  if (!range) return null;
+  const numbers = (question.match(/\b\d{1,3}\b/g) ?? []).map(Number);
+  if (!numbers.length) return null;
+  const words = new Set(question.toLowerCase().match(/[a-z]+/g) ?? []);
+  let asked = onePieces(range, products).filter((x) => numbers.includes(x.n));
+  // "8 arc" is several pieces: narrow by the marble or shape they named.
+  if (asked.length > 1) asked = asked.filter((x) => words.has(x.marble));
+  if (asked.length > 1) {
+    asked = asked.filter((x) => x.shape.split(/\s+/).every((w) => words.has(w) || w === "marble"));
+  }
+  if (asked.length !== 1 || asked[0].p.available) return null;
+  const alternatives = onePieceAlternatives(asked[0].p, products);
+  return alternatives ? { target: asked[0].p, alternatives } : null;
+}
+// The numbered pieces of a range: "105 Petralis Claude vase" -> 105,
+// petralis, "claude vase".
+function onePieces(range: string, products: Product[]) {
+  return products.flatMap((p) => {
+    const m = p.title.match(/^0*(\d+)\s+(\S+)\s+(.+)$/);
+    if (!m || p.line !== "collectibles" || !new RegExp(`\\b${range}\\b`, "i").test(p.title)) {
+      return [];
+    }
+    return [{ p, n: Number(m[1]), marble: m[2].toLowerCase(), shape: m[3].toLowerCase() }];
+  });
+}
+// The in-stock alternatives to a numbered Claude / Arc / Horizon piece, as
+// above (also its "Show me more like this" and "Check stock"). Null for any
+// other product, or when none are in stock.
+function onePieceAlternatives(product: Product, products: Product[]) {
+  const range = product.title.match(ONE_PIECE_RANGE)?.[1].toLowerCase();
+  if (!range) return null;
+  const pieces = onePieces(range, products);
+  const target = pieces.find((x) => x.p.handle === product.handle);
+  if (!target) return null;
+  const kind = (s: string) => /tissue/.test(s) ? "tissue" : "vase";
+  const inStock = pieces.filter((x) =>
+    x.p.available && x.p.handle !== target.p.handle && kind(x.shape) === kind(target.shape)
+  );
+  const sameMarble = inStock.filter((x) => x.marble === target.marble);
+  const pool = sameMarble.length ? sameMarble : inStock.filter((x) => x.shape === target.shape);
+  const alternatives = pool
+    .sort((a, b) =>
+      Number(b.shape === target.shape) - Number(a.shape === target.shape) ||
+      Math.abs(a.n - target.n) - Math.abs(b.n - target.n)
+    )
+    .slice(0, MAX_CARDS)
+    .map((x) => x.p);
+  return alternatives.length ? alternatives : null;
+}
+
 // What kind of piece it is, from its name (Shopify's product types are too
 // mixed: "cutlery", "Flatware Sets", "Mug", "Cup"…). First match wins, so
 // "Spoon Rest" isn't cutlery and "Coffee Breakfast Set" is drinkware. Null
@@ -2853,11 +2913,13 @@ Deno.serve(async (req) => {
       // variety of pieces.
       // Other pieces of its kind first; when those are few, pieces that go
       // with it come as a second group (moreLikeThis above).
-      const { kind, alternatives, pairings } = moreLikeThis(
-        target,
-        await loadProducts(),
-      );
-      const picks = limitPerDesign([target, ...alternatives]).slice(1);
+      // A numbered Claude / Arc / Horizon piece: the same marble first
+      // (onePieceAlternatives), as they are.
+      const onePiece = onePieceAlternatives(target, await loadProducts());
+      const { kind, alternatives, pairings } = onePiece
+        ? { kind: pieceKind(target), alternatives: onePiece, pairings: [] as Product[] }
+        : moreLikeThis(target, await loadProducts());
+      const picks = onePiece ?? limitPerDesign([target, ...alternatives]).slice(1);
       const range = (p: Product) => p.title.split(/\s+/)[0].toLowerCase();
       const seen = new Map<string, number>([[range(target), 1]]);
       const first: Product[] = [];
@@ -2883,7 +2945,9 @@ Deno.serve(async (req) => {
         payload.conversationId,
         payload.visitorId,
       );
-      try {
+      // quiet: the cards for "Check stock with our team", which logs its
+      // own reply (mode "info").
+      if (payload.quiet !== true) try {
         await logTurn({
           conversationId: payload.conversationId,
           visitorId: payload.visitorId,
@@ -2940,13 +3004,21 @@ Deno.serve(async (req) => {
         return json({ error: "Can't save that right now" }, 400);
       }
       const conversation = await ownConversation(conversationId, visitorId);
+      // "Check stock" on a Claude / Arc / Horizon piece shows similar ones
+      // (their handles), so the Chats page shows them too.
+      const byHandle = new Map((await loadProducts()).map((p) => [p.handle, p]));
+      const cards = (Array.isArray(payload.similar) ? payload.similar : [])
+        .slice(0, MAX_CARDS)
+        .map((h: unknown) => byHandle.get(String(h)))
+        .filter((p: Product | undefined): p is Product => !!p)
+        .map(toCard);
       try {
         await logTurn({
           conversationId,
           visitorId,
           question,
           answer,
-          cards: [],
+          cards,
           visitorName: "",
           company: "",
           isFirst: !conversation,
@@ -3899,6 +3971,15 @@ When they ask about something without naming it ("what does it consist of?", "in
       .map((h) => byHandle.get(String(h).trim()))
       .filter((p): p is Product => !!p);
 
+    // A sold-out numbered Claude / Arc / Horizon piece: whatever the model
+    // made of it, the WhatsApp button (we check if we have it) and the
+    // in-stock ones in the same marble as cards (see soldOutOnePiece).
+    const onePiece = soldOutOnePiece(question, products);
+    if (onePiece) {
+      intent = "human";
+      if (!request) request = `Is the ${onePiece.target.title} available?`;
+    }
+
     // What gets shown is decided here, not left to the model: cards only
     // when products are the point of the reply, gift packaging photos only
     // for gift packaging questions (and only real ones), otherwise text.
@@ -4040,7 +4121,7 @@ When they ask about something without naming it ("what does it consist of?", "in
     // pieces up to Rs 5,000, so the first cards aren't all the costliest.
     const asksBudget = /\b(budget|price range|how much (would|do|are) you)\b/i.test(answer) &&
       !minBudget && !budget && !NO_BUDGET_WORDS.test(searchQuery);
-    const cards = bespoke ? (bespoke.followUp ? [] : bespokePieces.map(toCard)) : (
+    const cards = onePiece ? onePiece.alternatives.map(toCard) : bespoke ? (bespoke.followUp ? [] : bespokePieces.map(toCard)) : (
       showCards ? limitPerDesign([...toShow, ...extras]) : []
     )
       .filter(inBudget)
