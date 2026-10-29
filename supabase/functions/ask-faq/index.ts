@@ -191,7 +191,7 @@ const TAP_LIMIT_10M = 30;
 const TAP_LIMIT_DAY = 150;
 async function formAllowed(req: Request, kind: "form" | "tap" = "form") {
   const admin = adminClient();
-  if (!admin) return true;
+  if (!admin || Deno.env.get("RATE_LIMITS_OFF") === "1") return true;
   const { data, error } = await admin.rpc("rate_limit", {
     p_key: `${kind}:${clientIp(req) || "unknown"}`,
     p_per_10m: kind === "tap" ? TAP_LIMIT_10M : FORM_LIMIT_10M,
@@ -707,7 +707,8 @@ function similarProducts(target: Product, products: Product[]) {
       // A 275ml katori's alternatives are small bowls, not 1100ml serving
       // bowls: close sizes count a lot, and anything under half or over
       // double the size is pushed well down.
-      const size = sizeCloseness(p.ml, target.ml);
+      // Plates by width (8in quarter plates with 8in ones).
+      const size = sizeCloseness(p.ml, target.ml) ?? sizeCloseness(p.inches, target.inches);
       const sizeScore = size === null ? 0 : 4 * size - (size < 0.5 ? 6 : 0);
       const score = 5 * (sameCollection ? 0.4 + 0.6 * typeScore : 0) +
         4 * weightedOverlap(p.nameWords, target.nameWords, weight) +
@@ -793,10 +794,14 @@ const PIECE_KIND_WORDS: [string, RegExp][] = [
   ["cutlery", /\b(cutlery|flatware|spoons?|forks?|knife|knives)\b/],
   ["trivet", /\btrivets?\b/],
   ["coaster", /\bcoasters?\b/],
+  ["candleStand", /\bcandle ?(stands?|holders?)\b/],
   ["candle", /\bcandles?\b/],
   ["vase", /\bvases?\b/],
+  ["tissueBox", /\btissue ?box(es)?\b/],
   ["dinnerSet", /\b(dinner(ware)? sets?|table settings?|dinner spread)\b/],
-  ["serveware", /\b(trays?|platters?)\b/],
+  ["servingSet", /\bserving sets?\b/],
+  ["tray", /\btrays?\b/],
+  ["platter", /\bplatters?\b/],
   ["drinkware", /\b(cups?|mugs?|tumblers?|glass(es)?|espresso|cappuccino|teapots?|tea sets?|coffee)\b/],
   ["bowl", /\b(bowls?|katoris?)\b/],
   ["plate", /\bplates?\b/],
@@ -826,79 +831,73 @@ function pieceKind(p: Product): string | null {
   return kind && kind !== "other" ? kind : null;
 }
 
-// How the chat names each kind ("more cutlery options", "to go with your
-// cutlery").
+// How the chat names each kind ("more cutlery options").
 const PIECE_KIND_NOUN: Record<string, string> = {
   linen: "table linen", cutlery: "cutlery", trivet: "trivet",
-  coaster: "coaster", candle: "candle", vase: "vase", serveware: "serveware",
+  coaster: "coaster", candleStand: "candle stand", candle: "candle", vase: "vase",
+  tissueBox: "tissue box", servingSet: "serving set", tray: "tray", platter: "platter",
   dinnerSet: "dinner set", drinkware: "cup", bowl: "bowl", plate: "plate",
 };
 
-// What sets a table with each kind, best first: cutlery goes with plates,
-// bowls and napkins, not trivets. Kinds with nothing here get no pairings.
-const GOES_WITH: Record<string, string[]> = {
-  cutlery: ["plate", "bowl", "linen", "dinnerSet"],
-  plate: ["cutlery", "bowl", "linen"],
-  bowl: ["plate", "cutlery", "linen"],
-  dinnerSet: ["cutlery", "linen", "drinkware"],
-  drinkware: ["coaster", "serveware"],
-  coaster: ["drinkware", "serveware"],
-  serveware: ["bowl", "drinkware", "coaster"],
-  linen: ["cutlery", "plate", "candle"],
-  candle: ["vase", "linen"],
-  vase: ["candle"],
-  trivet: ["bowl", "linen"],
-};
+// What a piece is made of, from its name and range: cork trays with cork
+// trays, ceramic platters with ceramic platters.
+function materialOf(p: Product) {
+  const t = p.title.toLowerCase();
+  if (/\bcork\b/.test(t)) return "cork";
+  if (/\bwood(en)?\b/.test(t)) return "wood";
+  if (/\bcement\b/.test(t)) return "cement";
+  return p.line === "ceramic" ? "ceramic" : "marble";
+}
 
-// "More like this", split in two: other pieces of the same kind (the real
-// alternatives), then, when those are few, a handful of pieces that go with
-// it ("more Ware to go with your cutlery"). A piece of no known kind keeps
-// the plain similar-products list.
-const FEW_ALTERNATIVES = 8;
-const MAX_PAIRINGS = 6;
+// Within a kind, which sort it is: dessert / quarter / dinner plates (by
+// width), runners / mats / napkins. Empty for the rest.
+function subKindOf(p: Product) {
+  const t = p.title.toLowerCase();
+  if (pieceKind(p) === "plate") {
+    const w = p.inches;
+    if (w) return w < 6.6 ? "small" : w < 9.6 ? "quarter" : "dinner";
+    return /dinner/.test(t) ? "dinner" : /quarter/.test(t) ? "quarter" : "small";
+  }
+  if (pieceKind(p) === "linen") {
+    return /runner/.test(t) ? "runner" : /napkin/.test(t) ? "napkin" : /cloth/.test(t) ? "cloth" : "mat";
+  }
+  return "";
+}
+
+// "More like this": the same design in its other colours first, all of
+// them (Pivot Marble Candle Stand Pink Onyx: Onice Verde, White Onyx),
+// then other pieces of the same kind only (candle stands, not candles;
+// platters, not trays): the same material and sort first (cork with cork,
+// runners with runners; plates only with the same size), then the rest in
+// similarity order, never across ranges. Nothing unrelated: a design sharing only its
+// first word ("Pivot" is also a ceramic range) doesn't count. A piece of no
+// known kind gets its own design and pieces of the same product type.
 function moreLikeThis(target: Product, products: Product[]) {
   const kind = pieceKind(target);
-  const similar = similarProducts(target, products);
-  if (!kind) return { kind: null, alternatives: similar, pairings: [] };
-  const alternatives = similar.filter((p) => pieceKind(p) === kind);
-  const wanted = GOES_WITH[kind] ?? [];
-  if (alternatives.length >= FEW_ALTERNATIVES || !wanted.length) {
-    return { kind, alternatives, pairings: [] };
+  const design = baseName(target);
+  const sameDesign = products.filter((p) =>
+    p.available && p.handle !== target.handle && baseName(p) === design
+  );
+  const similar = similarProducts(target, products).filter((p) => baseName(p) !== design);
+  if (!kind) {
+    return {
+      kind: null,
+      alternatives: [...sameDesign, ...similar.filter((p) => p.type === target.type)],
+    };
   }
-  // Same design range (Zuri…), same colours, close in price; ceramic and
-  // marble mix on a table, Atelier and Collectibles only with their own.
-  const range = (p: Product) => p.title.split(/\s+/)[0].toLowerCase();
-  const sameLines = (p: Product) =>
-    p.line === target.line ||
-    (["ceramic", "marble"].includes(p.line) &&
-      ["ceramic", "marble"].includes(target.line));
-  const scored = products
-    .filter((p) =>
-      p.available && sameLines(p) && wanted.includes(pieceKind(p) ?? "")
-    )
-    .map((p) => ({
-      p,
-      score: 2 * (range(p) === range(target) ? 1 : 0) +
-        1.5 * overlap(p.colors, target.colors) +
-        overlap(p.keyTags, target.keyTags) +
-        0.5 * (1 - Math.abs(p.minPrice - target.minPrice) /
-          Math.max(p.minPrice, target.minPrice, 1)) -
-        0.3 * wanted.indexOf(pieceKind(p)!),
-    }))
-    .sort((a, b) => b.score - a.score)
+  const material = materialOf(target);
+  const sub = subKindOf(target);
+  const rank = (p: Product) =>
+    (materialOf(p) === material ? 0 : 2) + (subKindOf(p) === sub ? 0 : 1);
+  const sameKind = similar
+    // Plates only of the same size (dinner with dinner).
+    .filter((p) => pieceKind(p) === kind && (kind !== "plate" || subKindOf(p) === sub))
+    .map((p, i) => ({ p, i }))
+    .sort((a, b) => rank(a.p) - rank(b.p) || a.i - b.i)
     .map((x) => x.p);
-  // Taking turns between the kinds (a plate, a napkin, a bowl…), best first.
-  const byKind = wanted.map((k) => scored.filter((p) => pieceKind(p) === k));
-  const mixed: Product[] = [];
-  for (let i = 0; mixed.length < scored.length; i++) {
-    for (const g of byKind) if (g[i]) mixed.push(g[i]);
-  }
-  return {
-    kind,
-    alternatives,
-    pairings: limitPerDesign(mixed).slice(0, MAX_PAIRINGS),
-  };
+  return { kind, alternatives: [...sameDesign, ...sameKind].slice(0, MAX_SIMILAR) };
 }
+
 
 // ---- The product catalogue ----
 // One shared copy for all of this function's servers, in Supabase Storage
@@ -2907,36 +2906,24 @@ Deno.serve(async (req) => {
       const handle = typeof payload.handle === "string" ? payload.handle : "";
       const target = (await loadProducts()).find((p) => p.handle === handle);
       if (!target) return json({ error: "Unknown product" }, 404);
-      // At most one other colour of the same design (they can see those on
-      // the page already), and at most two more from the same range (Lilo,
-      // Flare...) before other ranges get a turn, so the first cards show a
-      // variety of pieces.
-      // Other pieces of its kind first; when those are few, pieces that go
-      // with it come as a second group (moreLikeThis above).
       // A numbered Claude / Arc / Horizon piece: the same marble first
-      // (onePieceAlternatives), as they are.
+      // (onePieceAlternatives), as they are. Anything else: its other
+      // colours, then other pieces of its kind (moreLikeThis), at most two
+      // colours of each of those designs so the cards show a variety.
       const onePiece = onePieceAlternatives(target, await loadProducts());
-      const { kind, alternatives, pairings } = onePiece
-        ? { kind: pieceKind(target), alternatives: onePiece, pairings: [] as Product[] }
+      const { kind, alternatives } = onePiece
+        ? { kind: pieceKind(target), alternatives: onePiece }
         : moreLikeThis(target, await loadProducts());
-      const picks = onePiece ?? limitPerDesign([target, ...alternatives]).slice(1);
-      const range = (p: Product) => p.title.split(/\s+/)[0].toLowerCase();
-      const seen = new Map<string, number>([[range(target), 1]]);
-      const first: Product[] = [];
-      const later: Product[] = [];
-      for (const p of picks) {
-        const n = seen.get(range(p)) ?? 0;
-        seen.set(range(p), n + 1);
-        (n < 3 ? first : later).push(p);
-      }
-      const cards = [...first, ...later].map(toCard);
-      const pairCards = pairings.map(toCard);
+      const design = baseName(target);
+      const picks = onePiece ?? [
+        ...alternatives.filter((p) => baseName(p) === design),
+        ...limitPerDesign(alternatives.filter((p) => baseName(p) !== design)),
+      ];
+      const cards = picks.map(toCard);
       const kindNoun = kind ? PIECE_KIND_NOUN[kind] : null;
       // The chat's own words (chatTexts moreLikeThis*), so the Chats page
       // reads like what the shopper saw.
-      const intro = !cards.length && pairCards.length
-        ? `We don't have other ${kindNoun} options in stock right now, but these would go lovely with the ${target.title}:`
-        : !cards.length
+      const intro = !cards.length
         ? `I couldn't find anything close to the ${target.title} in stock right now. Our team would be glad to suggest something, just tap below.`
         : kindNoun
         ? `If the ${target.title} caught your eye, here are a few more ${kindNoun} options:`
@@ -2952,10 +2939,8 @@ Deno.serve(async (req) => {
           conversationId: payload.conversationId,
           visitorId: payload.visitorId,
           question: "Show me more products like this",
-          answer: cards.length && pairCards.length
-            ? `${intro}\n\nAnd here's more Ware to go with your ${kindNoun}:`
-            : intro,
-          cards: cards.length ? [...cards, ...pairCards] : pairCards,
+          answer: intro,
+          cards,
           visitorName: "",
           company: "",
           isFirst: !conversation,
@@ -2971,13 +2956,9 @@ Deno.serve(async (req) => {
       }
       return json({
         title: target.title,
-        // No others of its kind: the pairings are the list (onlyPairings),
-        // else they come as a second group under it.
-        products: cards.length ? cards : pairCards,
-        pairings: cards.length ? pairCards : [],
-        onlyPairings: !cards.length && pairCards.length > 0,
+        products: cards,
         kind: kindNoun,
-        whatsappUrl: cards.length || pairCards.length ? null : whatsAppLink(
+        whatsappUrl: cards.length ? null : whatsAppLink(
           `Hi Ware team! I'm looking for pieces similar to the ${target.title}.`,
         ),
         contactSaved: !!conversation?.visitor_phone,

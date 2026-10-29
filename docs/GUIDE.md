@@ -813,34 +813,31 @@ browser, so it's still there on the next page.
 Computed in code, never by the AI. Never crosses ranges (Atelier bespoke /
 Collectibles / marble tableware / ceramics). Ranked by: same collection and
 name (rare words count most) > **size** (ml from the product name: close
-sizes rank first, under half or over double the size is pushed down) >
-type > price > distinctive tags > colour. For product-page taps: at most one
-other colour of the same design and at most two more from the same range
-before other ranges get a turn.
+sizes rank first, under half or over double the size is pushed down; plates
+by inches) > type > price > distinctive tags > colour. For product-page
+taps: all its own colours first, then at most two colours of each other
+design.
 
-**"Show me more like this" sticks to the same kind of piece** (worked out
-from the name: cutlery, plate, bowl, cup, serveware, table linen, trivet,
-coaster, vase, candle, dinner set): "here are a few more cutlery options".
-When there are fewer than 8 of those in stock, a second bubble adds up to 6
-pieces that go with it, "And here's more Ware to go with your cutlery":
+**"Show me more like this"** (`moreLikeThis`): one list, nothing that just
+"goes with" it (the old "And here's more Ware to go with your…" second
+group is gone). In order:
 
-| Piece | Goes with |
-| --- | --- |
-| Cutlery | Plates, bowls, table linen, dinner sets |
-| Plates | Cutlery, bowls, table linen |
-| Bowls | Plates, cutlery, table linen |
-| Dinner sets | Cutlery, table linen, cups |
-| Cups / mugs | Coasters, serveware |
-| Coasters | Cups, serveware |
-| Trays / platters | Bowls, cups, coasters |
-| Table linen | Cutlery, plates, candles |
-| Candles | Vases, table linen |
-| Vases | Candles |
-| Trivets | Bowls, table linen |
+1. The same design in its other colours, all of them (Pivot Marble Candle
+   Stand Pink Onyx: Onice Verde, White Onyx). The whole design name counts,
+   not just its first word (Pivot is also a ceramic range).
+2. Other pieces of the same kind, from the same range only: cutlery, plate,
+   bowl, cup, tray, platter, serving set, table linen, trivet, coaster,
+   vase, candle stand, candle, tissue box, dinner set. Trays and platters
+   are different kinds, as are candle stands and candles.
+3. Within that: the same material first (cork with cork, wood, cement,
+   ceramic, marble), then the same sort (runners with runners, mats,
+   napkins), then the most similar. Plates only with the same size: dessert
+   / snack (under 6.6in), quarter (under 9.6in), dinner.
 
-Pairings prefer the same design range, colours and price, mix ceramic and
-marble, and take turns between kinds. A piece of no known kind (tissue box,
-appetiser set…) gets the old mixed list. Sold-out "see similar" is unchanged.
+A piece of no known kind gets its own design and pieces of the same Shopify
+product type. Numbered Claude / Arc / Horizon pieces use the same-marble
+list below. Chats shows older replies that had the second group as the two
+bubbles the shopper saw.
 
 **A sold-out Claude / Arc / Horizon piece asked about by number** ("105
 claude vase", "is 7 noira arc available?"; `soldOutOnePiece`): each number

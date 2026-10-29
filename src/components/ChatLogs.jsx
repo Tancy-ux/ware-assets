@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -1713,16 +1713,20 @@ const ChatLogs = () => {
                               {formatTime(m.created_at)}
                             </span>
                           </div>
-                          {m.answer && (
-                            <div
-                              className={`chats-bubble ${fromTeam ? "chats-bubble-team" : "chats-bubble-ai"}`}
-                            >
-                              {linkify(m.answer)}
-                            </div>
-                          )}
-                          {products.length > 0 && (
-                            <ProductRow products={products} />
-                          )}
+                          {replyParts(m, products).map((part, j) => (
+                            <Fragment key={j}>
+                              {part.answer && (
+                                <div
+                                  className={`chats-bubble ${fromTeam ? "chats-bubble-team" : "chats-bubble-ai"}`}
+                                >
+                                  {linkify(part.answer)}
+                                </div>
+                              )}
+                              {part.products.length > 0 && (
+                                <ProductRow products={part.products} />
+                              )}
+                            </Fragment>
+                          ))}
                           <ReplyExtras extras={m.extras} />
                         </div>
                       )}
@@ -2139,6 +2143,37 @@ const NOT_ANSWERED = {
   offline: "the chat couldn't reach us",
   noise: "didn't make sense",
   burst: "too many messages in a minute",
+};
+
+// "Show me more like this" with pieces that go with it was two bubbles in
+// the store chat ("…a few more candle options:" + its cards, then "And
+// here's more Ware to go with your candle:" + its cards), saved as one
+// reply: split back into the two. Where the second group starts is saved
+// in extras (pairings_from:N); older replies count the first group's cards
+// by the kind named ("candle", "cup"…). Any other reply: one part.
+const PAIRINGS_LINE = "\n\nAnd here's more Ware to go with your ";
+const KIND_TITLE_WORDS = {
+  cup: /\b(cups?|mugs?|tumblers?|glass(es)?|espresso|cappuccino|teapots?|tea sets?|coffee)\b/i,
+  serveware: /\b(trays?|platters?)\b/i,
+  "table linen": /\b(napkins?|placemats?|table mats?|runners?|table ?cloths?)\b/i,
+  "dinner set": /\b(dinner(ware)? sets?|table settings?|dinner spread)\b/i,
+};
+const replyParts = (m, products) => {
+  const at = m.answer?.indexOf(PAIRINGS_LINE) ?? -1;
+  if (at < 0 || !products.length) return [{ answer: m.answer, products }];
+  const saved = (m.extras ?? []).find((x) => x.startsWith("pairings_from:"));
+  let split = saved ? Number(saved.slice("pairings_from:".length)) : NaN;
+  if (Number.isNaN(split)) {
+    const kind = m.answer.match(/a few more (.+?) options:/)?.[1];
+    const words = KIND_TITLE_WORDS[kind] ??
+      (kind ? new RegExp(`\\b${kind.replace(/[^a-z ]/gi, "")}s?\\b`, "i") : null);
+    split = words ? products.findIndex((p) => !words.test(p.title)) : -1;
+    if (split < 0) split = words ? products.length : 0;
+  }
+  return [
+    { answer: m.answer.slice(0, at), products: products.slice(0, split) },
+    { answer: m.answer.slice(at + 2), products: products.slice(split) },
+  ];
 };
 
 // What the store chat showed under an AI reply besides its text and
