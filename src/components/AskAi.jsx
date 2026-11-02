@@ -148,6 +148,22 @@ const askedSoFar = (messages) =>
 // In a sentence: "the Lilo Cup & Saucer Set Tea Green", not "... (Set of
 // 2) - Gift Set".
 // ("The Cosmic Temple" too, so it doesn't read "the The Cosmic Temple".)
+// A detail from Shopify as the chat shows it: one piece per line ("Cee:
+// 200 gms Jay: 316 gms" on one line becomes two), no blank lines, no
+// stray commas or full stops at line ends.
+const tidyInfo = (value) =>
+  value
+    .replace(/\r/g, "")
+    .split("\n")
+    .flatMap((line) =>
+      (line.match(/\b[A-Z][A-Za-z]*( [A-Za-z]+)?:\s/g) ?? []).length > 1
+        ? line.split(/\s+(?=\b[A-Z][A-Za-z]*(?: [A-Za-z]+)?:\s)/)
+        : [line]
+    )
+    .map((line) => line.trim().replace(/[,;.]+$/, ""))
+    .filter(Boolean)
+    .join("\n");
+
 const shortName = (title) =>
   title
     .replace(/\s*\([^)]*\)|\s*-\s*gift set\b/gi, "")
@@ -1091,9 +1107,11 @@ const AskAi = ({
     const answer = option.parts
       .filter((k) => product.info[k])
       .map((k) => {
-        const value = product.info[k];
+        const value = tidyInfo(product.info[k]);
         const detail = DETAILS[k];
-        const single = detail.one && !value.includes("\n");
+        // "It weighs 300g." only for one piece: never for a set, whose lines
+        // are per piece ("Dot: 17ml" isn't the whole set).
+        const single = detail.one && !value.includes("\n") && !isSet(product);
         return fillText(single ? detail.one() : detail.answer(), {
           name,
           // One line: just the value ("Eclipse Pasta Bowl: 305ml" → "305ml").

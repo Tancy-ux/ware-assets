@@ -870,7 +870,10 @@ metafields get no button, and
 piece, e.g. "Eclipse Pasta Bowl: 305ml") is answered with just the value:
 *"It holds 305ml."*, *"It weighs 610 g."*, *"It measures 23 x 23 x 5 cm /
 9 x 9 x 1.9 in."* (`infoVolumeOne` etc. in the snippet); sets keep one line
-per piece under "Volume of the {name}:". The chat tidies the text: Shopify's HTML
+per piece under "Volume of the {name}:", even when only one piece is listed
+("Dot: 17ml" is never "It holds 17ml" for a set). Several pieces on one
+line ("Cee: 200 gms Jay: 316 gms") go on a line each, and blank lines and
+stray commas / full stops at line ends are dropped (`tidyInfo`). The chat tidies the text: Shopify's HTML
 codes are undone ("&amp;" shows as "&"); dimensions are written one way
 (`widget/src/dimensions.js`: `3.4"` -> "3.4 in", "4.2in x 4.2in" -> "4.2 x
 4.2 in", " / " between the two) and when the cm/mm and inch figures
