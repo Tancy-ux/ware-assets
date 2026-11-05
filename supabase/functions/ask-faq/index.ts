@@ -331,6 +331,11 @@ type ProductCard = {
 };
 
 const MAX_CARDS = 6;
+// The chat shows this many cards and a "Show more" for the rest (FIRST_PAGE
+// in AskAi): saved as a "page:N" extra, so Chats shows the same.
+const FIRST_PAGE = 4;
+const pageExtra = (cards: ProductCard[]) =>
+  cards.length > FIRST_PAGE ? [`page:${FIRST_PAGE}`] : [];
 // Recommendations: the model's picks plus more from the shortlist, for the
 // chat's "Show more" (4 + 6 + 6).
 const MAX_RECOMMEND_CARDS = 16;
@@ -2487,6 +2492,11 @@ const CHAT_EVENTS: Record<string, string> = {
   "contact-opened": "Opened the details form",
 };
 
+// What a reply the chat answered itself can say it showed (mode "log").
+const loggableExtra = (x: unknown) =>
+  typeof x === "string" &&
+  /^(whatsapp_offer|bespoke_call|atelier_catalog|order_note|order_link:(track|details|all|login)|page:\d)$/.test(x);
+
 // A grey note in the Chats transcript (like "Visitor reset the chat").
 async function systemNote(conversationId: string, text: string, page = "", at?: string) {
   const admin = adminClient();
@@ -2945,6 +2955,7 @@ Deno.serve(async (req) => {
           company: "",
           isFirst: !conversation,
           page: readPage(payload.page),
+          extras: cards.length ? pageExtra(cards) : ["whatsapp_offer"],
           extra: visitorInfo(req, payload),
           ifEmpty: {
             topic: `Browsing pieces like the ${target.title}`.slice(0, 80),
@@ -3005,6 +3016,10 @@ Deno.serve(async (req) => {
           isFirst: !conversation,
           page: readPage(payload.page),
           extra: visitorInfo(req, payload),
+          // Only "Check stock" sends `similar`, and it comes with the
+          // WhatsApp button: whatsapp_offer, not "whatsapp", which means
+          // the AI handed them on (the bot's "didn't know" list).
+          extras: Array.isArray(payload.similar) ? ["whatsapp_offer", ...pageExtra(cards)] : [],
           ifEmpty: {
             topic: `Details of the ${target.title}`.slice(0, 80),
             interest: "warm",
@@ -3030,6 +3045,7 @@ Deno.serve(async (req) => {
       // deno-lint-ignore no-explicit-any
       const items = payload.items.slice(0, 5) as any[];
       let conversation = await ownConversation(conversationId, visitorId);
+      const byHandle = new Map((await loadProducts()).map((p) => [p.handle, p]));
       for (const item of items.filter((i) => (i?.type ?? "message") === "message")) {
         const question = text(item?.question, MAX_QUESTION_CHARS);
         if (!question) continue;
@@ -3038,7 +3054,12 @@ Deno.serve(async (req) => {
           visitorId,
           question,
           answer: text(item?.answer, 800) || FALLBACK_REPLY,
-          cards: [],
+          // The pieces it showed (their handles).
+          cards: (Array.isArray(item?.handles) ? item.handles : [])
+            .slice(0, MAX_CARDS)
+            .map((h: unknown) => byHandle.get(String(h)))
+            .filter((p: Product | undefined): p is Product => !!p)
+            .map(toCard),
           visitorName: "",
           company: "",
           isFirst: !conversation?.first_question,
@@ -3046,13 +3067,16 @@ Deno.serve(async (req) => {
           extra: visitorInfo(req, payload),
           // Answered in the chat itself (a product's details) or not at
           // all (the chat couldn't reach us: the WhatsApp button).
-          extras: item?.answered ? [] : ["whatsapp", "not_answered:offline"],
+          extras: [
+            ...(item?.answered ? [] : ["whatsapp", "not_answered:offline"]),
+            ...(Array.isArray(item?.shown) ? item.shown : []).filter(loggableExtra),
+          ],
           createdAt: pastTime(item?.at),
         });
         conversation ??= { first_question: question };
       }
-      // Taps and choices in the chat, as notes in the transcript (only
-      // these fixed texts: the chat can't write its own).
+      // Taps and choices in the chat, as notes in the transcript (fixed
+      // texts, or "Chat asked:" before the chat's own words).
       const notes = items
         .map((i) => ({
           item: i,
@@ -3061,15 +3085,19 @@ Deno.serve(async (req) => {
           text: i?.type === "whatsapp"
             ? "Opened WhatsApp to chat with the team" +
               (text(i?.text, 300) ? `\nTheir message: "${text(i.text, 300)}"` : "")
+            : i?.type === "options"
+            ? text(i?.text, 200) && `Chat asked: ${text(i?.text, 200)}`
             : i?.type === "event"
             ? CHAT_EVENTS[String(i.kind)]
             : undefined,
         }))
         .filter((n) => n.text);
       if (notes.length) {
-        // One before any message was saved has nothing to go with.
+        // One before any message was saved has nothing to go with yet:
+        // `keep` tells the chat to send it again with the next one.
         const saved = await ownConversation(conversationId, visitorId);
-        for (const { item, text } of saved ? notes : []) {
+        if (!saved) return json({ ok: true, keep: true });
+        for (const { item, text } of notes) {
           await systemNote(saved.id, text!, readPage(item?.page), pastTime(item?.at));
         }
       }
@@ -4226,6 +4254,9 @@ When they ask about something without naming it ("what does it consist of?", "in
       whatsappUrl && "whatsapp",
       detailsOpen ? "details_form" : askForDetails && !contactSaved && "details_prompt",
       images.length > 0 && "gift_photos",
+      ...choices.map((c: string) => `choice:${c}`.slice(0, 80)),
+      cards.some((c) => c.similar?.length) && "similar_offer",
+      ...(bespoke ? [] : pageExtra(cards)),
       // Gibberish the noise check let through: counts toward the pause.
       junk && !teamDraft && !draft && "junk",
     ].filter((x): x is string => typeof x === "string");

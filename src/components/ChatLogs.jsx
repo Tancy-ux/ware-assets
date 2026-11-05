@@ -22,6 +22,7 @@ import {
   MapPin,
   RotateCcw,
   MessageCircle,
+  Package,
   MessagesSquare,
   MoreHorizontal,
   PanelRight,
@@ -1640,6 +1641,9 @@ const ChatLogs = () => {
                 }}
               >
                 {loadingMessages && <p className="chats-empty">Loading...</p>}
+                {messages.length > 0 && !messages[0].answer?.startsWith(OPTIONS_NOTE) && (
+                  <OpeningScreen />
+                )}
                 {messages.map((m, i) => {
                   // Repeat WhatsApp taps are folded into the first one.
                   if (whatsappRepeats.hidden.has(m.id)) return null;
@@ -1671,7 +1675,7 @@ const ChatLogs = () => {
                       </div>
                     );
                   }
-                  const products = m.products ?? [];
+                  const products = shownProducts(m);
                   const fromTeam = m.sender === "agent";
                   return (
                     <div key={m.id} className="chats-turn">
@@ -1723,11 +1727,14 @@ const ChatLogs = () => {
                                 </div>
                               )}
                               {part.products.length > 0 && (
-                                <ProductRow products={part.products} />
+                                <ProductRow
+                                  products={part.products}
+                                  bespoke={m.extras?.includes("bespoke_call")}
+                                />
                               )}
                             </Fragment>
                           ))}
-                          <ReplyExtras extras={m.extras} />
+                          <ReplyExtras extras={extrasOf(m)} />
                         </div>
                       )}
                     </div>
@@ -2013,7 +2020,10 @@ const ChatLogs = () => {
 
 // A reply's products: one row, no scrollbar; arrows scroll it when it's
 // wider than the chat.
-const ProductRow = ({ products }) => {
+// An Atelier piece's card has Enquire (WhatsApp), unless the reply offers
+// the designer call instead.
+const ATELIER_PRICE = "Price on request";
+const ProductRow = ({ products, bespoke }) => {
   const rowRef = useRef(null);
   const [edges, setEdges] = useState({ left: false, right: false });
 
@@ -2062,7 +2072,15 @@ const ProductRow = ({ products }) => {
               {p.image && <img src={thumb(p.image)} alt="" loading="lazy" />}
             </span>
             <span className="chats-product-name">{p.title}</span>
+            {p.price && (
+              <span className="chats-product-price">{p.price.replace(/Rs\.?\s?/g, "₹")}</span>
+            )}
             {!p.available && <span className="chats-product-soldout">Sold out</span>}
+            {p.price === ATELIER_PRICE && !bespoke && (
+              <span className="chats-product-enquire">
+                <MessageCircle size={11} /> {TEXTS.enquire}
+              </span>
+            )}
           </a>
         ))}
       </div>
@@ -2176,12 +2194,60 @@ const replyParts = (m, products) => {
   ];
 };
 
+// Replies that came with the WhatsApp button but were saved before
+// whatsapp_offer existed ("Check stock", no similar pieces): their words
+// (chatTexts stockReply, stockReplyOnePiece, moreLikeThisNone).
+const OLD_WHATSAPP_OFFER =
+  /Message us on WhatsApp and we'll check for you\.$|Just tap WhatsApp below\. Meanwhile, here are some similar|Our team would be glad to suggest something, just tap below\.$/;
+const extrasOf = (m) =>
+  !m.extras?.length && OLD_WHATSAPP_OFFER.test(m.answer ?? "")
+    ? ["whatsapp_offer"]
+    : m.extras;
+
+// The cards the shopper saw: the rest waited behind "Show more" (page:N),
+// which saves its own turn if they tapped it.
+const shownProducts = (m) => {
+  const page = (m.extras ?? []).find((x) => x.startsWith("page:"));
+  const products = m.products ?? [];
+  return page ? products.slice(0, Number(page.slice("page:".length))) : products;
+};
+
+// The chat's opening screen, which goes when they ask something. A product
+// page's pill starts the chat without it ("Chat asked:" comes first).
+const OPTIONS_NOTE = "Chat asked:";
+const OpeningScreen = () => (
+  <div className="chats-turn">
+    <div className="chats-sender">
+      <span className="chats-sender-chip">AI</span>
+    </div>
+    <div className="chats-bubble chats-bubble-ai">{TEXTS.welcome}</div>
+    <div className="chats-extras">
+      <div className="chats-extra-buttons">
+        {TEXTS.suggestions.map((s) => (
+          <span key={s} className="chats-extra-pill">{s}</span>
+        ))}
+      </div>
+    </div>
+  </div>
+);
+
+// "Track my order" links: only their names are saved, so the customer's
+// tracking and order links stay out of the log.
+const ORDER_LINKS = {
+  track: TEXTS.orderTrackLabel,
+  details: TEXTS.orderDetailsLabel,
+  all: TEXTS.orderAllLabel,
+  login: TEXTS.orderLoginLabel,
+};
+
 // What the store chat showed under an AI reply besides its text and
 // cards, drawn the way the shopper saw it (links work; buttons and forms
 // are only pictures of them). Saved since scripts/supabase-chat-extras.sql.
 const ReplyExtras = ({ extras }) => {
   if (!extras?.length) return null;
   const has = (x) => extras.includes(x);
+  const after = (prefix) =>
+    extras.filter((x) => x.startsWith(prefix)).map((x) => x.slice(prefix.length));
   const notAnswered = extras
     .find((x) => x.startsWith("not_answered:"))
     ?.slice("not_answered:".length);
@@ -2229,13 +2295,43 @@ const ReplyExtras = ({ extras }) => {
           <span className="chats-extra-pill">Not now</span>
         </div>
       )}
-      {has("whatsapp") && (
+      {(has("whatsapp") || has("whatsapp_offer")) && (
         <div className="chats-extra-card">
           <MessageCircle size={15} />
           <span>
             <strong>{TEXTS.whatsappTitle}</strong>
             <small>{fillText(TEXTS.whatsappSubtitle, { hours: TEXTS.teamHours })}</small>
           </span>
+        </div>
+      )}
+      {after("order_link:").length > 0 && (
+        <div className="chats-extra-buttons">
+          {after("order_link:").map((k) => (
+            <span key={k} className="chats-extra-pill">{ORDER_LINKS[k] ?? k}</span>
+          ))}
+        </div>
+      )}
+      {has("order_note") && (
+        <div className="chats-extra-note">
+          <Package size={13} /> Courier and tracking number shown
+        </div>
+      )}
+      {has("similar_offer") && (
+        <div className="chats-extra-note">
+          {TEXTS.similarOffer}
+          <span className="chats-extra-pill">{TEXTS.similarButton}</span>
+        </div>
+      )}
+      {after("page:").length > 0 && (
+        <div className="chats-extra-buttons">
+          <span className="chats-extra-pill">{TEXTS.showMore}</span>
+        </div>
+      )}
+      {after("choice:").length > 0 && (
+        <div className="chats-extra-buttons">
+          {after("choice:").map((c) => (
+            <span key={c} className="chats-extra-pill">{c}</span>
+          ))}
         </div>
       )}
       {(has("details_form") || has("details_prompt")) && (

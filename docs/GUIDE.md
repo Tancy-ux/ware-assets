@@ -415,7 +415,11 @@ the cursor.
 words ("Show me more products like this", "Size & weight", the designer-call
 offer), and each AI reply keeps what else was shown under it (catalogue
 and map links, WhatsApp card, name / number form or prompt, designer-call
-buttons, gift photos; `chat_messages.extras`), drawn under the reply.
+buttons, gift photos, tap-to-answer pills, order link names, "Show more";
+`chat_messages.extras`), drawn under the reply. Cards show their price and
+Enquire, only the ones on screen (`page:N`); "Show me more" and "Yes, show
+me similar ones" are saved turns; product-page pills are "Chat asked:" notes.
+Order links and tracking numbers are never saved, only that they were shown.
 
 **Logged-in store customers**: the snippet reads (never writes) the
 customer's first name, phone, email and ID from Shopify and passes them
@@ -892,7 +896,9 @@ test page takes `&includes=…&dimensions=…&volume=…&weight=…`.
 (`pillSoldOut`) and that's the first option (`optCheckStock`). Tapping it
 answers instantly (`stockReply`, no AI) with the WhatsApp button, its
 message pre-filled with the piece and its link (`stockWhatsApp`), and is
-logged like the other options. Sold out = `available: false` in Shopify's
+logged like the other options, with the `whatsapp_offer` extra so Chats
+shows the button (kept apart from `whatsapp`, which puts a reply on the
+bot's "didn't know" list). Sold out = `available: false` in Shopify's
 `/products/<handle>.js`; the test page takes `&soldout=1`.
 For a numbered **Claude / Arc / Horizon** piece (one of a kind) the reply is
 `stockReplyOnePiece` ("This one is a lovely pick! … here are some similar
@@ -1391,6 +1397,8 @@ Storage bucket `assets` (folder `uploads/`) for the Downloads page.
 device, cart), `supabase-chat-users.sql` (team, email, agent_name),
 `supabase-bot-versions.sql`, `supabase-chat-source.sql` (internal chats),
 `supabase-chat-extras.sql` (what was shown under each reply),
+`supabase-order-extras.sql` (one-off: old "Track my order" replies that were
+saved as failures),
 `supabase-quick-replies.sql` (saved messages),
 `supabase-chat-account.sql` (logged-in customer's account),
 `supabase-ai-costs.sql` (the AI cost tab; added Oct 2026, run it once if the tab asks),

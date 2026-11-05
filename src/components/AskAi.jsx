@@ -271,7 +271,7 @@ const sendUnsaved = async () => {
     visitorId: getVisitorId(),
   });
   sendingUnsaved = false;
-  if (error || data?.error) return; // tried again with the next message
+  if (error || data?.error || data?.keep) return; // tried again with the next message
   // Anything added meanwhile stays for the next round.
   const sent = new Set(batch.map((i) => i.at + i.type + (i.question ?? "")));
   const rest = readUnsaved().filter(
@@ -281,7 +281,10 @@ const sendUnsaved = async () => {
   if (rest.length) sendUnsaved();
 };
 // `answered`: the chat answered it itself (a product's details); otherwise
-// it got the WhatsApp button.
+// it got the WhatsApp button. `handles`: the pieces it showed; `shown`:
+// what else it showed (extras in ask-faq).
+const handlesOf = (products) =>
+  products.map((p) => p.url?.match(/\/products\/([^/?#]+)/)?.[1]).filter(Boolean);
 const saveLater = (item) => {
   writeUnsaved([
     ...readUnsaved(),
@@ -991,8 +994,16 @@ const AskAi = ({
     patchMessage(msg.id, {
       similarShown: { ...msg.similarShown, [product.url]: true },
     });
+    const answer = fillText(TEXTS.similarIntro, { name: product.title });
+    saveLater({
+      question: "Yes, show me similar ones",
+      answer,
+      answered: true,
+      handles: handlesOf(product.similar),
+      shown: product.similar.length > FIRST_PAGE ? [`page:${FIRST_PAGE}`] : [],
+    });
     postLocalReply("Yes, show me similar ones", {
-      answer: fillText(TEXTS.similarIntro, { name: product.title }),
+      answer,
       products: product.similar.slice(0, FIRST_PAGE),
       moreProducts: product.similar.slice(FIRST_PAGE),
     });
@@ -1003,6 +1014,13 @@ const AskAi = ({
   // Everything was already sent by the function, so no AI call.
   const showMore = (msg) => {
     patchMessage(msg.id, { moreProducts: [] });
+    saveLater({
+      question: "Show me more",
+      answer: TEXTS.moreIntro,
+      answered: true,
+      handles: handlesOf(msg.moreProducts),
+      shown: msg.moreProducts.length > MORE_PAGE ? [`page:${MORE_PAGE}`] : [],
+    });
     postLocalReply("Show me more", {
       answer: TEXTS.moreIntro,
       products: msg.moreProducts.slice(0, MORE_PAGE),
@@ -1070,15 +1088,20 @@ const AskAi = ({
   const showProductOptions = (product, used, first = false) => {
     if (!optionsFor(product, used).length) return;
     const name = shortName(product.title);
+    const answer = fillText(
+      first ? TEXTS.productOptionsIntro : TEXTS.productOptionsMore,
+      { name },
+    );
+    saveLater({
+      type: "options",
+      text: [answer, ...optionsFor(product, used).map((o) => o.label())].join(" · "),
+    });
     setMessages((prev) => [
       // Only one set of options at a time.
       ...prev.filter((m) => !m.productOptions),
       {
         id: nextId++,
-        answer: fillText(
-          first ? TEXTS.productOptionsIntro : TEXTS.productOptionsMore,
-          { name },
-        ),
+        answer,
         productOptions: { product, used },
         tapHandle: first ? product.handle : undefined,
         isLocal: true,
@@ -1172,13 +1195,22 @@ const AskAi = ({
       handle: product.handle,
       question: `${question} (${product.title})`,
       answer,
-      similar: similar.map((p) => p.url?.match(/\/products\/([^/?#]+)/)?.[1]).filter(Boolean),
+      similar: handlesOf(similar),
       conversationId: getVisitorId(),
       visitorId: getVisitorId(),
     }).then(({ error, data }) => {
       if (!error && !data?.error) return;
       console.error(error ?? data?.error);
-      saveLater({ question, answer, answered: true });
+      saveLater({
+        question,
+        answer,
+        answered: true,
+        handles: handlesOf(similar),
+        shown: [
+          "whatsapp_offer",
+          ...(similar.length > FIRST_PAGE ? [`page:${FIRST_PAGE}`] : []),
+        ],
+      });
     });
     postLocalReply(
       question,
@@ -1310,6 +1342,8 @@ const AskAi = ({
         question: fillText(TEXTS.bespokeAsk, { name }),
         answer: fillText(TEXTS.bespokeIntro, { name }),
         answered: true,
+        handles: [product.handle],
+        shown: ["atelier_catalog", "bespoke_call"],
       });
     });
     postLocalReply(
@@ -1395,7 +1429,9 @@ const AskAi = ({
     if (!config.customer) {
       reply = {
         answer: TEXTS.orderLoggedOut,
-        orderLinks: config.loginUrl ? [{ label: TEXTS.orderLoginLabel, url: config.loginUrl }] : [],
+        orderLinks: config.loginUrl
+          ? [{ kind: "login", label: TEXTS.orderLoginLabel, url: config.loginUrl }]
+          : [],
         whatsappUrl: fallbackWhatsAppUrl([question], namePrefs.name),
       };
     } else if (!order) {
@@ -1423,14 +1459,25 @@ const AskAi = ({
           [order.trackingCompany, order.trackingNumber].filter(Boolean).join(" · "),
         orderLinks: [
           !order.cancelled && order.trackingUrl &&
-            { label: TEXTS.orderTrackLabel, url: order.trackingUrl },
-          order.url && { label: TEXTS.orderDetailsLabel, url: order.url },
+            { kind: "track", label: TEXTS.orderTrackLabel, url: order.trackingUrl },
+          order.url && { kind: "details", label: TEXTS.orderDetailsLabel, url: order.url },
           config.orders.length > 1 && config.accountUrl &&
-            { label: TEXTS.orderAllLabel, url: config.accountUrl },
+            { kind: "all", label: TEXTS.orderAllLabel, url: config.accountUrl },
         ].filter(Boolean),
       };
     }
-    saveLater({ question, answer: reply.answer, answered: !!order });
+    // Not a failure: this is how it's meant to go. The links and tracking
+    // number stay out of the log (the Chats page shows that they were shown).
+    saveLater({
+      question,
+      answer: reply.answer,
+      answered: true,
+      shown: [
+        ...(reply.whatsappUrl ? ["whatsapp_offer"] : []),
+        ...(reply.orderNote ? ["order_note"] : []),
+        ...(reply.orderLinks ?? []).map((l) => `order_link:${l.kind}`),
+      ],
+    });
     postLocalReply(question, { ...reply, conversationId: getVisitorId() }, { skipHistory: true });
   };
 

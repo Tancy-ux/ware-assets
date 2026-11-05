@@ -1325,8 +1325,21 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.chats-product-tile .chats-product-soldout {
+.chats-product-tile .chats-product-soldout,
+.chats-product-price,
+.chats-product-enquire {
   padding: 0 9px;
+}
+.chats-product-price {
+  font-size: 11.5px;
+  color: var(--chats-text-secondary);
+}
+.chats-product-enquire {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: #bf5e35;
 }
 .chats-product-tile > :last-child {
   padding-bottom: 8px;
