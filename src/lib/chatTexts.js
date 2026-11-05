@@ -141,13 +141,9 @@ export const TEXTS = {
   optIncludes: "What's in the set?",
   optSize: "Size & weight",
   infoIncludes: "The {name} includes:\n{value}",
-  infoDimensions: "Dimensions of the {name}:\n{value}",
-  infoVolume: "Volume of the {name}:\n{value}",
-  infoWeight: "Weight of the {name}:\n{value}",
-  // When the detail is one line (a single piece): just the value.
-  infoDimensionsOne: "It measures {value}.",
-  infoVolumeOne: "It holds {value}.",
-  infoWeightOne: "It weighs {value}.",
+  labelDimensions: "Dimensions",
+  labelVolume: "Volume",
+  labelWeight: "Weight",
   bespokeYes: "Yes, call me",
   bespokeFormTitle:
     "Share your name and number, and one of our designers will call you.",

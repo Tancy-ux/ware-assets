@@ -4,7 +4,7 @@ import { Sparkles, X } from "lucide-react";
 import AskAi from "../../src/components/AskAi";
 import { TEXTS, setTexts } from "../../src/lib/chatTexts";
 import { startTracking, trackTap } from "./track";
-import { tidyDimensions } from "./dimensions";
+import { tidyAmount, tidyDimensions, twoSizes } from "./dimensions";
 
 // The Ware chat on the Shopify store: a floating button that opens the
 // same Ask AI chat as the ware-assets site, minus the team tools. It lives
@@ -29,15 +29,16 @@ const unescapeHtml = (text) =>
 
 // A metafield's text, tidied: HTML escapes undone, one line per piece
 // ("Uno Lid - 60 ml" reads "Uno Lid: 60 ml"), and lines with no value
-// ("Hyphen Plate:") left out. Dimensions are also written one way (see
-// dimensions.js).
-function tidyInfo(text, dimensions = false) {
-  return unescapeHtml(text)
+// ("Hyphen Plate:") left out, or one that only repeats the heading
+// ("Volume"). Sizes and amounts are also written one way (see dimensions.js).
+function tidyInfo(text, key) {
+  const lines = unescapeHtml(text)
     .split(/\r?\n/)
-    .map((line) => (dimensions ? tidyDimensions(line) : line))
-    .map((line) => line.trim().replace(/^([^:\d]+?)\s+-\s+(?=\d)/, "$1: ").replace(/\s+:\s*/, ": "))
-    .filter((line) => line && !/[:-]$/.test(line))
-    .join("\n");
+    .map((line) => (key === "dimensions" ? tidyDimensions(line) : line))
+    .map((line) => (key === "volume" || key === "weight" ? tidyAmount(line) : line))
+    .map((line) => line.trim().replace(/^([^:\d]+?)\s+-\s+(?=\d)/, "$1: ").replace(/\s*:\s*/, ": "))
+    .filter((line) => line && !/[:-]$/.test(line) && line.toLowerCase() !== key);
+  return (key === "dimensions" ? twoSizes(lines) : lines).join("\n");
 }
 
 // The product's details from the snippet (its metafields), only the ones
@@ -47,7 +48,7 @@ function productInfo(handle) {
   if (!info || info.handle !== handle) return null;
   const found = {};
   for (const key of ["includes", "dimensions", "volume", "weight"]) {
-    const value = typeof info[key] === "string" ? tidyInfo(info[key], key === "dimensions") : "";
+    const value = typeof info[key] === "string" ? tidyInfo(info[key], key) : "";
     if (value) found[key] = value;
   }
   return Object.keys(found).length ? found : null;

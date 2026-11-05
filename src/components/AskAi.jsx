@@ -164,6 +164,11 @@ const tidyInfo = (value) =>
     .filter(Boolean)
     .join("\n");
 
+// "Small Flare 125ml Cup, Gloss Aqua": the colour apart from the piece.
+const COLOUR_AT_END =
+  /\s((?:(?:Gloss|Matte?|Deep|Pacific|Stormy|Sage|Tea|Lime|Moon) )?(?:Aqua|Black|Blue|Blush|Green|Grey|Lilac|Melon|Nude|Pink|White))$/;
+const pieceName = (title) => shortName(title).replace(COLOUR_AT_END, ", $1");
+
 const shortName = (title) =>
   title
     .replace(/\s*\([^)]*\)|\s*-\s*gift set\b/gi, "")
@@ -1059,11 +1064,11 @@ const AskAi = ({
   // with whichever of `parts` the piece has. `one`: the answer when a
   // detail is a single line ("Eclipse Pasta Bowl: 305ml" → "It holds
   // 305ml."), so the piece's name isn't said twice.
-  const DETAILS = {
-    includes: { answer: () => TEXTS.infoIncludes },
-    dimensions: { answer: () => TEXTS.infoDimensions, one: () => TEXTS.infoDimensionsOne },
-    volume: { answer: () => TEXTS.infoVolume, one: () => TEXTS.infoVolumeOne },
-    weight: { answer: () => TEXTS.infoWeight, one: () => TEXTS.infoWeightOne },
+  // Headings for "Size & weight", the piece's name above them.
+  const SIZE_LABELS = {
+    dimensions: () => TEXTS.labelDimensions,
+    volume: () => TEXTS.labelVolume,
+    weight: () => TEXTS.labelWeight,
   };
   const PRODUCT_OPTIONS = [
     { id: "stock", label: () => TEXTS.optCheckStock },
@@ -1073,6 +1078,21 @@ const AskAi = ({
   ];
   // "What's in the set?" only for sets ("set", "Set of 2", "Table Setting").
   const isSet = (product) => /\bset(s|ting)?\b/i.test(product.title ?? "");
+  // A detail on one line beside its heading; a set's stay one line per
+  // piece under it ("Dot: 17ml" isn't the whole set), and go in blocks.
+  const sizeAnswer = (product) => {
+    const blocks = Object.keys(SIZE_LABELS)
+      .filter((k) => product.info[k])
+      .map((k) => {
+        const value = tidyInfo(product.info[k]);
+        const label = SIZE_LABELS[k]();
+        return value.includes("\n") || isSet(product)
+          ? `${label}:\n${value}`
+          : `${label}: ${value.replace(/^[^:\d]+:\s*/, "")}`;
+      });
+    const gap = blocks.some((b) => b.includes(":\n")) ? "\n\n" : "\n";
+    return `${pieceName(product.title)}\n\n${blocks.join(gap)}`;
+  };
   const optionsFor = (product, used) =>
     PRODUCT_OPTIONS.filter(
       (o) =>
@@ -1127,21 +1147,9 @@ const AskAi = ({
       checkStock(product, question, nowUsed);
       return;
     }
-    const answer = option.parts
-      .filter((k) => product.info[k])
-      .map((k) => {
-        const value = tidyInfo(product.info[k]);
-        const detail = DETAILS[k];
-        // "It weighs 300g." only for one piece: never for a set, whose lines
-        // are per piece ("Dot: 17ml" isn't the whole set).
-        const single = detail.one && !value.includes("\n") && !isSet(product);
-        return fillText(single ? detail.one() : detail.answer(), {
-          name,
-          // One line: just the value ("Eclipse Pasta Bowl: 305ml" → "305ml").
-          value: single ? value.replace(/^[^:\d]+:\s*/, "").replace(/\.$/, "") : value,
-        });
-      })
-      .join("\n\n");
+    const answer = option.id === "size"
+      ? sizeAnswer(product)
+      : fillText(TEXTS.infoIncludes, { name, value: tidyInfo(product.info.includes) });
     // Logged for the team like any reply (no AI).
     callAskFaq({
       mode: "info",

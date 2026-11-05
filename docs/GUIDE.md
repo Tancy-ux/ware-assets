@@ -867,22 +867,27 @@ like to know about the {product}?" and one button per detail it has:
 | Size & weight | `my_fields.set_dimensions`, `my_fields.set_volumes`, `my_fields.set_weight` |
 
 plus **Show me more like this** (§5.4). **Size & weight** answers with
-whichever of the three the piece has, one after the other. Empty
-metafields get no button, and
-**What's in the set?** only shows when the title has "set" in it ("Set of
-2", "Serveware Set", "Table Setting"). A detail that's one line (a single
-piece, e.g. "Eclipse Pasta Bowl: 305ml") is answered with just the value:
-*"It holds 305ml."*, *"It weighs 610 g."*, *"It measures 23 x 23 x 5 cm /
-9 x 9 x 1.9 in."* (`infoVolumeOne` etc. in the snippet); sets keep one line
-per piece under "Volume of the {name}:", even when only one piece is listed
-("Dot: 17ml" is never "It holds 17ml" for a set). Several pieces on one
-line ("Cee: 200 gms Jay: 316 gms") go on a line each, and blank lines and
-stray commas / full stops at line ends are dropped (`tidyInfo`). The chat tidies the text: Shopify's HTML
+the piece's name (colour after a comma), then whichever of the three it has:
+
+    Small Flare 125ml Cup, Gloss Aqua
+
+    Dimensions: 8.5 x 8.5 x 8 cm (3.3 x 3.3 x 3.3 in)
+    Volume: 125ml
+    Weight: 175g
+
+The headings are `labelDimensions` etc. Sets keep one line per piece under
+each heading, even when only one piece is listed ("Dot: 17ml" is never the
+whole set). Empty metafields get no button, and **What's in the set?** only
+shows when the title has "set" in it ("Set of 2", "Serveware Set", "Table
+Setting"). Several pieces on one line ("Cee: 200 gms Jay: 316 gms") go on a
+line each, and blank lines, stray commas / full stops at line ends and a line
+that only repeats the heading ("Volume") are dropped (`tidyInfo`). The chat tidies the text: Shopify's HTML
 codes are undone ("&amp;" shows as "&"); dimensions are written one way
-(`widget/src/dimensions.js`: `3.4"` -> "3.4 in", "4.2in x 4.2in" -> "4.2 x
-4.2 in", " / " between the two) and when the cm/mm and inch figures
-clearly disagree (over 1.5x and 1.5 cm apart, e.g. "3.4" / 860mm") only
-the one written first shows; "Uno Lid - 60 ml" as "Uno Lid: 60 ml", and lines with no
+(`widget/src/dimensions.js`): cm, else mm, with the inches in brackets, at
+most two sizes. **The figures are the product page's: nothing is converted or
+worked out**, so a piece with only one size shows only that one, and a wrong
+figure on the product page shows here too; fix it in the metafield. Volumes and weights are written one way too
+(125ml, 2.4L, 175g, 1.5kg); "Uno Lid - 60 ml" as "Uno Lid: 60 ml", and lines with no
 value ("Hyphen Plate:") are left out. The
 answer is the metafield's own text, instantly and for free; used buttons
 drop off the next "Anything else about…". Each answer is logged to the
