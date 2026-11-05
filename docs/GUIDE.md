@@ -875,9 +875,15 @@ the piece's name (colour after a comma), then whichever of the three it has:
     Volume: 125ml
     Weight: 175g
 
-The headings are `labelDimensions` etc. Sets keep one line per piece under
-each heading, even when only one piece is listed ("Dot: 17ml" is never the
-whole set). Empty metafields get no button, and **What's in the set?** only
+The headings are `labelDimensions` etc. A set with one thing in "this set
+includes" ("2 Small Flare cups") or a single unlabelled figure is compact like
+the above. Sets of different pieces get a line per piece, even when only one
+piece is listed ("Dot: 17ml" is never the whole set):
+
+    Cup: 129 x 99 x 68.5 mm (5.1 x 3.9 x 2.7 in) | 340g | 215ml
+    Saucer: 157 x 144 x 7.6 mm (6.2 x 5.7 x 0.3 in) | 230g | 85ml
+
+If a figure isn't for a named piece, they go under the headings instead. Empty metafields get no button, and **What's in the set?** only
 shows when the title has "set" in it ("Set of 2", "Serveware Set", "Table
 Setting"). Several pieces on one line ("Cee: 200 gms Jay: 316 gms") go on a
 line each, and blank lines, stray commas / full stops at line ends and a line

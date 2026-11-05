@@ -166,7 +166,7 @@ const tidyInfo = (value) =>
 
 // "Small Flare 125ml Cup, Gloss Aqua": the colour apart from the piece.
 const COLOUR_AT_END =
-  /\s((?:(?:Gloss|Matte?|Deep|Pacific|Stormy|Sage|Tea|Lime|Moon) )?(?:Aqua|Black|Blue|Blush|Green|Grey|Lilac|Melon|Nude|Pink|White))$/;
+  /\s((?:(?:Gloss|Matte?|Misty|Deep|Pacific|Stormy|Sage|Tea|Lime|Moon) )*(?:Aqua|Black|Blue|Blush|Green|Grey|Lilac|Melon|Nude|Pink|Rose|White))$/;
 const pieceName = (title) => shortName(title).replace(COLOUR_AT_END, ", $1");
 
 const shortName = (title) =>
@@ -1078,15 +1078,44 @@ const AskAi = ({
   ];
   // "What's in the set?" only for sets ("set", "Set of 2", "Table Setting").
   const isSet = (product) => /\bset(s|ting)?\b/i.test(product.title ?? "");
-  // A detail on one line beside its heading; a set's stay one line per
-  // piece under it ("Dot: 17ml" isn't the whole set), and go in blocks.
+  // A set of one kind of piece: "2 Small Flare cups", not "Cup, Saucer".
+  const onePiece = (product) => {
+    const includes = tidyInfo(product.info.includes ?? "");
+    return !isSet(product) || (!!includes && !/[\n,&+]|\band\b/i.test(includes));
+  };
+  // Whether a detail needs a line for each piece ("Dot: 17ml" isn't the
+  // whole set).
+  const perPiece = (product, value) =>
+    value.includes("\n") || (/^[^:\d]+:/.test(value) && !onePiece(product));
+  // A line for each piece: "Cup: 12 x 9 cm (5 x 4 in) | 340g | 215ml". Null
+  // if a figure isn't for a named piece.
+  const pieceRows = (product) => {
+    const rows = new Map();
+    for (const k of ["dimensions", "weight", "volume"]) {
+      for (const line of tidyInfo(product.info[k] ?? "").split("\n").filter(Boolean)) {
+        const [, piece, figure] = line.match(/^([^:\d]+):\s*(.+)$/) ?? [];
+        if (!piece) return null;
+        const id = piece.toLowerCase();
+        rows.set(id, [...(rows.get(id) ?? [piece]), figure]);
+      }
+    }
+    return [...rows.values()]
+      .map(([piece, ...figures]) => `${piece}: ${figures.join(" | ")}`)
+      .join("\n");
+  };
+  // One piece: each detail on one line beside its heading. Several: a line
+  // each, or under the headings in blocks if the figures aren't by piece.
   const sizeAnswer = (product) => {
-    const blocks = Object.keys(SIZE_LABELS)
-      .filter((k) => product.info[k])
+    const details = Object.keys(SIZE_LABELS).filter((k) => product.info[k]);
+    const rows = details.some((k) => perPiece(product, tidyInfo(product.info[k])))
+      ? pieceRows(product)
+      : null;
+    if (rows) return `${pieceName(product.title)}\n\n${rows}`;
+    const blocks = details
       .map((k) => {
         const value = tidyInfo(product.info[k]);
         const label = SIZE_LABELS[k]();
-        return value.includes("\n") || isSet(product)
+        return perPiece(product, value)
           ? `${label}:\n${value}`
           : `${label}: ${value.replace(/^[^:\d]+:\s*/, "")}`;
       });
