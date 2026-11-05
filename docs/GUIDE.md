@@ -867,10 +867,9 @@ like to know about the {product}?" and one button per detail it has:
 | Size & weight | `my_fields.set_dimensions`, `my_fields.set_volumes`, `my_fields.set_weight` |
 
 plus **Show me more like this** (§5.4). **Size & weight** answers with
-the piece's name (colour after a comma), then whichever of the three it has:
+a line naming the piece (`sizeIntro`), then whichever of the three it has:
 
-    Small Flare 125ml Cup, Gloss Aqua
-
+    Here are the details for the Small Flare 125ml Cup in Gloss Aqua:
     Dimensions: 8.5 x 8.5 x 8 cm (3.3 x 3.3 x 3.3 in)
     Volume: 125ml
     Weight: 175g

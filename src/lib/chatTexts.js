@@ -141,6 +141,7 @@ export const TEXTS = {
   optIncludes: "What's in the set?",
   optSize: "Size & weight",
   infoIncludes: "The {name} includes:\n{value}",
+  sizeIntro: "Here are the details for the {name}:",
   labelDimensions: "Dimensions",
   labelVolume: "Volume",
   labelWeight: "Weight",

@@ -164,10 +164,10 @@ const tidyInfo = (value) =>
     .filter(Boolean)
     .join("\n");
 
-// "Small Flare 125ml Cup, Gloss Aqua": the colour apart from the piece.
+// "Small Flare 125ml Cup in Gloss Aqua": the colour apart from the piece.
 const COLOUR_AT_END =
   /\s((?:(?:Gloss|Matte?|Misty|Deep|Pacific|Stormy|Sage|Tea|Lime|Moon) )*(?:Aqua|Black|Blue|Blush|Green|Grey|Lilac|Melon|Nude|Pink|Rose|White))$/;
-const pieceName = (title) => shortName(title).replace(COLOUR_AT_END, ", $1");
+const pieceName = (title) => shortName(title).replace(COLOUR_AT_END, " in $1");
 
 const shortName = (title) =>
   title
@@ -1106,11 +1106,12 @@ const AskAi = ({
   // One piece: each detail on one line beside its heading. Several: a line
   // each, or under the headings in blocks if the figures aren't by piece.
   const sizeAnswer = (product) => {
+    const intro = fillText(TEXTS.sizeIntro, { name: pieceName(product.title) });
     const details = Object.keys(SIZE_LABELS).filter((k) => product.info[k]);
     const rows = details.some((k) => perPiece(product, tidyInfo(product.info[k])))
       ? pieceRows(product)
       : null;
-    if (rows) return `${pieceName(product.title)}\n\n${rows}`;
+    if (rows) return `${intro}\n${rows}`;
     const blocks = details
       .map((k) => {
         const value = tidyInfo(product.info[k]);
@@ -1120,7 +1121,7 @@ const AskAi = ({
           : `${label}: ${value.replace(/^[^:\d]+:\s*/, "")}`;
       });
     const gap = blocks.some((b) => b.includes(":\n")) ? "\n\n" : "\n";
-    return `${pieceName(product.title)}\n\n${blocks.join(gap)}`;
+    return `${intro}\n${blocks.join(gap)}`;
   };
   const optionsFor = (product, used) =>
     PRODUCT_OPTIONS.filter(
