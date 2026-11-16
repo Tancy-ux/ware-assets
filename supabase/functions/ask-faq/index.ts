@@ -349,13 +349,13 @@ const PLAIN_GIFT_WORDS =
 const MAX_CARDS = 6;
 // The chat shows this many cards and a "Show more" for the rest (FIRST_PAGE
 // in AskAi): saved as a "page:N" extra, so Chats shows the same.
-const FIRST_PAGE = 4;
+const FIRST_PAGE = 6;
 const pageExtra = (cards: ProductCard[]) =>
   cards.length > FIRST_PAGE ? [`page:${FIRST_PAGE}`] : [];
 // Recommendations: the model's picks plus more from the shortlist, for the
 // chat's "Show more" (4 + 6 + 6).
 const MAX_RECOMMEND_CARDS = 16;
-// The chat shows 4, then 6 per "Show more" (4 + 6 + 6).
+// The chat shows 6, then 6 per "Show more" (6 + 6 + 4).
 const MAX_SIMILAR = 16;
 
 // Colour words used in product names, grouped into families so "Sage"
@@ -3509,7 +3509,6 @@ Deno.serve(async (req) => {
     if (giftAsk || giftStyle) {
       const gifts = await pageCollection(`/collections/${GIFT_COLLECTION}`);
       const byHandle = new Map(products.map((p) => [p.handle, p]));
-      const shownBefore = new Set(history.flatMap((t) => t.products));
       if (giftStyle) {
         // Every piece tagged with that style, in stock and in budget (from
         // the whole catalogue, as the quiz does): the gifts collection's
@@ -3532,7 +3531,9 @@ Deno.serve(async (req) => {
           [...(gifts?.handles ?? [])]
             .map((h) => byHandle.get(h))
             .filter((p): p is Product =>
-              !!p && p.available && inBudget(p) && !shownBefore.has(p.title)
+              // (Pieces already shown stay in: the top of the collection in
+              // their budget is the answer, whatever an earlier reply showed.)
+              !!p && p.available && inBudget(p)
             ),
         );
       }
@@ -4127,7 +4128,7 @@ When they ask about something without naming it ("what does it consist of?", "in
     // pieces from the same shortlist (keyword matches, or for a vague ask
     // the varied selection), in stock, in budget, not already shown, and
     // from the same range(s) as the picks (Atelier / Collectibles / marble /
-    // ceramic never mix). The chat shows 4, then 6 at a time.
+    // ceramic never mix). The chat shows 6 at a time.
     let extras: Product[] = [];
     if (intent === "recommend" && toShow.length) {
       const lines = new Set(toShow.map((p) => p.line));

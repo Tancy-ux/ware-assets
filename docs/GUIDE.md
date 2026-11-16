@@ -753,6 +753,7 @@ twinkling sparkle. Always starts closed. Its text depends on the page:
 | Page | Pill text | Tapping it |
 | --- | --- | --- |
 | Any other page | "Need help choosing?" (store copy) | Opens the chat |
+| The gift page (`/collections/premium-handmade-diwali-gifts`) | "Find the perfect gift" | Opens the chat with a line and two budget options ("Gift ideas below ₹2,500", "Gifts below ₹5,000"); nothing is sent until one is tapped |
 | A product page | "Show me more products like this" | Opens the chat and sends that message; answered instantly with similar pieces (no AI, free) |
 | A product tagged `ware atelier` | "Love this piece? Let's talk" | Opens the chat with the bespoke designer-call offer (no AI, free) |
 
@@ -786,7 +787,7 @@ browser, so it's still there on the next page.
   and a round **+**. On the store, + adds to the cart without leaving the
   page, turns into a ✓, and shows **"✓ Added to your cart · View cart"**
   for 4.5 s. Products with options (size/colour) link to their page.
-- Recommendations show 4 cards and **Show more** (6 at a time, up to 16),
+- Recommendations show 6 cards and **Show more** (6 at a time, up to 16),
   all in budget, in stock, from the same range, max 2 colours per design,
   and the **same kind of piece** as the reply is about (`pieceKind`: cups
   with cups, not plates or napkins). Asked for one person ("one good
@@ -1029,6 +1030,21 @@ block at the top of `delivery.ts`.
   3. When they need them by. Then suggest 3–4 different pieces near the
   per-piece budget, then offer a call with the form. (A numbered list the
   AI writes on one line is put one item per line before it's shown.)
+- **A plain gift ask** ("Gift ideas below ₹2,500", "a gift for a friend",
+  or a budget pill answered in a gift chat) shows the pieces of the
+  collection `premium-handmade-diwali-gifts` (`GIFT_COLLECTION`) in the
+  order the team keeps it in Shopify, in stock and in budget, max 2
+  colours per design. Reorder the collection to change the picks (cached
+  ~10 min). Not when the message names a kind of piece or anything else
+  about the gift, an occasion (the team's favourites per occasion), bulk /
+  corporate (its own flow), gift wrapping, or on another collection's page.
+- **Style pills** under those picks: Modern minimal, Earthy & handcrafted,
+  Pastels, Color pop (`GIFT_STYLES`, the gift quiz's aesthetics). A tap
+  shows every in-stock piece with that Shopify tag (`style-modern`,
+  `style-earthy`, `style-pastel`, `style-colorpop`) in the chat's budget:
+  the gifts collection's first, then gift-packed ones, then the rest; the
+  other three styles stay as pills. A piece with no `style-` tag never
+  shows under a style.
 - **Quantities over 20** are never confirmed (stock, dates): the team
   confirms.
 - **Gift packaging** is only discussed when asked; per piece, from the

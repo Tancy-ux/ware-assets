@@ -91,9 +91,9 @@ const linkify = (text) =>
 // ask-faq prompt.
 const RESTOCK_CHECK_ENABLED = false;
 
-// A reply shows up to 4 product cards; "Show more" posts the next 6 as a
+// A reply shows up to 6 product cards; "Show more" posts the next 6 as a
 // new message (and so on, for the up-to-16 similar products).
-const FIRST_PAGE = 4;
+const FIRST_PAGE = 6;
 const MORE_PAGE = 6;
 // Claude / Arc / Horizon pieces are numbered one-offs ("105 Petralis
 // Claude vase").
