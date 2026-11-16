@@ -664,8 +664,10 @@ const loadStoredMessages = () => {
     const pageHandle = handle
       ? decodeURIComponent(handle)
       : (window.WareChatConfig?.product?.handle ?? null);
-    return parsed.filter((m) =>
-      !m.productOptions || m.productOptions.product?.handle === pageHandle
+    // The gift page's budget options were never answered: dropped too.
+    return parsed.filter((m, i) =>
+      (!m.productOptions || m.productOptions.product?.handle === pageHandle) &&
+      !(m.giftPrompt && i === parsed.length - 1)
     ).map((m) => ({
       ...m,
       loading: false,
@@ -1051,6 +1053,35 @@ const AskAi = ({
     else showProductOptions(product, askedAbout(product.handle), true);
   };
 
+  // ---- The store pill on the gift page ("Find the perfect gift") ----
+  // Opens with the two budget options under a short line; nothing is sent
+  // until they tap one (each is asked like a typed question).
+  const giftTap = () => {
+    // Tapped again straight after: the options are already on screen.
+    if (messages[messages.length - 1]?.giftPrompt) return;
+    const choices = [TEXTS.optGifts2500, TEXTS.optGifts5000].filter(Boolean);
+    if (!choices.length) return;
+    setContactThanks(null);
+    saveLater({
+      type: "options",
+      text: [TEXTS.giftOptionsIntro, ...choices].join(" · "),
+    });
+    setMessages((prev) => [
+      // Only one set of options at a time.
+      ...prev.filter((m) => !m.giftPrompt),
+      {
+        id: nextId++,
+        answer: TEXTS.giftOptionsIntro,
+        choices,
+        giftPrompt: true,
+        isLocal: true,
+        // A prompt, not something the AI needs to know.
+        skipHistory: true,
+        time: Date.now(),
+      },
+    ]);
+  };
+
   // The options already answered for a piece in this chat (since the
   // last "reset"), so reopening the chat doesn't offer them again.
   const askedAbout = (handle) =>
@@ -1275,7 +1306,7 @@ const AskAi = ({
     );
   };
   useEffect(() => {
-    if (actionsRef) actionsRef.current = { productTap };
+    if (actionsRef) actionsRef.current = { productTap, giftTap };
   });
 
   const showMoreLikeThis = async (product) => {

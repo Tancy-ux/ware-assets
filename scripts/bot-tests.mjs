@@ -115,6 +115,21 @@ const SCENARIOS = {
         (r.products ?? []).every((p) => DIWALI.has(p.url?.match(/products\/([^/?#]+)/)?.[1]))],
     ], "/collections/premium-handmade-diwali-gifts"],
   ],
+  // A plain gift ask: the gifts collection's pieces, within the budget.
+  "Gift ideas": [
+    ["Gift ideas below ₹2,500", [
+      ["only pieces from the gifts collection", (r) => (r.products ?? []).length > 0 &&
+        (r.products ?? []).every((p) => DIWALI.has(p.url?.match(/products\/([^/?#]+)/)?.[1]))],
+      ["all under ₹2,500", (r) => (r.products ?? []).every((p) => Number(String(p.price).replace(/\D/g, "")) < 2500)],
+      ["style pills", (r) => (r.choices ?? []).includes("Pastels") && (r.choices ?? []).length === 4],
+    ]],
+    // A style pill: that style's pieces, still within the budget.
+    ["Pastels", [
+      ["shows pieces", (r) => (r.products ?? []).length > 0],
+      ["still under ₹2,500", (r) => (r.products ?? []).every((p) => Number(String(p.price).replace(/\D/g, "")) < 2500)],
+      ["the other three styles", (r) => (r.choices ?? []).length === 3 && !(r.choices ?? []).includes("Pastels")],
+    ]],
+  ],
   // A size asked for: every card (Show more too) is near it.
   "Size asked": [
     ["i want 300ml serving bowls", [

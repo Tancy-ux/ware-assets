@@ -330,6 +330,22 @@ type ProductCard = {
   similar?: ProductCard[];
 };
 
+// The collection a plain gift ask is answered from (see giftAsk), in the
+// order the team keeps it in Shopify.
+const GIFT_COLLECTION = "premium-handmade-diwali-gifts";
+// The looks offered as pills under a gift reply (the gift quiz's "Pick an
+// aesthetic you love"), each with the Shopify tag the team gives its
+// pieces. A tap sends the label; the reply is that tag's pieces in budget.
+const GIFT_STYLES = [
+  { label: "Modern minimal", tag: "style-modern" },
+  { label: "Earthy & handcrafted", tag: "style-earthy" },
+  { label: "Pastels", tag: "style-pastel" },
+  { label: "Color pop", tag: "style-colorpop" },
+];
+// The only words (besides the ones the search ignores anyway) a "plain"
+// gift ask may have: who it's for and filler, nothing about the gift.
+const PLAIN_GIFT_WORDS =
+  /^(gift(s|ing|ed)?|presents?|suggest(ions?)?|recommend(ations?)?|find|help|buy|perfect|special|someone|somebody|friends?|family|mom|mum|mother|dad|father|sister|brother|wife|husband|parents?|him|her|them|budget|fixed|single|under|below)$/;
 const MAX_CARDS = 6;
 // The chat shows this many cards and a "Show more" for the rest (FIRST_PAGE
 // in AskAi): saved as a "page:N" extra, so Chats shows the same.
@@ -3421,7 +3437,16 @@ Deno.serve(async (req) => {
 
     // Enforce "under 2000" / "above 2000" budgets in code; the fallback
     // models don't reliably respect them from the prompt alone.
-    const { min: minBudget, max: budget } = budgetRange(searchQuery);
+    // A style pill tapped in a gift chat ("Pastels"): the budget is
+    // whatever the chat last said, however many styles they've tried since.
+    const chatAsks = history.slice(-8).map((t) => t.question).join(" ");
+    const styleTapped = GIFT_STYLES.find((s) =>
+      s.label.toLowerCase() === question.trim().replace(/[.!?]+$/, "").toLowerCase()
+    );
+    const giftStyle = styleTapped && GIFTING_WORDS.test(chatAsks) ? styleTapped : null;
+    const { min: minBudget, max: budget } = budgetRange(
+      giftStyle ? `${chatAsks} ${question}` : searchQuery,
+    );
     const inBudget = (p: Product) =>
       (!budget || p.minPrice < budget) &&
       (!minBudget || p.minPrice >= minBudget);
@@ -3460,6 +3485,80 @@ Deno.serve(async (req) => {
         ? Math.min(local.matchedCount + shortlist.matchedCount, SHORTLIST_PRODUCTS)
         : shortlist.matchedCount;
     }
+    // A plain gift ask ("Gift ideas below ₹2,500", "a gift for a friend",
+    // or a budget answered in a gift chat): the gifts collection's pieces in
+    // the store's own order, in stock and in budget, lead the list and are
+    // the cards (see giftCards below), with the style pills under them. Not
+    // when they name a kind of piece,
+    // an occasion (the team's favourites, below) or a bulk / corporate
+    // order (its own flow), or are on another collection's page.
+    const earlierAsks = history.slice(-2).map((t) => t.question).join(" ");
+    const onGiftPage = new RegExp(`/collections/${GIFT_COLLECTION}/?$`, "i")
+      .test(readPage(payload.page));
+    // "Plain": nothing in the message says what kind of gift ("a gift for
+    // a coffee lover" keeps the usual search), and it isn't a question
+    // about gift wrapping.
+    const plainAsk = !GIFT_PACKING_QUESTION.test(question) &&
+      searchTerms(question).every((forms) => PLAIN_GIFT_WORDS.test(forms[0]));
+    const giftAsk = (!browsing || onGiftPage) && !occasions.length && !kindsNamed(question).size &&
+      plainAsk && !FOLLOW_UP_WORDS.test(searchQuery) && !aroundBudget(searchQuery) &&
+      (GIFTING_WORDS.test(question) ||
+        (GIFTING_WORDS.test(earlierAsks) &&
+          (searchTerms(question).length === 0 || NO_BUDGET_WORDS.test(question))));
+    let giftPicks: Product[] = [];
+    if (giftAsk || giftStyle) {
+      const gifts = await pageCollection(`/collections/${GIFT_COLLECTION}`);
+      const byHandle = new Map(products.map((p) => [p.handle, p]));
+      const shownBefore = new Set(history.flatMap((t) => t.products));
+      if (giftStyle) {
+        // Every piece tagged with that style, in stock and in budget (from
+        // the whole catalogue, as the quiz does): the gifts collection's
+        // first, in its order, then gift-packed ones, then the rest.
+        const order = [...(gifts?.handles ?? [])];
+        const rank = (p: Product) => {
+          const i = order.indexOf(p.handle);
+          return i >= 0 ? i : order.length + (p.giftPacked ? 0 : 1);
+        };
+        giftPicks = limitPerDesign(
+          products
+            .filter((p) =>
+              p.available && p.line !== "atelier" && inBudget(p) &&
+              p.tags.some((t) => t.toLowerCase() === giftStyle.tag)
+            )
+            .sort((a, b) => rank(a) - rank(b)),
+        );
+      } else {
+        giftPicks = limitPerDesign(
+          [...(gifts?.handles ?? [])]
+            .map((h) => byHandle.get(h))
+            .filter((p): p is Product =>
+              !!p && p.available && inBudget(p) && !shownBefore.has(p.title)
+            ),
+        );
+      }
+      const lead = giftPicks.slice(0, 12);
+      const rest = shortlist.list.filter((p) => !lead.includes(p));
+      shortlist.list.splice(0, shortlist.list.length, ...lead, ...rest);
+      shortlist.matchedCount = Math.min(
+        lead.length + shortlist.matchedCount,
+        SHORTLIST_PRODUCTS,
+      );
+    }
+    const budgetKnown = !!budget || !!minBudget || NO_BUDGET_WORDS.test(searchQuery);
+    const giftTitles = giftPicks.slice(0, 6).map((p) => p.title).join("; ");
+    const giftNote = !giftPicks.length
+      ? ""
+      : giftStyle
+      ? `\n\nThey're choosing a gift and tapped the style "${giftStyle.label}". Our ${giftStyle.label.toLowerCase()} picks${
+        budget ? ` under Rs ${budget}` : ""
+      }, best first: ${giftTitles}. Recommend the first four of these, in this order (intent "recommend"), in one short warm line that says they're ${giftStyle.label.toLowerCase()} picks. Don't name any other piece, and don't ask a question: the app shows buttons for the other styles.`
+      : `\n\nThey're after a gift. Our gift picks, best first: ${giftTitles}. When recommending, choose the first four of these, in this order, and don't name any other piece in your reply.${
+        budgetKnown
+          ? ` If you recommend products in this reply, end by asking, in a few words, which style they'd love to see more of (the app shows the buttons: ${
+            GIFT_STYLES.map((s) => s.label).join(", ")
+          }). Ask nothing else, not whether it's a single gift or a larger order.`
+          : ""
+      }`;
     // Named for the model, so it leads with them (from the whole
     // catalogue, within budget).
     const occasionPicks = occasions.length
@@ -3794,7 +3893,7 @@ When they ask about something without naming it ("what does it consist of?", "in
       minBudget
         ? `\n\nThey want pieces priced at Rs ${minBudget} or more. Only suggest products priced at Rs ${minBudget} and above; anything cheaper doesn't qualify.`
         : ""
-    }${giftPackingNote}${occasionNote}${deliveryInfo ? `\n\n${deliveryInfo}` : ""}${
+    }${giftPackingNote}${occasionNote}${giftNote}${deliveryInfo ? `\n\n${deliveryInfo}` : ""}${
       bigOrder
         ? `\n\nThey've mentioned a quantity of ${bigOrder.toLocaleString("en-IN")}, which is over 20: follow "Large quantities" above. Don't confirm stock, availability or their date; the team confirms those.`
         : ""
@@ -3994,6 +4093,8 @@ When they ask about something without naming it ("what does it consist of?", "in
     // What gets shown is decided here, not left to the model: cards only
     // when products are the point of the reply, gift packaging photos only
     // for gift packaging questions (and only real ones), otherwise text.
+    // A style pill always gets its picks, whatever the model made of it.
+    if (giftStyle && giftPicks.length) intent = "recommend";
     const showCards = intent === "recommend" || intent === "product";
     const images = intent === "gift_packaging"
       ? await giftImagesFor(pickedProducts, products)
@@ -4132,8 +4233,16 @@ When they ask about something without naming it ("what does it consist of?", "in
     // pieces up to Rs 5,000, so the first cards aren't all the costliest.
     const asksBudget = /\b(budget|price range|how much (would|do|are) you)\b/i.test(answer) &&
       !minBudget && !budget && !NO_BUDGET_WORDS.test(searchQuery);
+    // A plain gift ask or a style pill: the gift picks are the cards.
+    const giftCards = intent === "recommend" && giftPicks.length > 0 &&
+      (!!giftStyle || toShow.length > 0);
     const cards = onePiece ? onePiece.alternatives.map(toCard) : bespoke ? (bespoke.followUp ? [] : bespokePieces.map(toCard)) : (
-      showCards ? limitPerDesign([...toShow, ...extras]) : []
+      // A plain gift ask: the gifts collection's top pieces, in its order.
+      showCards
+        ? limitPerDesign(
+          giftCards ? giftPicks : [...toShow, ...extras],
+        )
+        : []
     )
       .filter(inBudget)
       .filter((p) => !asksBudget || p.minPrice <= ASKING_BUDGET_MAX)
@@ -4195,7 +4304,11 @@ When they ask about something without naming it ("what does it consist of?", "in
     // enquiries keep their own flow (numbered questions, then the form).
     const choices = intent === "human" || detailsOpen || followUp || FOLLOW_UP_WORDS.test(question)
       ? []
-      : asksBudget ? BUDGET_CHOICES : [
+      : asksBudget ? BUDGET_CHOICES
+      // Under gift picks: the styles (the others, once they've picked one).
+      : giftCards && !onePiece && !bespoke
+      ? GIFT_STYLES.filter((s) => s !== giftStyle).map((s) => s.label)
+      : [
       ...new Set(
         modelChoices
           .filter((c): c is string => typeof c === "string")

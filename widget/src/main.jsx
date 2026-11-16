@@ -100,8 +100,9 @@ const WareChat = () => {
   useEffect(() => {
     pageProduct().then(setProduct);
   }, []);
+  const giftPage = GIFT_PAGE_RE.test(location.pathname);
   const pillText = !product
-    ? GIFT_PAGE_RE.test(location.pathname) ? TEXTS.pillGifts : TEXTS.pill
+    ? giftPage ? TEXTS.pillGifts : TEXTS.pill
     : product.bespoke
       ? TEXTS.pillBespoke
       : product.soldOut
@@ -113,6 +114,8 @@ const WareChat = () => {
     setOpen(true);
     trackTap();
     if (product) chat.current?.productTap(product);
+    // The gift page: the two budget options, ready to tap.
+    else if (giftPage) chat.current?.giftTap();
   };
 
   return (

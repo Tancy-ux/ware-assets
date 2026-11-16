@@ -10,6 +10,11 @@ export const TEXTS = {
   pill: "Ask me anything",
   // The same, on the gift page (/collections/premium-handmade-diwali-gifts)
   pillGifts: "Find the perfect gift",
+  // What that pill opens with: a line and two budget options. Each option
+  // is sent as written, so keep the word "gift" and the amount in it.
+  giftOptionsIntro: "Looking for a gift? Pick a budget and I'll show you our favourites.",
+  optGifts2500: "Gift ideas below ₹2,500",
+  optGifts5000: "Gifts below ₹5,000",
   title: "Ware concierge",
   inputPlaceholder: "Ask about a piece",
   menuNewChat: "Start a new chat",
